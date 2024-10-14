@@ -1,7 +1,8 @@
 {
   "name": "hodl-wallet",
-  "version": "1.0.4",
-  "description": "",
+  "version": "1.0.6",
+  "description": "🧊 HODL Wallet - Blazing-fast, transparent, and ad-free crypto wallet!
+",
   "main": "index.mjs",
   "bin": {
     "hodl": "./index.mjs"
@@ -22,7 +23,9 @@
     "eth",
     "binance",
     "trust",
-    "blockchain"
+    "blockchain",
+    "bitcoin",
+    "clasen"
   ],
   "author": "Hodl Wallet",
   "license": "ISC",

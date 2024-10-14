@@ -1,6 +1,6 @@
 # 🧊 HODL Wallet: Blazing-fast, transparent, and ad-free crypto wallet!
 
-![HODL Wallet](example.jpg)
+![HODL Wallet](https://raw.githubusercontent.com/clasen/HODL/refs/heads/master/example.jpg)
 
 ## 🚀 Why HODL Wallet?
 
