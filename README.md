@@ -1,5 +1,7 @@
 # 🧊 HODL Wallet: Blazing-fast, transparent, and ad-free crypto wallet!
 
+![HODL Wallet](example.jpg)
+
 ## 🚀 Why HODL Wallet?
 
 Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. HODL Wallet is here to revolutionize your crypto experience:
