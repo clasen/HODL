@@ -1,0 +1,39 @@
+{
+  "name": "hodl-wallet",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.mjs",
+  "bin": {
+    "hodl": "./index.mjs"
+  },
+  "scripts": {
+    "start": "node ./index.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "hodl",
+    "wallet",
+    "crypto",
+    "ethereum",
+    "bsc20",
+    "bep20",
+    "evm",
+    "bnb",
+    "eth",
+    "binance",
+    "trust",
+    "blockchain"
+  ],
+  "author": "Hodl Wallet",
+  "license": "ISC",
+  "dependencies": {
+    "bip39": "^3.1.0",
+    "cli-table3": "^0.6.5",
+    "crypto-js": "^4.2.0",
+    "deepbase": "^1.1.8",
+    "hdkey": "^2.1.0",
+    "inquirer": "^9.3.7",
+    "inquirer-autocomplete-prompt": "^3.0.1",
+    "web3": "^4.13.0"
+  }
+}
