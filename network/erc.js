@@ -1,5 +1,6 @@
 module.exports = {
-    name: 'Ethereum',
+    name: '[ERC-20] Ethereum',
+    explorer: 'https://etherscan.io/tx/',
     rpcUrl: 'https://eth.public-rpc.com',
     nativeToken: 'ETH',
     tokens: {

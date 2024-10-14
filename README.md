@@ -21,7 +21,7 @@ npm install -g hodl-wallet
 ## 🚀 Quick Start
 
 ```bash
-ow
+hodl
 ```
 
 That's it! Follow the prompts and you're in crypto heaven.
@@ -49,6 +49,10 @@ Your private key is securely stored in a JSON file, encrypted with your first pa
 ## 🔬 Transparency
 
 We're as transparent as your ex's excuses. Our code is open-source, and we encourage you to dive in, explore, and contribute. Trust isn't given; it's earned and verified.
+
+## 🔍 Security Audit
+
+We encourage users to perform their own security audits. One easy way to do this is to copy the entire codebase into ChatGPT or another AI assistant and ask if the code appears secure or if there are any malicious intentions. This is a good practice for any open-source project you're considering using.
 
 ## 🤝 Contributing
 

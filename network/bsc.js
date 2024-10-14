@@ -1,6 +1,7 @@
 // plugins/bsc.js
 module.exports = {
-    name: 'Binance Smart Chain',
+    name: '[BEP-20] Binance Smart Chain',
+    explorer: 'https://bscscan.com/tx/',
     rpcUrl: 'https://bsc-dataseed.binance.org/',
     nativeToken: 'BNB',
     tokens: {

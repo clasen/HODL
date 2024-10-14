@@ -57,11 +57,11 @@ class Wallet {
     }
 
     async loadNetworkPlugins() {
-        const pluginsDir = path.join(__dirname, 'plugins');
+        const pluginsDir = path.join(__dirname, 'network');
         const pluginFiles = fs.readdirSync(pluginsDir).filter(file => file.endsWith('.js'));
 
         const networks = await Promise.all(pluginFiles.map(async file => {
-            const plugin = await import(`./plugins/${file}`);
+            const plugin = await import(`./network/${file}`);
             return plugin.default;
         }));
 
@@ -292,11 +292,11 @@ class Wallet {
             amount,
             hash: receipt.transactionHash
         };
-        this.db.add('transactions', transaction);
+        this.db.add('transactions', this.selectedNetwork.nativeToken, transaction);
     }
 
     async showTransactions() {
-        const history = this.db.values('transactions') || [];
+        const history = this.db.values('transactions', this.selectedNetwork.nativeToken) || [];
 
         const table = new Table({
             head: ['Date', 'Recipient', 'Token', 'Amount'],
@@ -317,7 +317,7 @@ class Wallet {
                 hour12: false
             }).replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(",", "");
             table.push([date, tx.recipient, tx.token, tx.amount]);
-            table.push([{ colSpan: 4, content: 'https://bscscan.com/tx/' + tx.hash }]);
+            table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + tx.hash }]);
         });
 
         console.log(table.toString());
@@ -446,7 +446,7 @@ class Wallet {
                 style: { head: ['green'] }
             });
             table.push(
-                ['Explorer', `https://bscscan.com/tx/${receipt.transactionHash}`],
+                ['Explorer', this.selectedNetwork.explorer + receipt.transactionHash],
                 ['Fee', `${transactionFee} ${this.selectedNetwork.nativeToken}`],
             );
 
@@ -463,6 +463,13 @@ class Wallet {
             }
 
             console.log('\n' + table.toString());
+        }
+    }
+
+    clearAccountData() {
+        if (this.account) {
+            this.account.privateKey = '0'.repeat(64);
+            this.account = null;
         }
     }
 }
@@ -566,8 +573,11 @@ async function main() {
         process.exit(1);
     }
 
-    // Register the displayExitPhrase method to be called on process exit
-    process.on('exit', UIManager.displayExitPhrase);
+    // Register the displayExitPhrase method and account clearing to be called on process exit
+    process.on('exit', () => {
+        wallet.clearAccountData();
+        UIManager.displayExitPhrase();
+    });
 
     while (true) {
         const { action } = await inquirer.prompt({
