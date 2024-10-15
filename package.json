@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.0.6",
+    "version": "1.1.6",
     "description": "🧊 HODL Wallet - Blazing-fast, transparent, and ad-free crypto wallet!",
     "main": "index.mjs",
     "bin": {
@@ -17,13 +17,16 @@
         "ethereum",
         "bsc20",
         "bep20",
-        "evm",
         "bnb",
         "eth",
         "binance",
         "trust",
         "blockchain",
         "bitcoin",
+        "usdt",
+        "stable",
+        "coin",
+        "evm",
         "clasen"
     ],
     "author": "Hodl Wallet",

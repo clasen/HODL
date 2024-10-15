@@ -85,56 +85,77 @@ class Wallet {
     async loadAccount(forceReload = false) {
         let account = this.db.secureGet('account');
 
+        const choices = ['Create New Account', 'Import Mnemonic (12 words)', 'Import private-key'];
+
+        if (forceReload) {
+            choices.push('Export Account');
+            choices.push('Go back');
+        }
+
         if (!account || forceReload) {
             const { accountAction } = await inquirer.prompt({
                 type: 'list',
                 name: 'accountAction',
                 message: 'Select an account option:',
-                choices: ['Import private key', 'Import from 12 words', 'Create new account'],
+                choices,
             });
 
-            if (accountAction === 'Import private key') {
+            if (accountAction === 'Go back') {
+                return;
+            }
+
+            if (account && accountAction !== 'Export Account') {
+                const { confirmOverwrite } = await inquirer.prompt({
+                    type: 'confirm',
+                    name: 'confirmOverwrite',
+                    message: 'This action will overwrite the existing account. Are you sure you want to continue?',
+                    default: false,
+                });
+
+                if (!confirmOverwrite) {
+                    return;
+                }
+            }
+
+            if (accountAction === 'Create New Account') {
+                const mnemonic = bip39.generateMnemonic();
+                const seed = await bip39.mnemonicToSeed(mnemonic);
+                const root = hdkey.fromMasterSeed(seed);
+                const addrNode = root.derive("m/44'/60'/0'/0/0");
+                const privateKey = addrNode.privateKey.toString('hex');
+                this.account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
+                this.account.mnemonic = mnemonic;
+                await this.db.secureSet('account', this.account);
+                this.displayAccountDetails();
+            }
+
+            if (accountAction === 'Import private-key') {
                 const { privateKey } = await inquirer.prompt({
                     type: 'password',
                     name: 'privateKey',
                     message: 'Private key:',
                     mask: '*',
                 });
-                account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
-                await this.db.secureSet('account', { privateKey: account.privateKey });
 
-                this.account = account;
+                if (!privateKey) return;
+
+                this.account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
+                await this.db.secureSet('account', this.account);
                 this.displayAccountAddress();
-            } else if (accountAction === 'Import from 12 words') {
-                account = await this.importFrom12Words();
-                this.account = account;
-                this.displayAccountAddress();
-            } else {
-                const mnemonic = bip39.generateMnemonic();
-                const seed = await bip39.mnemonicToSeed(mnemonic);
-                const root = hdkey.fromMasterSeed(seed);
-                const addrNode = root.derive("m/44'/60'/0'/0/0");
-                const privateKey = addrNode.privateKey.toString('hex');
-                account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
-                this.db.secureSet('account', { privateKey: account.privateKey });
-
-                const table = new Table({
-                    head: [{ colSpan: 2, content: 'New Account Created' }],
-                    style: { head: ['green'] },
-                    wordWrap: true
-                });
-
-                table.push(
-                    ['Address', account.address],
-                    ['Private Key', account.privateKey],
-                    ['Mnemonic Phrase', mnemonic],
-                    ['WARNING', "Please write down your mnemonic phrase and keep it in a safe place. \nIt\'s crucial for recovering your account."]
-                );
-
-                console.log('\n' + table.toString());
             }
-        } else {
-            account = this.web3.eth.accounts.privateKeyToAccount(account.privateKey);
+
+            if (accountAction === 'Import Mnemonic (12 words)') {
+                account = await this.importFrom12Words();
+                if (!account) return;
+                this.account = account;
+                this.displayAccountAddress();
+            }
+
+            if (accountAction === 'Export Account') {
+                await this.displayAccountDetails();
+                return;
+            }
+            return;
         }
 
         this.account = account;
@@ -149,7 +170,6 @@ class Wallet {
         });
 
         if (!bip39.validateMnemonic(mnemonic)) {
-            console.error('Invalid mnemonic phrase');
             return null;
         }
 
@@ -159,8 +179,8 @@ class Wallet {
         const privateKey = addrNode.privateKey.toString('hex');
         const account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
 
-        await this.db.secureSet('account', { privateKey: account.privateKey });
-
+        account.mnemonic = mnemonic;
+        await this.db.secureSet('account', account);
         return account;
     }
 
@@ -179,9 +199,8 @@ class Wallet {
             colWidths: [21, 22]
         });
 
-        // Add address as the top row
         // table.push([{ colSpan: 2, content: this.account.address }]);
-        table.push([this.selectedNetwork.nativeToken, parseFloat(balance).toFixed(8)]);
+        table.push([this.selectedNetwork.nativeToken, parseFloat(balance).toFixed(3)]);
 
         // Check if USDT is available on the selected network
         if (this.selectedNetwork.tokens['USDT']) {
@@ -212,7 +231,7 @@ class Wallet {
                 (BigInt(usdtBalance) * 100n) / (10n ** BigInt(decimals))
             ) / 100;
 
-            table.push(['USDT', formattedUsdtBalance.toFixed(8)]);
+            table.push(['USDT', formattedUsdtBalance.toFixed(3)]);
         }
 
         console.log(table.toString());
@@ -258,7 +277,6 @@ class Wallet {
         });
 
         if (amount === '') {
-            console.log('Transaction cancelled.');
             return;
         }
 
@@ -271,7 +289,7 @@ class Wallet {
             }
 
             const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-            await this.displayTransactionResult(receipt);
+            this.displayTransactionResult(address, token, amount, receipt);
 
             // Add transaction to history
             this.addToTransactions(address, token, amount, receipt);
@@ -281,8 +299,33 @@ class Wallet {
             }
 
         } catch (error) {
-            await this.displayTransactionResult(null, error);
+            this.displayError(error);
         }
+    }
+
+    displayError(error) {
+        const table = new Table({
+            head: [error.message],
+            style: { head: ['red'] },
+            wordWrap: true,
+        });
+
+        if (error.reason) {
+            table.push([error.reason.replace(/(\w+):/g, "\n$1:").trim()]);
+        }
+
+        console.log(table.toString());
+    }
+
+    formatDate(date) {
+        return new Date(date).toLocaleString('en-GB', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }).replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(",", "");
     }
 
     addToTransactions(recipient, token, amount, receipt) {
@@ -309,15 +352,8 @@ class Wallet {
         }
 
         history.forEach(tx => {
-            const date = new Date(tx.timestamp).toLocaleString('en-GB', {
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            }).replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(",", "");
-            table.push([date, tx.recipient, tx.token, tx.amount]);
+            const date = this.formatDate(tx.timestamp);
+            table.push([date, tx.recipient, tx.token, parseFloat(tx.amount).toFixed(3)]);
             table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + tx.hash }]);
         });
 
@@ -389,14 +425,7 @@ class Wallet {
 
             return this.web3.eth.accounts.signTransaction(tx, this.account.privateKey);
         } catch (error) {
-            if (error instanceof Web3ValidatorError) {
-                const table = new Table({
-                    head: [{ colSpan: 2, content: 'Error: Invalid Address' }],
-                    style: { head: ['red'] }
-                });
-                table.push(['Address', recipient]);
-                console.log(table.toString());
-            }
+            this.displayError(error);
         }
     }
 
@@ -436,42 +465,55 @@ class Wallet {
         return this.web3.eth.accounts.signTransaction(tx, this.account.privateKey);
     }
 
-    async displayTransactionResult(receipt, error = null) {
-        if (receipt) {
-            const gasUsed = receipt.gasUsed;
-            const gasPrice = await this.web3.eth.getGasPrice();
-            const transactionFee = this.web3.utils.fromWei((BigInt(gasUsed) * BigInt(gasPrice)).toString(), 'ether');
+    displayTransactionResult(address, token, amount, hash) {
 
-            const table = new Table({
-                head: [{ colSpan: 2, content: 'Transaction successful, share this link with the recipient' }],
-                style: { head: ['green'] }
-            });
-            table.push(
-                ['Explorer', this.selectedNetwork.explorer + receipt.transactionHash],
-                ['Fee', `${transactionFee} ${this.selectedNetwork.nativeToken}`],
-            );
+        const table = new Table({
+            head: ['Date', 'Recipient', 'Token', 'Amount'],
+            style: { head: ['green'] },
+        });
 
-            console.log('\n' + table.toString());
-        } else if (error) {
-            const table = new Table({
-                head: [error.message],
-                style: { head: ['red'] },
-                wordWrap: true,
-            });
+        const date = this.formatDate(new Date());
 
-            if (error.reason) {
-                table.push([error.reason.replace(/(\w+):/g, "\n$1:").trim()]);
-            }
+        table.push([
+            date,
+            address,
+            token,
+            amount.toFixed(3)
+        ]);
+        table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + hash }]);
 
-            console.log('\n' + table.toString());
-        }
+        console.log('\n' + table.toString());
     }
 
     clearAccountData() {
         if (this.account) {
             this.account.privateKey = '0'.repeat(64);
+            this.account.mnemonic = 'x'.repeat(256);
             this.account = null;
         }
+    }
+
+    displayAccountDetails() {
+
+        const table = new Table({
+            head: [{ colSpan: 2, content: 'Account Details' }],
+            style: { head: ['green'] },
+            wordWrap: true
+        });
+
+        table.push(
+            ['Address', this.account.address],
+            ['Private Key', this.account.privateKey]
+        );
+
+        if (this.account.mnemonic) {
+            table.push(['Mnemonic Phrase', this.account.mnemonic]);
+            table.push(['WARNING', "Please keep your private key and mnemonic phrase secure. Never share it."]);
+        } else {
+            table.push(['WARNING', "Please keep your private key secure. Never share it."]);
+        }
+
+        console.log('\n' + table.toString());
     }
 }
 
@@ -585,19 +627,30 @@ async function main() {
             type: 'list',
             name: 'action',
             message: 'What would you like to do?',
-            choices: ['Transfer funds', 'Show balance', 'Show transactions', 'Change account', 'Exit'],
+            choices: [
+                { name: 'Transfer Funds', value: 'transfer' },
+                { name: 'Show Balance', value: 'balance' },
+                { name: 'Show Sents', value: 'history' },
+                { name: 'Account', value: 'account' },
+                { name: 'Exit', value: 'exit' }
+            ],
         });
 
-        if (action === 'Transfer funds') {
-            await wallet.transferFunds();
-        } else if (action === 'Show balance') {
-            await wallet.showBalance();
-        } else if (action === 'Show transactions') {
-            await wallet.showTransactions();
-        } else if (action === 'Change account') {
-            await wallet.loadAccount(true);
-        } else {
-            process.exit();
+        switch (action) {
+            case 'balance':
+                await wallet.showBalance();
+                break;
+            case 'transfer':
+                await wallet.transferFunds();
+                break;
+            case 'history':
+                await wallet.showTransactions();
+                break;
+            case 'account':
+                await wallet.loadAccount(true);
+                break;
+            case 'exit':
+                process.exit();
         }
     }
 }
