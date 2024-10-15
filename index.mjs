@@ -29,7 +29,7 @@ class Wallet {
         try {
             const networkPlugins = await this.loadNetworkPlugins();
             if (networkPlugins.length === 0) {
-                console.log('No valid network plugins found.');
+                this.displayError('No valid network plugins found.');
                 process.exit(1);
             }
             await this.selectNetwork(networkPlugins);
@@ -41,7 +41,7 @@ class Wallet {
             }
 
         } catch (error) {
-            console.error('Initialization failed:', error);
+            this.displayError('Initialization failed', error);
             process.exit(1);
         }
     }
@@ -133,20 +133,31 @@ class Wallet {
                 const { privateKey } = await inquirer.prompt({
                     type: 'password',
                     name: 'privateKey',
-                    message: 'Private key:',
+                    message: 'Private-key:',
                     mask: '*',
                 });
 
-                if (!privateKey) return;
+                if (!privateKey.trim()) {
+                    this.displayError('Private-key is empty.');
+                    return;
+                }
 
-                this.account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
-                await this.db.secureSet('account', this.account);
-                this.displayAccountAddress();
+                try {
+                    this.account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
+                    await this.db.secureSet('account', this.account);
+                    this.displayAccountAddress();
+                } catch (error) {
+                    this.displayError('Invalid private-key.');
+                    return;
+                }
             }
 
             if (accountAction === 'Import Mnemonic (12 words)') {
                 account = await this.importFrom12Words();
-                if (!account) return;
+                if (!account) {
+                    this.displayError('Invalid mnemonic.');
+                    return;
+                }
                 this.account = account;
                 this.displayAccountAddress();
             }
@@ -186,7 +197,7 @@ class Wallet {
 
     async showBalance() {
         if (!this.account) {
-            console.error('Account not initialized. Please try restarting the application.');
+            this.displayError('Account not initialized.','Ï Please try restarting the application.');
             return;
         }
 
@@ -299,19 +310,24 @@ class Wallet {
             }
 
         } catch (error) {
-            this.displayError(error);
+            this.displayTransactionError(error);
         }
     }
 
-    displayError(error) {
+    displayTransactionError(error) {
+        const data = error.reason.replace(/(\w+):/g, "\n$1:").trim()
+        this.displayError(error.message, data);
+    }
+
+    displayError(message, data) {
         const table = new Table({
-            head: [error.message],
+            head: [message],
             style: { head: ['red'] },
             wordWrap: true,
         });
 
-        if (error.reason) {
-            table.push([error.reason.replace(/(\w+):/g, "\n$1:").trim()]);
+        if (data) {
+            table.push([data]);
         }
 
         console.log(table.toString());
@@ -425,7 +441,7 @@ class Wallet {
 
             return this.web3.eth.accounts.signTransaction(tx, this.account.privateKey);
         } catch (error) {
-            this.displayError(error);
+            this.displayTransactionError(error);
         }
     }
 
@@ -503,14 +519,14 @@ class Wallet {
 
         table.push(
             ['Address', this.account.address],
-            ['Private Key', this.account.privateKey]
+            ['Private-key', this.account.privateKey]
         );
 
         if (this.account.mnemonic) {
             table.push(['Mnemonic Phrase', this.account.mnemonic]);
-            table.push(['WARNING', "Please keep your private key and mnemonic phrase secure. Never share it."]);
+            table.push(['WARNING', "Please keep your private-key and mnemonic phrase secure. Never share it."]);
         } else {
-            table.push(['WARNING', "Please keep your private key secure. Never share it."]);
+            table.push(['WARNING', "Please keep your private-key secure. Never share it."]);
         }
 
         console.log('\n' + table.toString());
@@ -596,14 +612,14 @@ async function main() {
     // Check if an account exists
     const accountExists = wallet.db.secureGet('account');
     if (accountExists === null) {
-        console.error('Wrong password.');
+        wallet.displayError('Wrong password.');
         process.exit(1);
     }
 
     if (!accountExists) {
         const confirmedKey = await UIManager.confirmEncryptionKey(encryptionKey);
         if (confirmedKey !== encryptionKey) {
-            console.error('Passwords do not match. Please try again.');
+            wallet.displayError('Passwords do not match. Please try again.');
             process.exit(1);
         }
     }
@@ -612,7 +628,7 @@ async function main() {
         await wallet.initialize();
         if (accountExists) wallet.displayAccountAddress();
     } catch (error) {
-        console.error('Failed to initialize wallet:', error);
+        wallet.displayError('Failed to initialize wallet.', error);
         process.exit(1);
     }
 
@@ -656,7 +672,7 @@ async function main() {
 }
 
 main().catch(error => {
-    console.error('An unexpected error occurred:', error);
+    wallet.displayError('An unexpected error occurred.', error);
     process.exit(1);
 });
 
