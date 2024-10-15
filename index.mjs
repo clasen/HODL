@@ -29,7 +29,7 @@ class Wallet {
         try {
             const networkPlugins = await this.loadNetworkPlugins();
             if (networkPlugins.length === 0) {
-                this.displayError('No valid network plugins found.');
+                Wallet.displayError('No valid network plugins found.');
                 process.exit(1);
             }
             await this.selectNetwork(networkPlugins);
@@ -37,11 +37,12 @@ class Wallet {
             await this.loadAccount();
 
             if (!this.account) {
-                throw new Error('Failed to initialize account');
+                Wallet.displayError('Failed to initialize account.');
+                process.exit(1);
             }
 
         } catch (error) {
-            this.displayError('Initialization failed', error);
+            Wallet.displayError('Initialization failed', error);
             process.exit(1);
         }
     }
@@ -138,7 +139,7 @@ class Wallet {
                 });
 
                 if (!privateKey.trim()) {
-                    this.displayError('Private-key is empty.');
+                    Wallet.displayError('Private-key is empty.');
                     return;
                 }
 
@@ -147,7 +148,7 @@ class Wallet {
                     await this.db.secureSet('account', this.account);
                     this.displayAccountAddress();
                 } catch (error) {
-                    this.displayError('Invalid private-key.');
+                    Wallet.displayError('Invalid private-key.');
                     return;
                 }
             }
@@ -155,7 +156,7 @@ class Wallet {
             if (accountAction === 'Import Mnemonic (12 words)') {
                 account = await this.importFrom12Words();
                 if (!account) {
-                    this.displayError('Invalid mnemonic.');
+                    Wallet.displayError('Invalid mnemonic.');
                     return;
                 }
                 this.account = account;
@@ -197,7 +198,7 @@ class Wallet {
 
     async showBalance() {
         if (!this.account) {
-            this.displayError('Account not initialized.','Ï Please try restarting the application.');
+            Wallet.displayError('Account not initialized.', 'Ï Please try restarting the application.');
             return;
         }
 
@@ -315,11 +316,11 @@ class Wallet {
     }
 
     displayTransactionError(error) {
-        const data = error.reason.replace(/(\w+):/g, "\n$1:").trim()
-        this.displayError(error.message, data);
+        const data = error.reason ? error.reason.replace(/(\w+):/g, "\n$1:").trim() : null;
+        Wallet.displayError(error.message, data);
     }
 
-    displayError(message, data) {
+    static displayError(message, data) {
         const table = new Table({
             head: [message],
             style: { head: ['red'] },
@@ -461,13 +462,12 @@ class Wallet {
         if (balance < amountWei + gasCost) {
             const maxAmount = this.web3.utils.fromWei((balance - gasCost).toString(), 'ether');
             const table = new Table({
-                head: [{ colSpan: 2, content: 'Insufficient balance for this transaction' }],
+                head: [{ colSpan: 2, content: 'Insufficient balance for this transaction.' }],
                 style: { head: ['red'] },
                 wordWrap: true
             });
             table.push(['Maximum Amount', `${maxAmount} ${this.selectedNetwork.nativeToken}`]);
             console.log(table.toString());
-            return;
         }
 
         const tx = {
@@ -604,77 +604,72 @@ class UIManager {
     }
 }
 
-async function main() {
-    UIManager.displayWelcome();
-    const encryptionKey = await UIManager.getEncryptionKey();
-    const wallet = new Wallet(encryptionKey);
+UIManager.displayWelcome();
+const encryptionKey = await UIManager.getEncryptionKey();
+const wallet = new Wallet(encryptionKey);
 
-    // Check if an account exists
-    const accountExists = wallet.db.secureGet('account');
-    if (accountExists === null) {
-        wallet.displayError('Wrong password.');
+// Check if an account exists
+const accountExists = wallet.db.secureGet('account');
+if (accountExists === null) {
+    Wallet.displayError('Wrong password.');
+    process.exit(1);
+}
+
+if (!accountExists) {
+    const confirmedKey = await UIManager.confirmEncryptionKey(encryptionKey);
+    if (confirmedKey !== encryptionKey) {
+        Wallet.displayError('Passwords do not match. Please try again.');
         process.exit(1);
-    }
-
-    if (!accountExists) {
-        const confirmedKey = await UIManager.confirmEncryptionKey(encryptionKey);
-        if (confirmedKey !== encryptionKey) {
-            wallet.displayError('Passwords do not match. Please try again.');
-            process.exit(1);
-        }
-    }
-
-    try {
-        await wallet.initialize();
-        if (accountExists) wallet.displayAccountAddress();
-    } catch (error) {
-        wallet.displayError('Failed to initialize wallet.', error);
-        process.exit(1);
-    }
-
-    // Register the displayExitPhrase method and account clearing to be called on process exit
-    process.on('exit', () => {
-        wallet.clearAccountData();
-        UIManager.displayExitPhrase();
-    });
-
-    while (true) {
-        const { action } = await inquirer.prompt({
-            type: 'list',
-            name: 'action',
-            message: 'What would you like to do?',
-            choices: [
-                { name: 'Transfer Funds', value: 'transfer' },
-                { name: 'Show Balance', value: 'balance' },
-                { name: 'Show Sents', value: 'history' },
-                { name: 'Account', value: 'account' },
-                { name: 'Exit', value: 'exit' }
-            ],
-        });
-
-        switch (action) {
-            case 'balance':
-                await wallet.showBalance();
-                break;
-            case 'transfer':
-                await wallet.transferFunds();
-                break;
-            case 'history':
-                await wallet.showTransactions();
-                break;
-            case 'account':
-                await wallet.loadAccount(true);
-                break;
-            case 'exit':
-                process.exit();
-        }
     }
 }
 
-main().catch(error => {
-    wallet.displayError('An unexpected error occurred.', error);
+try {
+    await wallet.initialize();
+    if (accountExists) wallet.displayAccountAddress();
+} catch (error) {
+    Wallet.displayError('Failed to initialize wallet.', error);
     process.exit(1);
+}
+
+// Register the displayExitPhrase method and account clearing to be called on process exit
+process.on('exit', () => {
+    wallet.clearAccountData();
+    UIManager.displayExitPhrase();
 });
+
+while (true) {
+    const { action } = await inquirer.prompt({
+        type: 'list',
+        name: 'action',
+        message: 'What would you like to do?',
+        choices: [
+            { name: 'Transfer Funds', value: 'transfer' },
+            { name: 'Show Balance', value: 'balance' },
+            { name: 'Show Sents', value: 'history' },
+            { name: 'Account', value: 'account' },
+            { name: 'Exit', value: 'exit' }
+        ],
+    });
+
+    switch (action) {
+        case 'balance':
+            await wallet.showBalance();
+            break;
+        case 'transfer':
+            await wallet.transferFunds();
+            break;
+        case 'history':
+            await wallet.showTransactions();
+            break;
+        case 'account':
+            await wallet.loadAccount(true);
+            break;
+        case 'exit':
+            process.exit();
+    }
+}
+
+
 
 process.on('SIGINT', () => {
     console.log('\n');
