@@ -353,11 +353,11 @@ class Wallet {
             amount,
             hash: receipt.transactionHash
         };
-        this.db.add('transactions', this.selectedNetwork.nativeToken, transaction);
+        this.db.add('transactions', this.account.address, this.selectedNetwork.nativeToken, transaction);
     }
 
     async showTransactions() {
-        const history = this.db.values('transactions', this.selectedNetwork.nativeToken) || [];
+        const history = this.db.values('transactions', this.account.address, this.selectedNetwork.nativeToken) || [];
 
         const table = new Table({
             head: ['Date', 'Recipient', 'Token', 'Amount'],
