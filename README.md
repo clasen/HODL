@@ -1,13 +1,12 @@
-# 🧊 HODL Wallet: Blazing-fast, transparent, and ad-free crypto wallet!
+# 🧊 HODL Wallet - Fast CLI crypto wallet!
 
-![HODL Wallet](https://raw.githubusercontent.com/clasen/HODL/refs/heads/master/example.jpg)
-
-## 🚀 Install and try!
-
+#### 📦 Install and try!
 ```bash
 npm install -g hodl-wallet
 hodl
 ```
+
+![HODL Wallet](https://raw.githubusercontent.com/clasen/HODL/refs/heads/master/example.jpg)
 
 ## 🚀 Why HODL Wallet?
 
@@ -18,6 +17,7 @@ Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. 
 - 🚫 Zero ads, zero BS
 - 🔒 Create wallets offline (because paranoia is just good sense in crypto)
 - 🔍 Fully transparent, open-source code
+- 🌐 Support for both ERC-20 and BEP-20 networks
 
 That's it! Follow the prompts and you're in crypto heaven.
 
@@ -38,6 +38,10 @@ Because constantly checking your balance is totally healthy.
 ### 📘 Address Book
 
 Keep your favorite addresses handy. No more copy-pasting!
+
+### 🌐 Multi-Network Support
+
+Seamlessly manage your assets on both BEP-20 (Binance Smart Chain) and ERC-20 (Ethereum) networks. Switch between networks with ease!
 
 ## 🔒 Security
 
