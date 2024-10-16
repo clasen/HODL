@@ -4,7 +4,7 @@
     "description": "🧊 HODL Wallet - Blazing-fast, transparent, and ad-free crypto wallet!",
     "main": "index.mjs",
     "bin": {
-        "hodl": "./index.mjs"
+        "hodl": "index.mjs"
     },
     "scripts": {
         "start": "node ./index.mjs",
