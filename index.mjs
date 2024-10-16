@@ -10,6 +10,7 @@ import { dirname } from 'path';
 import Table from 'cli-table3';
 import bip39 from 'bip39';
 import hdkey from 'hdkey';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -19,7 +20,13 @@ inquirer.registerPrompt('autocomplete', inquirerAutocomplete);
 
 class Wallet {
     constructor(encryptionKey) {
-        this.db = new Persist(encryptionKey);
+        const hodlDir = path.join(os.homedir(), '.HODL');
+
+        if (!fs.existsSync(hodlDir)) {
+            fs.mkdirSync(hodlDir, { recursive: true });
+        }
+
+        this.db = new Persist({ path: hodlDir, encryptionKey });
         this.web3 = null;
         this.selectedNetwork = null;
         this.account = null;

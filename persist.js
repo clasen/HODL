@@ -3,9 +3,9 @@ const Deepbase = require('deepbase');
 const CryptoJS = require('crypto-js');
 
 class Persist extends Deepbase {
-    constructor(encryptionKey) {
-        super();
-        this.encryptionKey = encryptionKey;
+    constructor(opts) {
+        super(opts);
+        this.encryptionKey = opts.encryptionKey;
     }
 
     encrypt(data) {
