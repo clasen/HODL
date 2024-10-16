@@ -90,6 +90,7 @@ class Wallet {
 
         if (forceReload) {
             choices.push('Export Account');
+            choices.push('Switch Network');
             choices.push('Go back');
         }
 
@@ -105,7 +106,7 @@ class Wallet {
                 return;
             }
 
-            if (account && accountAction !== 'Export Account') {
+            if (account && accountAction !== 'Export Account' && accountAction !== 'Switch Network') {
                 const { confirmOverwrite } = await inquirer.prompt({
                     type: 'confirm',
                     name: 'confirmOverwrite',
@@ -127,7 +128,19 @@ class Wallet {
                 this.account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
                 this.account.mnemonic = mnemonic;
                 await this.db.secureSet('account', this.account);
-                this.displayAccountDetails();
+
+                const { showSensitive } = await inquirer.prompt({
+                    type: 'confirm',
+                    name: 'showSensitive',
+                    message: 'Do you want to display sensitive information (private key and mnemonic)?',
+                    default: false,
+                });
+
+                if (showSensitive) {
+                    this.displayAccountDetails();
+                } else {
+                    this.displayAccountAddress();
+                }
             }
 
             if (accountAction === 'Import private-key') {
@@ -149,7 +162,6 @@ class Wallet {
                     this.displayAccountAddress();
                 } catch (error) {
                     Wallet.displayError('Invalid private-key.');
-                    return;
                 }
             }
 
@@ -165,8 +177,12 @@ class Wallet {
 
             if (accountAction === 'Export Account') {
                 await this.displayAccountDetails();
-                return;
             }
+
+            if (accountAction === 'Switch Network') {
+                await this.switchNetwork();
+            }
+
             return;
         }
 
@@ -531,6 +547,12 @@ class Wallet {
 
         console.log('\n' + table.toString());
     }
+
+    async switchNetwork() {
+        const networkPlugins = await this.loadNetworkPlugins();
+        await this.selectNetwork(networkPlugins);
+        this.web3 = new Web3(this.selectedNetwork.rpcUrl);
+    }
 }
 
 class UIManager {
@@ -645,8 +667,8 @@ while (true) {
         choices: [
             { name: 'Transfer Funds', value: 'transfer' },
             { name: 'Show Balance', value: 'balance' },
-            { name: 'Show Sents', value: 'history' },
-            { name: 'Account', value: 'account' },
+            { name: 'Show Sent Transfers', value: 'history' },
+            { name: 'Account Settings', value: 'account' },
             { name: 'Exit', value: 'exit' }
         ],
     });

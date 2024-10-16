@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.2.2",
+    "version": "1.2.4",
     "description": "🧊 HODL Wallet - Blazing-fast, transparent, and ad-free crypto wallet!",
     "main": "index.mjs",
     "bin": {

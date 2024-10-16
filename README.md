@@ -41,6 +41,10 @@ Keep your favorite addresses handy. No more copy-pasting!
 
 ## 🔒 Security
 
+### 🔍 Security Audit
+
+We encourage users to perform their own security audits. One easy way to do this is to copy the entire codebase into ChatGPT or another AI assistant and ask if the code appears secure or if there are any malicious intentions. This is a good practice for any open-source project you're considering using.
+
 ### 🔑 Private Key Storage
 
 Your private key is securely stored in a JSON file, encrypted with a password of your choice. The encryption adds an extra layer of security, making it significantly harder for unauthorized parties to access your private key even if they gain access to the JSON file.
@@ -49,9 +53,19 @@ Your private key is securely stored in a JSON file, encrypted with a password of
 
 We're as transparent as your ex's excuses. Our code is open-source, and we encourage you to dive in, explore, and contribute. Trust isn't given; it's earned and verified.
 
-### 🔍 Security Audit
+### 📦 Trusted Dependencies
 
-We encourage users to perform their own security audits. One easy way to do this is to copy the entire codebase into ChatGPT or another AI assistant and ask if the code appears secure or if there are any malicious intentions. This is a good practice for any open-source project you're considering using.
+We've carefully selected trusted and well-maintained dependencies for this project. Our goal is to balance functionality with security. Here's a brief overview of our main dependencies:
+
+- **web3**: The Ethereum JavaScript API for blockchain interactions.
+- **deepbase**: For persistent storage.
+- **crypto-js**: For encryption.
+- **inquirer** and **inquirer-autocomplete-prompt**: For interactive command-line interfaces.
+- **cli-table3**: For creating formatted CLI tables.
+- **bip39**: For generating and handling mnemonic phrases.
+- **hdkey**: For handling hierarchical deterministic (HD) keys.
+
+⚠️ **Important Notice**: HODL Wallet is a personal project created with the best intentions. While we strive for security, it may contain security flaws or vulnerabilities. Use at your own risk and always exercise caution with your crypto assets.
 
 ## 🤝 Contributing
 
