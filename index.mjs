@@ -323,10 +323,10 @@ class Wallet {
             }
 
             const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-            this.displayTransactionResult(address, token, amount, receipt);
+            this.displayTransactionResult(address, token, amount, receipt.transactionHash);
 
             // Add transaction to history
-            this.addToTransactions(address, token, amount, receipt);
+            this.addToTransactions(address, token, amount, receipt.transactionHash);
 
             if (!addressBook.some(entry => entry.address === address)) {
                 await this.addToAddressBook(address);
@@ -367,13 +367,13 @@ class Wallet {
         }).replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(",", "");
     }
 
-    addToTransactions(recipient, token, amount, receipt) {
+    addToTransactions(recipient, token, amount, hash) {
         const transaction = {
             timestamp: new Date().toISOString(),
             recipient,
             token,
             amount,
-            hash: receipt.transactionHash
+            hash
         };
         this.db.add('transactions', this.account.address, this.selectedNetwork.nativeToken, transaction);
     }
@@ -516,7 +516,7 @@ class Wallet {
             date,
             address,
             token,
-            amount.toFixed(3)
+            parseFloat(amount).toFixed(3)
         ]);
         table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + hash }]);
 
