@@ -270,7 +270,6 @@ class Wallet {
         }
 
         console.log(table.toString());
-        console.log('');
     }
 
     async transferFunds() {
@@ -418,7 +417,7 @@ class Wallet {
             });
 
             table.push([name, address]);
-            console.log('\n' + table.toString());
+            console.log(table.toString());
         }
     }
 
@@ -521,7 +520,7 @@ class Wallet {
         ]);
         table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + hash }]);
 
-        console.log('\n' + table.toString());
+        console.log(table.toString());
     }
 
     clearAccountData() {
@@ -552,7 +551,7 @@ class Wallet {
             table.push(['WARNING', "Please keep your private-key secure. Never share it."]);
         }
 
-        console.log('\n' + table.toString());
+        console.log(table.toString());
     }
 
     async switchNetwork() {
