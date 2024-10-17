@@ -127,19 +127,35 @@ class Wallet {
             }
 
             if (accountAction === 'Create New Account') {
-                const mnemonic = bip39.generateMnemonic();
-                const seed = await bip39.mnemonicToSeed(mnemonic);
-                const root = hdkey.fromMasterSeed(seed);
-                const addrNode = root.derive("m/44'/60'/0'/0/0");
-                const privateKey = addrNode.privateKey.toString('hex');
-                this.account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
-                this.account.mnemonic = mnemonic;
+                const { createWithMnemonic } = await inquirer.prompt({
+                    type: 'confirm',
+                    name: 'createWithMnemonic',
+                    message: 'Create account with mnemonic?',
+                    default: true
+                });
+
+                let message = 'Do you want to display sensitive information (private key';
+                if (createWithMnemonic) {
+                    const mnemonic = bip39.generateMnemonic();
+                    const seed = await bip39.mnemonicToSeed(mnemonic);
+                    const root = hdkey.fromMasterSeed(seed);
+                    const addrNode = root.derive("m/44'/60'/0'/0/0");
+                    const privateKey = addrNode.privateKey.toString('hex');
+                    this.account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
+                    this.account.mnemonic = mnemonic;
+                    message += ' and mnemonic';
+                } else {
+                    this.account = this.web3.eth.accounts.create();
+                }
+
+                message += ')?';
+
                 await this.db.secureSet('account', this.account);
 
                 const { showSensitive } = await inquirer.prompt({
                     type: 'confirm',
                     name: 'showSensitive',
-                    message: 'Do you want to display sensitive information (private key and mnemonic)?',
+                    message,
                     default: false,
                 });
 
