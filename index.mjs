@@ -289,16 +289,8 @@ class Wallet {
     }
 
     async transferFunds() {
-        let addressBook = this.db.get('addressBook') || [];
-
-        const { token } = await inquirer.prompt({
-            type: 'list',
-            name: 'token',
-            message: 'Token to transfer:',
-            choices: Object.keys(this.selectedNetwork.tokens),
-        });
-
-        const tokens = this.selectedNetwork.tokens;
+        const addressBook = this.db.get('addressBook') || [];
+        addressBook.push({ name: 'Go Back', address: '' });
 
         // Implement autocomplete for address book
         const { recipient } = await inquirer.prompt({
@@ -309,12 +301,26 @@ class Wallet {
                 input = input || '';
                 return addressBook
                     .filter(entry => entry.name.toLowerCase().includes(input.toLowerCase()) || entry.address.toLowerCase().includes(input.toLowerCase()))
-                    .map(entry => ({ name: `${entry.name} (${entry.address})`, value: entry.address }))
+                    .map(entry => ({
+                        name: entry.address ? `${entry.name} (${entry.address})` : entry.name,
+                        value: entry.address
+                    }))
                     .concat([{ name: input, value: input }]); // Add the input as a possible choice
             },
         });
 
+        if (!recipient) return;
+
         let address = recipient;
+
+        const { token } = await inquirer.prompt({
+            type: 'list',
+            name: 'token',
+            message: 'Token to transfer:',
+            choices: Object.keys(this.selectedNetwork.tokens),
+        });
+
+        const tokens = this.selectedNetwork.tokens;
 
         const { amount } = await inquirer.prompt({
             type: 'input',
@@ -712,8 +718,6 @@ while (true) {
             process.exit();
     }
 }
-
-
 
 process.on('SIGINT', () => {
     console.log('\n');
