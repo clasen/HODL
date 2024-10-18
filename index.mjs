@@ -93,12 +93,12 @@ class Wallet {
     async loadAccount(forceReload = false) {
         let account = this.db.secureGet('account');
 
-        const choices = ['Create New Account', 'Import Mnemonic (12 words)', 'Import private-key'];
+        const choices = ['Create New Account', 'Import Mnemonic (12 words)', 'Import Private-key'];
 
         if (forceReload) {
             choices.push('Export Account');
             choices.push('Switch Network');
-            choices.push('Go back');
+            choices.push('Go Back');
         }
 
         if (!account || forceReload) {
@@ -109,7 +109,7 @@ class Wallet {
                 choices,
             });
 
-            if (accountAction === 'Go back') {
+            if (accountAction === 'Go Back') {
                 return;
             }
 
@@ -166,7 +166,7 @@ class Wallet {
                 }
             }
 
-            if (accountAction === 'Import private-key') {
+            if (accountAction === 'Import Private-key') {
                 const { privateKey } = await inquirer.prompt({
                     type: 'password',
                     name: 'privateKey',
