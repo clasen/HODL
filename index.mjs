@@ -18,6 +18,10 @@ const __dirname = dirname(__filename);
 import inquirerAutocomplete from 'inquirer-autocomplete-prompt';
 inquirer.registerPrompt('autocomplete', inquirerAutocomplete);
 
+process.on('SIGINT', () => {
+    process.exit();
+});
+
 class Wallet {
     constructor(encryptionKey) {
         const hodlDir = path.join(os.homedir(), '.HODL');
@@ -681,7 +685,6 @@ try {
     process.exit(1);
 }
 
-// Register the displayExitPhrase method and account clearing to be called on process exit
 process.on('exit', () => {
     wallet.clearAccountData();
     UIManager.displayExitPhrase();
@@ -718,8 +721,3 @@ while (true) {
             process.exit();
     }
 }
-
-process.on('SIGINT', () => {
-    console.log('\n');
-    process.exit();
-});
