@@ -11,12 +11,14 @@ import Table from 'cli-table3';
 import bip39 from 'bip39';
 import hdkey from 'hdkey';
 import os from 'os';
+import inquirerFuzzyPath from 'inquirer-fuzzy-path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 import inquirerAutocomplete from 'inquirer-autocomplete-prompt';
 inquirer.registerPrompt('autocomplete', inquirerAutocomplete);
+inquirer.registerPrompt('fuzzypath', inquirerFuzzyPath);
 
 process.on('SIGINT', () => {
     process.exit();
@@ -97,113 +99,101 @@ class Wallet {
     async loadAccount(forceReload = false) {
         let account = this.db.secureGet('account');
 
-        const choices = ['Create New Account', 'Import Mnemonic (12 words)', 'Import Private-key'];
+        const mainChoices = ['Create New Account'];
 
         if (forceReload) {
-            choices.push('Export Account');
-            choices.push('Switch Network');
-            choices.push('Go Back');
+            mainChoices.push('Import Options');
+            mainChoices.push('Export Options');
+            mainChoices.push('Switch Network');
+            mainChoices.push('Go Back');
+        } else {
+            mainChoices.push('Import Mnemonic (12 words)');
+            mainChoices.push('Import Private-key');
+            mainChoices.push('Import HODL File');
         }
 
         if (!account || forceReload) {
-            const { accountAction } = await inquirer.prompt({
+            let { accountAction } = await inquirer.prompt({
                 type: 'list',
                 name: 'accountAction',
                 message: 'Select an account option:',
-                choices,
+                choices: mainChoices,
             });
 
             if (accountAction === 'Go Back') {
                 return;
             }
 
-            if (account && accountAction !== 'Export Account' && accountAction !== 'Switch Network') {
-                const { confirmOverwrite } = await inquirer.prompt({
-                    type: 'confirm',
-                    name: 'confirmOverwrite',
-                    message: 'This action will overwrite the existing account. Are you sure you want to continue?',
-                    default: false,
+            if (accountAction === 'Import Options') {
+                const importChoices = ['Import Mnemonic (12 words)', 'Import Private-key', 'Import HODL File', 'Go Back'];
+                const { importAction } = await inquirer.prompt({
+                    type: 'list',
+                    name: 'importAction',
+                    message: 'Select an import option:',
+                    choices: importChoices,
                 });
 
-                if (!confirmOverwrite) {
+                if (importAction === 'Go Back') {
+                    return this.loadAccount(forceReload);
+                }
+
+                if (!await this.confirmOverwrite()) {
                     return;
                 }
+
+                accountAction = importAction;
             }
+
+            switch (accountAction) {
+                case 'Import Mnemonic (12 words)':
+                    account = await this.importFrom12Words();
+                    if (!account) {
+                        Wallet.displayError('Invalid mnemonic.');
+                        return;
+                    }
+                    this.account = account;
+                    this.displayAccountAddress();
+                    break;
+                case 'Import Private-key':
+                    await this.importPrivateKey();
+                    break;
+                case 'Import HODL File':
+                    this.account = await this.importHODLFile();
+                    this.displayAccountAddress();
+                    break;
+            }
+
+            if (accountAction === 'Export Options') {
+                const exportChoices = ['Export Private-key', 'Export HODL File', 'Go Back'];
+                const { exportAction } = await inquirer.prompt({
+                    type: 'list',
+                    name: 'exportAction',
+                    message: 'Select an export option:',
+                    choices: exportChoices,
+                });
+
+                if (exportAction === 'Go Back') {
+                    return this.loadAccount(forceReload);
+                }
+
+                switch (exportAction) {
+                    case 'Export Private-key':
+                        await this.displayAccountDetails();
+                        break;
+                    case 'Export HODL File':
+                        await this.exportHODLFile();
+                        break;
+                }
+                return;
+            }
+
 
             if (accountAction === 'Create New Account') {
-                const { createWithMnemonic } = await inquirer.prompt({
-                    type: 'confirm',
-                    name: 'createWithMnemonic',
-                    message: 'Create account with mnemonic?',
-                    default: true
-                });
-
-                let message = 'Do you want to display sensitive information (private key';
-                if (createWithMnemonic) {
-                    const mnemonic = bip39.generateMnemonic();
-                    const seed = await bip39.mnemonicToSeed(mnemonic);
-                    const root = hdkey.fromMasterSeed(seed);
-                    const addrNode = root.derive("m/44'/60'/0'/0/0");
-                    const privateKey = addrNode.privateKey.toString('hex');
-                    this.account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
-                    this.account.mnemonic = mnemonic;
-                    message += ' and mnemonic';
-                } else {
-                    this.account = this.web3.eth.accounts.create();
-                }
-
-                message += ')?';
-
-                await this.db.secureSet('account', this.account);
-
-                const { showSensitive } = await inquirer.prompt({
-                    type: 'confirm',
-                    name: 'showSensitive',
-                    message,
-                    default: false,
-                });
-
-                if (showSensitive) {
-                    this.displayAccountDetails();
-                } else {
-                    this.displayAccountAddress();
-                }
-            }
-
-            if (accountAction === 'Import Private-key') {
-                const { privateKey } = await inquirer.prompt({
-                    type: 'password',
-                    name: 'privateKey',
-                    message: 'Private-key:',
-                    mask: '*',
-                });
-
-                if (!privateKey.trim()) {
-                    Wallet.displayError('Private-key is empty.');
+                if (!await this.confirmOverwrite()) {
                     return;
                 }
 
-                try {
-                    this.account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
-                    await this.db.secureSet('account', this.account);
-                    this.displayAccountAddress();
-                } catch (error) {
-                    Wallet.displayError('Invalid private-key.');
-                }
-            }
-
-            if (accountAction === 'Import Mnemonic (12 words)') {
-                account = await this.importFrom12Words();
-                if (!account) {
-                    Wallet.displayError('Invalid mnemonic.');
-                    return;
-                }
-                this.account = account;
-                this.displayAccountAddress();
-            }
-
-            if (accountAction === 'Export Account') {
-                await this.displayAccountDetails();
+                await this.createNewAccount();
             }
 
             if (accountAction === 'Switch Network') {
@@ -214,6 +204,20 @@ class Wallet {
         }
 
         this.account = account;
+    }
+
+    async confirmOverwrite() {
+        if (this.account) {
+            const { confirmOverwrite } = await inquirer.prompt({
+                type: 'confirm',
+                name: 'confirmOverwrite',
+                message: 'This action will overwrite the existing account. Are you sure you want to continue?',
+                default: false,
+            });
+
+            return confirmOverwrite;
+        }
+        return false;
     }
 
     async importFrom12Words() {
@@ -228,13 +232,7 @@ class Wallet {
             return null;
         }
 
-        const seed = await bip39.mnemonicToSeed(mnemonic);
-        const root = hdkey.fromMasterSeed(seed);
-        const addrNode = root.derive("m/44'/60'/0'/0/0");
-        const privateKey = addrNode.privateKey.toString('hex');
-        const account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
-
-        account.mnemonic = mnemonic;
+        const account = await this.accountFromMnemonic(mnemonic);
         await this.db.secureSet('account', account);
         return account;
     }
@@ -584,6 +582,134 @@ class Wallet {
         const networkPlugins = await this.loadNetworkPlugins();
         await this.selectNetwork(networkPlugins);
         this.web3 = new Web3(this.selectedNetwork.rpcUrl);
+    }
+
+    async exportHODLFile() {
+        const defaultFileName = `${this.account.address.slice(-6).toUpperCase()}`;
+        let { fileName } = await inquirer.prompt({
+            type: 'input',
+            name: 'fileName',
+            message: 'Enter the name for the HODL file:',
+            default: defaultFileName
+        });
+
+        fileName += '.HODL';
+
+        const data = this.db.get();
+        const encryptedData = this.db.encrypt(data);
+
+        fs.writeFileSync(fileName, encryptedData);
+
+        const table = new Table({
+            head: ['HODL File Exported'],
+            style: { head: ['green'] }
+        });
+        table.push([`File saved as: ${fileName}`]);
+        console.log(table.toString());
+    }
+
+    async importHODLFile() {
+        const { filePath } = await inquirer.prompt({
+            type: 'fuzzypath',
+            name: 'filePath',
+            message: 'Select the .HODL file:',
+            rootPath: '.',
+            itemType: 'file',
+            suggestOnly: false,
+            depthLimit: 5,
+            excludePath: nodePath => nodePath.startsWith('node_modules'),
+            excludeFilter: nodePath => !nodePath.endsWith('.HODL'),
+        });
+
+        if (!fs.existsSync(filePath)) {
+            Wallet.displayError('File not found.');
+            return;
+        }
+
+        const encryptedData = fs.readFileSync(filePath, 'utf8');
+
+        try {
+            const decryptedData = this.db.decrypt(encryptedData);
+            this.db.set(decryptedData);
+            return this.db.secureGet('account');
+        } catch (error) {
+            Wallet.displayError('Failed to import HODL file.', 'The file may be corrupted or the encryption key is incorrect.');
+        }
+    }
+
+    async importPrivateKey() {
+        const { privateKey } = await inquirer.prompt({
+            type: 'password',
+            name: 'privateKey',
+            message: 'Private-key:',
+            mask: '*',
+        });
+
+        if (!privateKey.trim()) {
+            Wallet.displayError('Private-key is empty.');
+            return;
+        }
+
+        try {
+            this.account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
+            await this.db.secureSet('account', this.account);
+            this.displayAccountAddress();
+        } catch (error) {
+            Wallet.displayError('Invalid private-key.');
+        }
+    }
+
+    async createNewAccount() {
+        const { createWithMnemonic } = await inquirer.prompt({
+            type: 'confirm',
+            name: 'createWithMnemonic',
+            message: 'Create account with mnemonic?',
+            default: true
+        });
+
+        let message = 'Do you want to display sensitive information (private key';
+        if (createWithMnemonic) {
+            this.account = await this.createAccountFromMnemonic();
+            message += ' and mnemonic';
+        } else {
+            this.account = this.web3.eth.accounts.create();
+        }
+
+        message += ')?';
+
+        await this.db.secureSet('account', this.account);
+
+        const { showSensitive } = await inquirer.prompt({
+            type: 'confirm',
+            name: 'showSensitive',
+            message,
+            default: false,
+        });
+
+        if (showSensitive) {
+            this.displayAccountDetails();
+        } else {
+            this.displayAccountAddress();
+        }
+    }
+
+    async accountFromMnemonic(mnemonic) {
+        const seed = await bip39.mnemonicToSeed(mnemonic);
+        const root = hdkey.fromMasterSeed(seed);
+        const addrNode = root.derive("m/44'/60'/0'/0/0");
+        const privateKey = addrNode.privateKey.toString('hex');
+        const account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
+        account.mnemonic = mnemonic;
+        return account;
+    }
+
+    async createAccountFromMnemonic() {
+        try {
+            const mnemonic = bip39.generateMnemonic();
+            return this.accountFromMnemonic(mnemonic);
+        } catch (error) {
+            Wallet.displayError('Failed to create account from mnemonic.', error);
+        }
     }
 }
 
