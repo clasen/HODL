@@ -36,6 +36,7 @@ class Wallet {
         this.web3 = null;
         this.selectedNetwork = null;
         this.account = null;
+        this.networkUsage = this.db.get('networkUsage') || {};
     }
 
     async initialize() {
@@ -84,14 +85,23 @@ class Wallet {
     }
 
     async selectNetwork(networkPlugins) {
+        // Sort networks by usage count (descending)
+        const sortedNetworks = networkPlugins.sort((a, b) => 
+            (this.networkUsage[b.name] || 0) - (this.networkUsage[a.name] || 0)
+        );
+
         const { network } = await inquirer.prompt({
             type: 'list',
             name: 'network',
             message: 'Select the network:',
-            choices: networkPlugins.map(plugin => plugin.name),
+            choices: sortedNetworks.map(plugin => plugin.name),
         });
 
-        const selectedNetwork = networkPlugins.find(plugin => plugin.name === network);
+        const selectedNetwork = sortedNetworks.find(plugin => plugin.name === network);
+
+        // Increment usage count for the selected network
+        this.networkUsage[network] = (this.networkUsage[network] || 0) + 1;
+        this.db.set('networkUsage', this.networkUsage);
 
         this.selectedNetwork = selectedNetwork;
     }
@@ -327,7 +337,7 @@ class Wallet {
         const { amount } = await inquirer.prompt({
             type: 'input',
             name: 'amount',
-            message: `Amount to transfer [${token}] (leave empty to cancel):`,
+            message: `Amount to transfer:`,
             validate: value => {
                 if (value === '') return true;
                 return !isNaN(value) && Number(value) > 0 ? true : 'Please enter a valid number or leave empty to cancel.';
@@ -335,6 +345,18 @@ class Wallet {
         });
 
         if (amount === '') {
+            return;
+        }
+
+        // Add confirmation step
+        const { confirmTransaction } = await inquirer.prompt({
+            type: 'confirm',
+            name: 'confirmTransaction',
+            message: `Confirm transfer?`,
+            default: true
+        });
+
+        if (!confirmTransaction) {
             return;
         }
 

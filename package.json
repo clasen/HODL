@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.4.6",
+    "version": "1.5.2",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -39,7 +39,11 @@
         "evm",
         "polygon",
         "matic",
-        "pol",
+        "arbitrum",
+        "fantom",
+        "optimism",
+        "avalanche",
+        "avax",
         "clasen"
     ],
     "dependencies": {

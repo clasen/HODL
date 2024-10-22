@@ -5,6 +5,7 @@ module.exports = {
     rpcUrl: 'https://polygon-rpc.com/',
     nativeToken: 'POL',
     tokens: {
-        'USDT': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', // Dirección del contrato USDT en Polygon
+        'USDT': '0xc2132D05D31c914a87C6611C10748AEb04B58e8F', 
+        'POL': '0x0000000000000000000000000000000000000000',
     },
 };

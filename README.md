@@ -41,9 +41,19 @@ Keep your favorite addresses handy. No more copy-pasting!
 
 ### 🌐 Multi-Network Support
 
-Seamlessly manage your assets on both BEP-20 (Binance Smart Chain) and ERC-20 (Ethereum and Polygon) networks. Switch between networks with ease!
+Seamlessly manage your assets on multiple networks. HODL Wallet supports the following networks:
 
-### 💾 Export and Import HODL Files
+- Binance Smart Chain
+- Ethereum
+- Polygon
+- Optimism
+- Arbitrum One
+- Fantom
+- Avalanche C-Chain
+
+Each network supports its native token and popular tokens like USDT. You can easily add more tokens as needed.
+
+## 💾 Export and Import HODL Files
 
 HODL Wallet now supports exporting and importing encrypted .HODL files, which securely store your wallet information.
 
@@ -82,6 +92,18 @@ We've carefully selected trusted and well-maintained dependencies for this proje
 - **hdkey**: For handling hierarchical deterministic (HD) keys.
 
 ⚠️ **Important Notice**: HODL Wallet is a personal project created with the best intentions. While we strive for security, it may contain security flaws or vulnerabilities. Use at your own risk and always exercise caution with your crypto assets.
+
+## 📘 What HODL means
+
+The term "HODL" is a cornerstone of crypto culture, and it's worth understanding its origins:
+
+- 🎂 Born on December 18, 2013, in a Bitcoin Talk forum post
+- 🍺 Originally a typo for "HOLD" in a drunk, impassioned rant about not selling Bitcoin
+- 🔤 Later backronymed to mean "Hold On for Dear Life"
+- 💎 Symbolizes a long-term investment strategy and resistance to panic selling
+- 🌍 Now used across various cryptocurrency communities as a rallying cry
+
+HODL embodies the belief in the long-term potential of cryptocurrencies, often in the face of short-term market volatility. It's more than just a misspelling; it's a philosophy that has shaped the crypto landscape.
 
 ## 🤝 Contributing
 
