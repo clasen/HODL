@@ -86,7 +86,7 @@ class Wallet {
 
     async selectNetwork(networkPlugins) {
         // Sort networks by usage count (descending)
-        const sortedNetworks = networkPlugins.sort((a, b) => 
+        const sortedNetworks = networkPlugins.sort((a, b) =>
             (this.networkUsage[b.name] || 0) - (this.networkUsage[a.name] || 0)
         );
 
@@ -301,7 +301,12 @@ class Wallet {
     }
 
     async transferFunds() {
-        const addressBook = this.db.get('addressBook') || [];
+        const contacts = this.db.get('contact') || {};
+        const addressBook = Object.entries(contacts).map(([address, data]) => ({
+            address,
+            name: data.name
+        }));
+
         addressBook.push({ name: 'Go Back', address: '' });
 
         // Implement autocomplete for address book
@@ -374,7 +379,7 @@ class Wallet {
             // Add transaction to history
             this.addToTransactions(address, token, amount, receipt.transactionHash);
 
-            if (!addressBook.some(entry => entry.address === address)) {
+            if (!contacts[address]) {
                 await this.addToAddressBook(address);
             }
 
@@ -438,7 +443,10 @@ class Wallet {
 
         history.forEach(tx => {
             const date = this.formatDate(tx.timestamp);
-            table.push([date, tx.recipient, tx.token, parseFloat(tx.amount).toFixed(3)]);
+            const contact = this.db.get('contact', tx.recipient);
+            const recipient = contact ? `${tx.recipient} (${contact.name})` : tx.recipient;
+            const amount = parseFloat(tx.amount).toFixed(3);
+            table.push([date, recipient, tx.token, amount]);
             table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + tx.hash }]);
         });
 
@@ -453,9 +461,8 @@ class Wallet {
         });
 
         if (name.trim() !== '') {
-            let addressBook = this.db.get('addressBook') || [];
-            addressBook.push({ name, address });
-            this.db.set('addressBook', addressBook);
+
+            this.db.set('contact', address, 'name', name);
 
             const table = new Table({
                 head: [{ colSpan: 2, content: "Recipient saved to the address book." }],
@@ -558,12 +565,10 @@ class Wallet {
 
         const date = this.formatDate(new Date());
 
-        table.push([
-            date,
-            address,
-            token,
-            parseFloat(amount).toFixed(3)
-        ]);
+        const contact = this.db.get('contact', address);
+        const recipient = contact ? `${address} (${contact.name})` : address;
+
+        table.push([date, recipient, token, parseFloat(amount).toFixed(3)]);
         table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + hash }]);
 
         console.log(table.toString());
@@ -844,9 +849,9 @@ while (true) {
         name: 'action',
         message: 'What would you like to do?',
         choices: [
-            { name: 'Transfer Funds', value: 'transfer' },
+            { name: 'Transfer Funds', value: 'transferFunds' },
             { name: 'Show Balance', value: 'balance' },
-            { name: 'Show Sent Transfers', value: 'history' },
+            { name: 'Show Sent Transfers', value: 'showTransactions' },
             { name: 'Account Settings', value: 'account' },
             { name: 'Exit', value: 'exit' }
         ],
@@ -856,10 +861,10 @@ while (true) {
         case 'balance':
             await wallet.showBalance();
             break;
-        case 'transfer':
+        case 'transferFunds':
             await wallet.transferFunds();
             break;
-        case 'history':
+        case 'showTransactions':
             await wallet.showTransactions();
             break;
         case 'account':
