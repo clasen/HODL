@@ -319,7 +319,7 @@ class Wallet {
                 return addressBook
                     .filter(entry => entry.name.toLowerCase().includes(input.toLowerCase()) || entry.address.toLowerCase().includes(input.toLowerCase()))
                     .map(entry => ({
-                        name: entry.address ? `${entry.name} (${entry.address})` : entry.name,
+                        name: entry.address ? `${entry.address} (${entry.name})` : entry.name,
                         value: entry.address
                     }))
                     .concat([{ name: input, value: input }]); // Add the input as a possible choice
