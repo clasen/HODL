@@ -12,6 +12,7 @@ import bip39 from 'bip39';
 import hdkey from 'hdkey';
 import os from 'os';
 import inquirerFuzzyPath from 'inquirer-fuzzy-path';
+import ora from 'ora';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -365,7 +366,13 @@ class Wallet {
             return;
         }
 
+        const spinner = ora({
+            text: 'Sending transaction...',
+            spinner: 'dots'
+        }).start();
+
         try {
+
             let signedTx;
             if (tokens[token] && token !== this.selectedNetwork.nativeToken) {
                 signedTx = await this.handleERC20Transfer(token, address, amount);
@@ -374,6 +381,9 @@ class Wallet {
             }
 
             const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+            
+            spinner.succeed('Transaction confirmed!');
+
             this.displayTransactionResult(address, token, amount, receipt.transactionHash);
 
             // Add transaction to history
@@ -384,6 +394,7 @@ class Wallet {
             }
 
         } catch (error) {
+            spinner.fail('Transaction failed');
             this.displayTransactionError(error);
         }
     }

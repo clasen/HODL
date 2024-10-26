@@ -90,6 +90,7 @@ We've carefully selected trusted and well-maintained dependencies for this proje
 - **cli-table3**: For creating formatted CLI tables.
 - **bip39**: For generating and handling mnemonic phrases.
 - **hdkey**: For handling hierarchical deterministic (HD) keys.
+- **ora**: For displaying progress bars.
 
 ⚠️ **Important Notice**: HODL Wallet is a personal project created with the best intentions. While we strive for security, it may contain security flaws or vulnerabilities. Use at your own risk and always exercise caution with your crypto assets.
 
