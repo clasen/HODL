@@ -2,14 +2,11 @@
 
 import fs from 'fs';
 import path from 'path';
-import Web3 from 'web3';
 import inquirer from 'inquirer';
 import Persist from './persist.js';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import Table from 'cli-table3';
-import bip39 from 'bip39';
-import hdkey from 'hdkey';
 import os from 'os';
 import inquirerFuzzyPath from 'inquirer-fuzzy-path';
 import ora from 'ora';
@@ -33,8 +30,8 @@ class Wallet {
             fs.mkdirSync(hodlDir, { recursive: true });
         }
 
-        this.db = new Persist({ path: hodlDir, encryptionKey });
-        this.web3 = null;
+        this.db = new Persist({ path: './', encryptionKey });
+        this.network = null;
         this.selectedNetwork = null;
         this.account = null;
         this.networkUsage = this.db.get('networkUsage') || {};
@@ -48,7 +45,7 @@ class Wallet {
                 process.exit(1);
             }
             await this.selectNetwork(networkPlugins);
-            this.web3 = new Web3(this.selectedNetwork.rpcUrl);
+            this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
             await this.loadAccount();
 
             if (!this.account) {
@@ -157,9 +154,9 @@ class Wallet {
 
             switch (accountAction) {
                 case 'Import Mnemonic (12 words)':
-                    account = await this.importFrom12Words();
+                    account = await this.importFromMnemonic();
                     if (!account) {
-                        Wallet.displayError('Invalid mnemonic.');
+                        // Wallet.displayError('Invalid mnemonic.');
                         return;
                     }
                     this.account = account;
@@ -231,31 +228,32 @@ class Wallet {
         return false;
     }
 
-    async importFrom12Words() {
+    async importFromMnemonic() {
         const { mnemonic } = await inquirer.prompt({
             type: 'password',
             name: 'mnemonic',
             message: 'Enter your 12-word mnemonic phrase:',
             mask: '*',
+            validate: (input) => {
+                if (input.trim() === '') return true;
+                return this.network.validateMnemonic(input) || 'Please enter a valid mnemonic phrase or leave empty to cancel.';
+            }
         });
 
-        if (!bip39.validateMnemonic(mnemonic)) {
-            return null;
-        }
+        if (!mnemonic.trim()) return null;
 
-        const account = await this.accountFromMnemonic(mnemonic);
+        const account = await this.network.accountFromMnemonic(mnemonic);
         await this.db.secureSet('account', account);
         return account;
     }
 
     async showBalance() {
         if (!this.account) {
-            Wallet.displayError('Account not initialized.', 'Ï Please try restarting the application.');
+            Wallet.displayError('Account not initialized.');
             return;
         }
 
-        const balanceWei = await this.web3.eth.getBalance(this.account.address);
-        const balance = Web3.utils.fromWei(balanceWei, 'ether');
+        const balances = await this.network.getTokenBalances(this.account.address);
 
         const table = new Table({
             head: ['Token', 'Balance'],
@@ -263,40 +261,9 @@ class Wallet {
             colWidths: [21, 22]
         });
 
-        // table.push([{ colSpan: 2, content: this.account.address }]);
-        table.push([this.selectedNetwork.nativeToken, parseFloat(balance).toFixed(3)]);
-
-        // Check if USDT is available on the selected network
-        if (this.selectedNetwork.tokens['USDT']) {
-            const usdtAddress = this.selectedNetwork.tokens['USDT'];
-            const ERC20_ABI = [
-                {
-                    constant: true,
-                    inputs: [{ name: "_owner", type: "address" }],
-                    name: "balanceOf",
-                    outputs: [{ name: "balance", type: "uint256" }],
-                    type: "function"
-                },
-                {
-                    constant: true,
-                    inputs: [],
-                    name: "decimals",
-                    outputs: [{ name: "", type: "uint8" }],
-                    type: "function"
-                }
-            ];
-
-            const usdtContract = new this.web3.eth.Contract(ERC20_ABI, usdtAddress);
-            const usdtBalance = await usdtContract.methods.balanceOf(this.account.address).call();
-            const decimals = await usdtContract.methods.decimals().call();
-
-            // Fixed calculation using BigInt consistently
-            const formattedUsdtBalance = Number(
-                (BigInt(usdtBalance) * 100n) / (10n ** BigInt(decimals))
-            ) / 100;
-
-            table.push(['USDT', formattedUsdtBalance.toFixed(3)]);
-        }
+        balances.forEach(([token, balance]) => {
+            table.push([token, balance]);
+        });
 
         console.log(table.toString());
     }
@@ -331,26 +298,31 @@ class Wallet {
 
         let address = recipient;
 
-        const { token } = await inquirer.prompt({
-            type: 'list',
-            name: 'token',
-            message: 'Token to transfer:',
-            choices: Object.keys(this.selectedNetwork.tokens),
-        });
 
-        const tokens = this.selectedNetwork.tokens;
+        const choices = Object.keys(this.selectedNetwork.tokens);
+        choices.push(this.selectedNetwork.nativeToken);
+
+        let token = this.selectedNetwork.nativeToken;
+        if (choices.length > 1) {
+            token = await inquirer.prompt({
+                type: 'list',
+                name: 'token',
+                message: 'Token to transfer:',
+                choices,
+            }).token;
+        }
 
         const { amount } = await inquirer.prompt({
             type: 'input',
             name: 'amount',
             message: `Amount to transfer:`,
             validate: value => {
-                if (value === '') return true;
+                if (value.trim() === '') return true;
                 return !isNaN(value) && Number(value) > 0 ? true : 'Please enter a valid number or leave empty to cancel.';
             },
         });
 
-        if (amount === '') {
+        if (amount.trim() === '') {
             return;
         }
 
@@ -372,16 +344,15 @@ class Wallet {
         }).start();
 
         try {
-
             let signedTx;
-            if (tokens[token] && token !== this.selectedNetwork.nativeToken) {
-                signedTx = await this.handleERC20Transfer(token, address, amount);
+            if (token === this.selectedNetwork.nativeToken) {
+                signedTx = await this.network.handleNativeTransfer(this.account, address, amount);
             } else {
-                signedTx = await this.handleNativeTransfer(address, amount);
+                signedTx = await this.network.handleERC20Transfer(this.account, token, address, amount);
             }
 
-            const receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
-            
+            const receipt = await this.network.sendSignedTransaction(signedTx);
+
             spinner.succeed('Transaction confirmed!');
 
             this.displayTransactionResult(address, token, amount, receipt.transactionHash);
@@ -412,7 +383,7 @@ class Wallet {
         });
 
         if (data) {
-            table.push([data]);
+            table.push([data.toString()]);
         }
 
         console.log(table.toString());
@@ -485,88 +456,6 @@ class Wallet {
         }
     }
 
-    async handleERC20Transfer(token, recipient, amount) {
-        const ERC20_ABI = [
-            // Minimal ABI to interact with ERC20 tokens
-            {
-                constant: true,
-                name: 'decimals',
-                inputs: [],
-                outputs: [{ name: '', type: 'uint8' }],
-                type: 'function',
-            },
-            {
-                constant: false,
-                name: 'transfer',
-                inputs: [
-                    { name: '_to', type: 'address' },
-                    { name: '_value', type: 'uint256' },
-                ],
-                outputs: [{ name: '', type: 'bool' }],
-                type: 'function',
-            },
-        ];
-
-        const contract = new this.web3.eth.Contract(ERC20_ABI, this.selectedNetwork.tokens[token]);
-        const decimals = parseInt(await contract.methods.decimals().call(), 10);
-
-        const weiAmount = BigInt(this.web3.utils.toWei(amount, 'ether'));
-        const adjustedAmount = weiAmount / (10n ** BigInt(18 - decimals));
-
-        try {
-            const data = contract.methods.transfer(recipient, adjustedAmount.toString()).encodeABI();
-            const gasLimit = 100000;
-            const gasPrice = await this.web3.eth.getGasPrice();
-
-            const tx = {
-                from: this.account.address,
-                to: this.selectedNetwork.tokens[token],
-                data: data,
-                gas: gasLimit,
-                gasPrice: gasPrice,
-            };
-
-            return this.web3.eth.accounts.signTransaction(tx, this.account.privateKey);
-        } catch (error) {
-            this.displayTransactionError(error);
-        }
-    }
-
-    async handleNativeTransfer(recipient, amount) {
-        const gasPrice = await this.web3.eth.getGasPrice();
-        const gasLimit = 21000; // Gas estándar para una transacción simple
-        const gasCost = BigInt(gasPrice) * BigInt(gasLimit);
-        let amountWei = BigInt(this.web3.utils.toWei(amount, 'ether'));
-
-        // Obtener el balance actual
-        const balance = BigInt(await this.web3.eth.getBalance(this.account.address));
-
-        if (balance < amountWei + gasCost) {
-            amountWei -= gasCost;
-        }
-
-        if (balance < amountWei + gasCost) {
-            const maxAmount = this.web3.utils.fromWei((balance - gasCost).toString(), 'ether');
-            const table = new Table({
-                head: [{ colSpan: 2, content: 'Insufficient balance for this transaction.' }],
-                style: { head: ['red'] },
-                wordWrap: true
-            });
-            table.push(['Maximum Amount', `${maxAmount} ${this.selectedNetwork.nativeToken}`]);
-            console.log(table.toString());
-        }
-
-        const tx = {
-            from: this.account.address,
-            to: recipient,
-            value: amountWei.toString(),
-            gas: gasLimit,
-            gasPrice: gasPrice
-        };
-
-        return this.web3.eth.accounts.signTransaction(tx, this.account.privateKey);
-    }
-
     displayTransactionResult(address, token, amount, hash) {
 
         const table = new Table({
@@ -619,7 +508,7 @@ class Wallet {
     async switchNetwork() {
         const networkPlugins = await this.loadNetworkPlugins();
         await this.selectNetwork(networkPlugins);
-        this.web3 = new Web3(this.selectedNetwork.rpcUrl);
+        this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
     }
 
     async exportHODLFile() {
@@ -679,17 +568,20 @@ class Wallet {
         const { privateKey } = await inquirer.prompt({
             type: 'password',
             name: 'privateKey',
-            message: 'Private-key:',
+            message: 'Private-key (leave empty to cancel):',
             mask: '*',
+            validate: (input) => {
+                if (input.trim() === '') return true;
+                return /^(0x)?[0-9a-fA-F]{64}$/.test(input) || 'Please enter a valid private-key or leave empty to cancel.';
+            }
         });
 
         if (!privateKey.trim()) {
-            Wallet.displayError('Private-key is empty.');
-            return;
+            return;  // Silently return if empty
         }
 
         try {
-            this.account = this.web3.eth.accounts.privateKeyToAccount(privateKey);
+            this.account = await this.network.privateKeyToAccount(privateKey);
             await this.db.secureSet('account', this.account);
             this.displayAccountAddress();
         } catch (error) {
@@ -707,10 +599,10 @@ class Wallet {
 
         let message = 'Do you want to display sensitive information (private key';
         if (createWithMnemonic) {
-            this.account = await this.createAccountFromMnemonic();
+            this.account = await this.network.createAccountFromMnemonic();
             message += ' and mnemonic';
         } else {
-            this.account = this.web3.eth.accounts.create();
+            this.account = await this.network.createAccount();
         }
 
         message += ')?';
@@ -728,25 +620,6 @@ class Wallet {
             this.displayAccountDetails();
         } else {
             this.displayAccountAddress();
-        }
-    }
-
-    async accountFromMnemonic(mnemonic) {
-        const seed = await bip39.mnemonicToSeed(mnemonic);
-        const root = hdkey.fromMasterSeed(seed);
-        const addrNode = root.derive("m/44'/60'/0'/0/0");
-        const privateKey = addrNode.privateKey.toString('hex');
-        const account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
-        account.mnemonic = mnemonic;
-        return account;
-    }
-
-    async createAccountFromMnemonic() {
-        try {
-            const mnemonic = bip39.generateMnemonic();
-            return this.accountFromMnemonic(mnemonic);
-        } catch (error) {
-            Wallet.displayError('Failed to create account from mnemonic.', error);
         }
     }
 }

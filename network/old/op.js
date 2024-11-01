@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     name: '[ERC-20] Optimism',
     explorer: 'https://optimistic.etherscan.io/tx/',
     rpcUrl: 'https://mainnet.optimism.io',

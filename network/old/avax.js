@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     name: '[ERC-20] Avalanche C-Chain',
     explorer: 'https://snowtrace.io/tx/',
     rpcUrl: 'https://api.avax.network/ext/bc/C/rpc',

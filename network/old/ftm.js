@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     name: '[ERC-20] Fantom',
     explorer: 'https://ftmscan.com/tx/',
     rpcUrl: 'https://rpc.ftm.tools/',

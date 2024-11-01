@@ -1,6 +1,6 @@
 // db.js
-const Deepbase = require('deepbase');
-const CryptoJS = require('crypto-js');
+import Deepbase from 'deepbase';
+import CryptoJS from 'crypto-js';
 
 class Persist extends Deepbase {
     constructor(opts) {
@@ -40,4 +40,4 @@ class Persist extends Deepbase {
     }
 }
 
-module.exports = Persist;
+export default Persist;

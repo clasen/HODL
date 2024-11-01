@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     name: '[ERC-20] Arbitrum One',
     explorer: 'https://arbiscan.io/tx/',
     rpcUrl: 'https://arb1.arbitrum.io/rpc',

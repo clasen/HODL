@@ -1,5 +1,4 @@
-// network/matic.js
-module.exports = {
+export default {
     name: '[ERC-20] Polygon',
     explorer: 'https://polygonscan.com/tx/',
     rpcUrl: 'https://polygon-rpc.com/',
