@@ -11,7 +11,7 @@ export default class TONNetwork extends BaseNetwork {
     }
 
     async initializeClient(config) {
-        const endpoint = config.rpcUrl;
+        const endpoint = config.url;
         this.client = new TonClient({ endpoint });
     }
 

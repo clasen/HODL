@@ -17,7 +17,7 @@ Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. 
 - 🚫 Zero ads, zero BS
 - 🔒 Create wallets offline (because paranoia is just good sense in crypto)
 - 🔍 Fully transparent, open-source code
-- 🌐 Support for both ERC-20 and BEP-20 networks
+- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, Polygon, Avalanche, Optimism, Arbitrum, and Fantom.
 
 That's it! Follow the prompts and you're in crypto heaven.
 
@@ -43,13 +43,15 @@ Keep your favorite addresses handy. No more copy-pasting!
 
 Seamlessly manage your assets on multiple networks. HODL Wallet supports the following networks:
 
-- Binance Smart Chain
-- Ethereum
-- Polygon
-- Optimism
-- Arbitrum One
-- Fantom
-- Avalanche C-Chain
+- Bitcoin
+- EVM
+  - Ethereum
+  - Binance Smart Chain
+  - Polygon
+  - Optimism
+  - Arbitrum One
+  - Fantom
+  - Avalanche C-Chain
 
 Each network supports its native token and popular tokens like USDT. You can easily add more tokens as needed.
 
@@ -82,15 +84,23 @@ We're as transparent as your ex's excuses. Our code is open-source, and we encou
 
 We've carefully selected trusted and well-maintained dependencies for this project. Our goal is to balance functionality with security. Here's a brief overview of our main dependencies:
 
-- **web3**: The Ethereum JavaScript API for blockchain interactions.
-- **deepbase**: For persistent storage.
-- **crypto-js**: For encryption.
-- **inquirer** and **inquirer-autocomplete-prompt**: For interactive command-line interfaces.
-- **inquirer-fuzzy-path**: For fuzzy searching and selecting file paths during HODL file import.
-- **cli-table3**: For creating formatted CLI tables.
-- **bip39**: For generating and handling mnemonic phrases.
-- **hdkey**: For handling hierarchical deterministic (HD) keys.
-- **ora**: For displaying progress bars.
+- Common
+  - **inquirer** and **inquirer-autocomplete-prompt**: For interactive command-line interfaces.
+  - **inquirer-fuzzy-path**: For fuzzy searching and selecting file paths during HODL file import.
+  - **cli-table3**: For creating formatted CLI tables.
+  - **ora**: For displaying progress bars.
+  - **deepbase**: For persistent storage.
+  - **crypto-js**: For JSON encryption.
+  - **bip39**: For generating and handling mnemonic phrases.
+- Web3
+  - **web3**: The Ethereum JavaScript API for blockchain interactions.
+  - **hdkey**: For handling hierarchical deterministic (HD) keys.
+- Bitcoin
+  - **bitcoinjs-lib**: For Bitcoin-specific operations.
+  - **bip32**: For handling hierarchical deterministic (HD) keys.
+  - **ecpair**: For elliptic curve pairings.
+  - **tiny-secp256k1**: For elliptic curve secp256k1 operations.
+  - **axios**: For making HTTP requests.
 
 ⚠️ **Important Notice**: HODL Wallet is a personal project created with the best intentions. While we strive for security, it may contain security flaws or vulnerabilities. Use at your own risk and always exercise caution with your crypto assets.
 

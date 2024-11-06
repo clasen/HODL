@@ -2,9 +2,9 @@ import TONNetwork from './lib/TONNetwork.js';
 import { getHttpEndpoint } from '@orbs-network/ton-access';
 
 export default {
-    name: 'TON',
+    name: '[TON] The Open Network',
     NetworkClass: TONNetwork,
-    rpcUrl: await getHttpEndpoint(),
+    url: await getHttpEndpoint(),
     nativeToken: 'TON',
     explorer: 'https://tonscan.org/tx/',
     tokens: {

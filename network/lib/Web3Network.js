@@ -7,7 +7,7 @@ import hdkey from 'hdkey';
 export default class Web3Network extends BaseNetwork {
     constructor(config) {
         super();
-        this.web3 = new Web3(config.rpcUrl);
+        this.web3 = new Web3(config.url);
         this.config = config;
     }
 
@@ -31,22 +31,11 @@ export default class Web3Network extends BaseNetwork {
         return this.web3.eth.accounts.signTransaction(tx, from.privateKey);
     }
 
-    async getTokenBalance(address, tokenSymbol) {
-        const tokenConfig = this.config.tokens[tokenSymbol];
-        if (!tokenConfig) throw new Error(`Token ${tokenSymbol} not supported`);
-
-        const contract = new this.web3.eth.Contract(tokenConfig.abi, tokenConfig.address);
-        const balance = await contract.methods.balanceOf(address).call();
-        const decimals = await contract.methods.decimals().call();
-        
-        return balance / (10 ** decimals);
-    }
-
     async transferToken(from, to, amount, tokenSymbol, options = {}) {
         const tokenConfig = this.config.tokens[tokenSymbol];
         if (!tokenConfig) throw new Error(`Token ${tokenSymbol} not supported`);
 
-        const contract = new this.web3.eth.Contract(tokenConfig.abi, tokenConfig.address);
+        const contract = new this.web3.eth.Contract(ERC20_ABI, tokenConfig.address);
         const decimals = await contract.methods.decimals().call();
         const value = BigInt(amount * (10 ** decimals));
 
@@ -114,7 +103,7 @@ export default class Web3Network extends BaseNetwork {
         
         // Get native token balance
         const nativeBalance = await this.getBalance(address);
-        balances.push([this.config.nativeToken, nativeBalance]);
+        balances.push([this.config.nativeToken, parseFloat(nativeBalance)]);
 
         // Get balances for all configured tokens
         for (const [symbol, tokenConfig] of Object.entries(this.config.tokens)) {
@@ -136,7 +125,18 @@ export default class Web3Network extends BaseNetwork {
     }
 
     async privateKeyToAccount(privateKey) {
-        return this.web3.eth.accounts.privateKeyToAccount(privateKey);
+        if (!privateKey) {
+            throw new Error('Private key is required');
+        }
+        
+        // Ensure private key has '0x' prefix
+        const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+        
+        try {
+            return this.web3.eth.accounts.privateKeyToAccount(formattedKey);
+        } catch (error) {
+            throw new Error(`Invalid private key: ${error.message}`);
+        }
     }
 
     async createAccount() {

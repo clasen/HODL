@@ -14,10 +14,6 @@ export default class BaseNetwork {
         throw new Error("Method 'transfer' must be implemented.");
     }
 
-    async getTokenBalance(address, tokenSymbol) {
-        throw new Error("Method 'getTokenBalance' must be implemented.");
-    }
-
     async transferToken(from, to, amount, tokenSymbol, options = {}) {
         throw new Error("Method 'transferToken' must be implemented.");
     }

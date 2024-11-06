@@ -1,11 +1,10 @@
-import BitcoinNetwork from './lib/BTCNetwork.js';
+import BitcoinNetwork from './lib/BitcoinNetwork.js';
 
 export default {
-    name: 'Bitcoin',
     NetworkClass: BitcoinNetwork,
-    apiUrl: 'https://blockstream.info/api',
-    rpcUrl: 'https://btc.public-rpc.com',
+    name: '[BTC] Bitcoin',
+    url: 'https://blockstream.info/api',
     nativeToken: 'BTC',
     explorer: 'https://blockstream.info/tx/',
-    tokens: {} // Bitcoin nativo no tiene tokens como Ethereum
+    tokens: {}
 }; 

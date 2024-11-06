@@ -1,9 +1,9 @@
 import Web3Network from './lib/Web3Network.js';
 
 export default {
-    name: 'BSC',
     NetworkClass: Web3Network,
-    rpcUrl: 'https://bsc-dataseed1.binance.org',
+    name: '[BEP-20] Binance Smart Chain',
+    url: 'https://bsc-dataseed1.binance.org',
     nativeToken: 'BNB',
     explorer: 'https://bscscan.com/tx/',
     tokens: {
