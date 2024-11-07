@@ -1,8 +1,8 @@
 {
     "name": "hodl-wallet",
-    "version": "1.6.2",
+    "version": "1.6.8",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
-    "author": "Martin Clasen",
+    "author": "Martin Cl6sen",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/clasen/HODL.git"
@@ -12,12 +12,12 @@
         "url": "https://github.com/clasen/HODL/issues"
     },
     "homepage": "https://github.com/clasen/HODL#readme",
-    "main": "index.mjs",
+    "main": "index.js",
     "bin": {
-        "hodl": "index.mjs"
+        "hodl": "index.js"
     },
     "scripts": {
-        "start": "node ./index.mjs",
+        "start": "node ./index.js",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "keywords": [
