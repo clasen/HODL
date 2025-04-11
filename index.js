@@ -34,23 +34,26 @@ class Wallet {
 
         this.network = null;
         this.selectedNetwork = null;
-        this.networkUsage = this.db.get('networkUsage') || {};
+        this.networkUsage = {};
     }
 
     async initialize() {
         try {
+            this.networkUsage = await this.db.get('networkUsage') || {};
+
             const networkPlugins = await this.loadNetworkPlugins();
             if (networkPlugins.length === 0) {
                 Wallet.displayError('No valid network plugins found.');
                 process.exit(1);
             }
-            await this.selectNetwork(networkPlugins);
+            await this.selectNetwork(networkPlugins, { autoSelect: true });
             this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
             this.network.name = this.selectedNetwork.name;
 
             await this.loadAccount();
+            const account = await this.getAccount();
 
-            if (!this.getAccount()) {
+            if (!account) {
                 Wallet.displayError('Failed to initialize account.');
                 process.exit(1);
             }
@@ -68,26 +71,28 @@ class Wallet {
         }
     }
 
-    getAccount() {
+    async getAccount() {
         return this.db.get('account', this.network.constructor.name);
     }
 
-    getAddress() {
+    async getAddress() {
         return this.db.get('account', this.network.constructor.name, 'address');
     }
 
-    getMnemonic() {
+    async getMnemonic() {
         return this.db.get('mnemonic');
     }
 
-    displayAccountAddress() {
+    async displayAccountAddress() {
+
         const table = new Table({
-            head: ['Account Address'],
+            head: [`${this.selectedNetwork.name} Address`],
             style: {
                 head: ['green']
             }
         });
-        table.push([this.getAddress()]);
+        
+        table.push([await this.getAddress()]);
         console.log(table.toString());
     }
 
@@ -103,30 +108,37 @@ class Wallet {
         return networks.filter(network => network && network.name);
     }
 
-    async selectNetwork(networkPlugins) {
+    async selectNetwork(networkPlugins, { autoSelect = false } = {}) {
         // Sort networks by usage count (descending)
         const sortedNetworks = networkPlugins.sort((a, b) =>
             (this.networkUsage[b.name] || 0) - (this.networkUsage[a.name] || 0)
         );
 
-        const { network } = await inquirer.prompt({
-            type: 'list',
-            name: 'network',
-            message: 'Select the network:',
-            choices: sortedNetworks.map(plugin => plugin.name),
-        });
+        let selectedNetwork;
 
-        const selectedNetwork = sortedNetworks.find(plugin => plugin.name === network);
+        if (autoSelect) {
+            // Automatically select the first network (most used)
+            selectedNetwork = sortedNetworks[0];
+        } else {
+            // Let user choose the network
+            const { network } = await inquirer.prompt({
+                type: 'list',
+                name: 'network',
+                message: 'Select the network:',
+                choices: sortedNetworks.map(plugin => plugin.name),
+            });
+            selectedNetwork = sortedNetworks.find(plugin => plugin.name === network);
+        }
 
         // Increment usage count for the selected network
-        this.networkUsage[network] = (this.networkUsage[network] || 0) + 1;
-        this.db.set('networkUsage', this.networkUsage);
+        this.networkUsage[selectedNetwork.name] = (this.networkUsage[selectedNetwork.name] || 0) + 1;
+        await this.db.set('networkUsage', this.networkUsage);
 
         this.selectedNetwork = selectedNetwork;
     }
 
     async loadAccount(loggedIn = false) {
-        let account = this.getAccount();
+        let account = await this.getAccount();
 
         const mainChoices = ['Create New Account'];
 
@@ -134,6 +146,7 @@ class Wallet {
             mainChoices.push('Import Options');
             mainChoices.push('Export Options');
             mainChoices.push('Switch Network');
+            mainChoices.push('Manage Address Book');
             mainChoices.push('Go Back');
         } else {
             mainChoices.push('Import Mnemonic (12 words)');
@@ -150,6 +163,27 @@ class Wallet {
             });
 
             if (accountAction === 'Go Back') {
+                return;
+            }
+
+            if (accountAction === 'Manage Address Book') {
+                const addressBookChoices = ['Delete Address', 'Go Back'];
+                const { addressBookAction } = await inquirer.prompt({
+                    type: 'list',
+                    name: 'addressBookAction',
+                    message: 'Select an address book option:',
+                    choices: addressBookChoices,
+                });
+
+                if (addressBookAction === 'Go Back') {
+                    return this.loadAccount(loggedIn);
+                }
+
+                switch (addressBookAction) {
+                    case 'Delete Address':
+                        await this.deleteFromAddressBook();
+                        break;
+                }
                 return;
             }
 
@@ -180,14 +214,14 @@ class Wallet {
                         return;
                     }
                     this.setAccount(account);
-                    this.displayAccountAddress();
+                    await this.displayAccountAddress();
                     break;
                 case 'Import Private-key':
                     await this.importPrivateKey();
                     break;
                 case 'Import HODL File':
                     this.setAccount(await this.importHODLFile());
-                    this.displayAccountAddress();
+                    await this.displayAccountAddress();
                     break;
             }
 
@@ -215,7 +249,7 @@ class Wallet {
                 return;
             }
 
-            
+
             if (accountAction === 'Create New Account') {
                 const confirmOverwrite = await this.confirmOverwrite();
                 if (!confirmOverwrite) return;
@@ -233,7 +267,7 @@ class Wallet {
     }
 
     async confirmOverwrite() {
-        if (this.getAccount()) {
+        if (await this.getAccount()) {
             const { confirmOverwrite } = await inquirer.prompt({
                 type: 'confirm',
                 name: 'confirmOverwrite',
@@ -265,12 +299,14 @@ class Wallet {
     }
 
     async showBalance() {
-        if (!this.getAccount()) {
+        const account = await this.getAccount();
+
+        if (!account) {
             Wallet.displayError('Account not initialized.');
             return;
         }
 
-        const balances = await this.network.getTokenBalances(this.getAddress());
+        const balances = await this.network.getTokenBalances(await this.getAddress());
 
         const table = new Table({
             head: ['Token', 'Balance'],
@@ -286,8 +322,8 @@ class Wallet {
     }
 
     async transferFunds() {
-        const contacts = this.db.get('contact', this.network.name) || {};
-        const addressBook = Object.entries(contacts).map(([address, data]) => ({
+        const contacts = await this.db.entries('contact', this.network.name) || [];
+        const addressBook = contacts.map(([address, data]) => ({
             address,
             name: data.name
         }));
@@ -362,20 +398,21 @@ class Wallet {
 
         try {
             let signedTx;
+            const account = await this.getAccount();
             if (token === this.selectedNetwork.nativeToken) {
-                signedTx = await this.network.handleNativeTransfer(this.getAccount(), address, amount);
+                signedTx = await this.network.handleNativeTransfer(account, address, amount);
             } else {
-                signedTx = await this.network.handleERC20Transfer(this.getAccount(), token, address, amount);
+                signedTx = await this.network.handleERC20Transfer(account, token, address, amount);
             }
 
             const receipt = await this.network.sendSignedTransaction(signedTx);
 
             spinner.succeed('Transaction confirmed!');
 
-            this.displayTransactionResult(address, token, amount, receipt.transactionHash);
+            await this.displayTransactionResult(address, token, amount, receipt.transactionHash);
 
             // Add transaction to history
-            this.addToTransactions(address, token, amount, receipt.transactionHash);
+            await this.addToTransactions(address, token, amount, receipt.transactionHash);
 
             if (!contacts[address]) {
                 await this.addToAddressBook(address);
@@ -417,7 +454,7 @@ class Wallet {
         }).replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(",", "");
     }
 
-    addToTransactions(recipient, token, amount, hash) {
+    async addToTransactions(recipient, token, amount, hash) {
         const transaction = {
             timestamp: new Date().toISOString(),
             recipient,
@@ -425,11 +462,13 @@ class Wallet {
             amount,
             hash
         };
-        this.db.add('transactions', this.getAddress(), this.selectedNetwork.nativeToken, transaction);
+        const address = await this.getAddress();
+        this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
     }
 
     async showTransactions() {
-        const history = this.db.values('transactions', this.getAddress(), this.selectedNetwork.nativeToken) || [];
+        const address = await this.getAddress();
+        const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) || [];
 
         const table = new Table({
             head: ['Date', 'Recipient', 'Token', 'Amount'],
@@ -440,14 +479,14 @@ class Wallet {
             table.push([{ colSpan: 4, content: 'No transaction history available.' }]);
         }
 
-        history.forEach(tx => {
+        for (const tx of history) {
             const date = this.formatDate(tx.timestamp);
-            const contact = this.db.get('contact', this.network.name, tx.recipient);
+            const contact = await this.db.get('contact', this.network.name, tx.recipient);
             const recipient = contact ? `${tx.recipient} (${contact.name})` : tx.recipient;
             const amount = parseFloat(tx.amount).toFixed(3);
             table.push([date, recipient, tx.token, amount]);
             table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + tx.hash }]);
-        });
+        }
 
         console.log(table.toString());
     }
@@ -460,8 +499,7 @@ class Wallet {
         });
 
         if (name.trim() !== '') {
-
-            this.db.set('contact', this.network.name, address, 'name', name);
+            await this.db.set('contact', this.network.name, address, 'name', name);
 
             const table = new Table({
                 head: [{ colSpan: 2, content: "Recipient saved to the address book." }],
@@ -473,7 +511,56 @@ class Wallet {
         }
     }
 
-    displayTransactionResult(address, token, amount, hash) {
+    async deleteFromAddressBook() {
+        const contacts = await this.db.get('contact', this.network.name) || {};
+        const addressBook = Object.entries(contacts).map(([address, data]) => ({
+            address,
+            name: data.name
+        }));
+
+        if (addressBook.length === 0) {
+            const table = new Table({
+                head: ['Address Book'],
+                style: { head: ['yellow'] },
+            });
+            table.push(['No addresses in the address book.']);
+            console.log(table.toString());
+            return;
+        }
+
+        addressBook.push({ name: 'Go Back', address: '' });
+
+        const { addressToDelete } = await inquirer.prompt({
+            type: 'list',
+            name: 'addressToDelete',
+            message: 'Select an address to delete:',
+            choices: addressBook.map(entry => ({
+                name: entry.address ? `${entry.address} (${entry.name})` : entry.name,
+                value: entry.address
+            }))
+        });
+
+        if (!addressToDelete) return;
+
+        const { confirmDelete } = await inquirer.prompt({
+            type: 'confirm',
+            name: 'confirmDelete',
+            message: 'Are you sure you want to delete this address?',
+            default: false
+        });
+
+        if (confirmDelete) {
+            await this.db.del('contact', this.network.name, addressToDelete);
+            const table = new Table({
+                head: ['Address Book'],
+                style: { head: ['green'] },
+            });
+            table.push(['Address deleted successfully.']);
+            console.log(table.toString());
+        }
+    }
+
+    async displayTransactionResult(address, token, amount, hash) {
 
         const table = new Table({
             head: ['Date', 'Recipient', 'Token', 'Amount'],
@@ -482,7 +569,7 @@ class Wallet {
 
         const date = this.formatDate(new Date());
 
-        const contact = this.db.get('contact', this.network.name, address);
+        const contact = await this.db.get('contact', this.network.name, address);
         const recipient = contact ? `${address} (${contact.name})` : address;
 
         table.push([date, recipient, token, parseFloat(amount).toFixed(3)]);
@@ -495,7 +582,7 @@ class Wallet {
 
     }
 
-    displayAccountDetails() {
+    async displayAccountDetails() {
 
         const table = new Table({
             head: [{ colSpan: 2, content: 'Account Details' }],
@@ -503,12 +590,13 @@ class Wallet {
             wordWrap: true
         });
 
+        const account = await this.getAccount();
         table.push(
-            ['Address', this.getAddress()],
-            ['Private-key', this.getAccount().privateKey]
+            ['Address', await this.getAddress()],
+            ['Private-key', account.privateKey]
         );
 
-        const mnemonic = this.getMnemonic();
+        const mnemonic = await this.getMnemonic();
         if (mnemonic) {
             table.push(['Mnemonic Phrase', mnemonic]);
             table.push(['WARNING', "Please keep your private-key and mnemonic phrase secure. Never share it."]);
@@ -523,11 +611,12 @@ class Wallet {
         const networkPlugins = await this.loadNetworkPlugins();
         await this.selectNetwork(networkPlugins);
         this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
-        this.displayAccountAddress();
+        await this.displayAccountAddress();
     }
 
     async exportHODLFile() {
-        const defaultFileName = `${this.getAddress().slice(-6).toUpperCase()}`;
+        const address = await this.getAddress();
+        const defaultFileName = `${address.slice(-6).toUpperCase()}`;
         let { fileName } = await inquirer.prompt({
             type: 'input',
             name: 'fileName',
@@ -537,7 +626,7 @@ class Wallet {
 
         fileName += '.HODL';
 
-        const data = this.db.get();
+        const data = await this.db.get();
         const encryptionKey = await UIManager.getEncryptionKey();
         const encryptedData = Persist.encrypt(data, encryptionKey);
 
@@ -598,14 +687,14 @@ class Wallet {
 
         try {
             this.setAccount(await this.network.privateKeyToAccount(privateKey));
-            this.displayAccountAddress();
+            await this.displayAccountAddress();
         } catch (error) {
             Wallet.displayError('Invalid private-key.');
         }
     }
 
     async createNewAccount() {
-        let existingMnemonic = this.getMnemonic();
+        let existingMnemonic = await this.getMnemonic();
         let useMnemonic = false;
 
         if (existingMnemonic) {
@@ -615,7 +704,7 @@ class Wallet {
                 message: 'Use existing mnemonic to create account?',
                 default: true
             });
-            
+
             if (useExistingMnemonic) {
                 useMnemonic = true;
                 this.setAccount(await this.network.accountFromMnemonic(existingMnemonic));
@@ -637,8 +726,32 @@ class Wallet {
             }
         }
 
+        // Check if there are addresses in the address book
+        const addressBook = await this.db.entries('contact', this.network.name) || [];
+
+        if (addressBook.length > 0) {
+            const { deleteAddresses } = await inquirer.prompt({
+                type: 'confirm',
+                name: 'deleteAddresses',
+                message: `Do you want to delete all ${addressBook.length} addresses from the previous account?`,
+                default: false
+            });
+
+            if (deleteAddresses) {
+
+                await this.db.del('contact');
+
+                const table = new Table({
+                    head: ['Address Book'],
+                    style: { head: ['green'] },
+                });
+                table.push(['All addresses deleted successfully.']);
+                console.log(table.toString());
+            }
+        }
+
         let message = 'Do you want to display sensitive information (private key';
-        if (this.getMnemonic()) {
+        if (await this.getMnemonic()) {
             message += ' and mnemonic';
         }
         message += ')?';
@@ -651,9 +764,9 @@ class Wallet {
         });
 
         if (showSensitive) {
-            this.displayAccountDetails();
+            await this.displayAccountDetails();
         } else {
-            this.displayAccountAddress();
+            await this.displayAccountAddress();
         }
     }
 }
@@ -741,7 +854,7 @@ try {
     process.exit(1);
 }
 
-const accountExists = wallet.getMnemonic();
+const accountExists = await wallet.getMnemonic();
 
 if (!accountExists) {
     const confirmedKey = await UIManager.confirmEncryptionKey(encryptionKey);
@@ -753,7 +866,7 @@ if (!accountExists) {
 
 try {
     await wallet.initialize();
-    if (accountExists) wallet.displayAccountAddress();
+    if (accountExists) await wallet.displayAccountAddress();
 } catch (error) {
     Wallet.displayError('Failed to initialize wallet.', error);
     process.exit(1);
