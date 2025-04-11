@@ -790,7 +790,7 @@ class UIManager {
         return key;
     }
 
-    static async confirmEncryptionKey(originalKey) {
+    static async confirmEncryptionKey() {
         const { confirmKey } = await inquirer.prompt({
             type: 'password',
             name: 'confirmKey',
@@ -857,7 +857,7 @@ try {
 const accountExists = await wallet.getMnemonic();
 
 if (!accountExists) {
-    const confirmedKey = await UIManager.confirmEncryptionKey(encryptionKey);
+    const confirmedKey = await UIManager.confirmEncryptionKey();
     if (confirmedKey !== encryptionKey) {
         Wallet.displayError('Passwords do not match. Please try again.');
         process.exit(1);
@@ -877,7 +877,7 @@ process.on('exit', () => {
     UIManager.displayExitPhrase();
 });
 
-while (true) {
+async function mainMenu() {
     const { action } = await inquirer.prompt({
         type: 'list',
         name: 'action',
@@ -894,17 +894,20 @@ while (true) {
     switch (action) {
         case 'transferFunds':
             await wallet.transferFunds();
-            break;
+            return mainMenu();
         case 'balance':
             await wallet.showBalance();
-            break;
+            return mainMenu();
         case 'showTransactions':
             await wallet.showTransactions();
-            break;
+            return mainMenu();
         case 'account':
             await wallet.loadAccount(true);
-            break;
+            return mainMenu();
         case 'exit':
             process.exit();
     }
 }
+
+// Start the application
+mainMenu();
