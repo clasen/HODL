@@ -414,7 +414,9 @@ class Wallet {
             // Add transaction to history
             await this.addToTransactions(address, token, amount, receipt.transactionHash);
 
-            if (!contacts[address]) {
+            // Check if the address is already in contacts before asking to add it
+            const existingContact = await this.db.get('contact', this.network.name, address);
+            if (!existingContact) {
                 await this.addToAddressBook(address);
             }
 
