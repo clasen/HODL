@@ -37,6 +37,27 @@ class Wallet {
         this.networkUsage = {};
     }
 
+    formatAmount(num) {
+        num = parseFloat(num);
+        const numStr = num.toString();
+
+        if (!numStr.includes('.')) {
+          // No decimal point; append '.00'
+          return numStr + '.00';
+        }
+      
+        const decimalPart = numStr.split('.')[1];
+        const decimalLength = decimalPart.length;
+      
+        if (decimalLength === 1) {
+          // One decimal digit; append '0'
+          return num.toFixed(2);
+        }
+      
+        // More than one decimal digit; round to 3 decimal places if needed
+        return decimalLength > 3 ? num.toFixed(3) : numStr;
+    }
+
     async initialize() {
         try {
             this.networkUsage = await this.db.get('networkUsage') || {};
@@ -315,7 +336,7 @@ class Wallet {
         });
 
         balances.forEach(([token, balance]) => {
-            table.push([token, balance.toFixed(3)]);
+            table.push([token, this.formatAmount(balance)]);
         });
 
         console.log(table.toString());
@@ -485,7 +506,7 @@ class Wallet {
             const date = this.formatDate(tx.timestamp);
             const contact = await this.db.get('contact', this.network.name, tx.recipient);
             const recipient = contact ? `${tx.recipient} (${contact.name})` : tx.recipient;
-            const amount = parseFloat(tx.amount).toFixed(3);
+            const amount = this.formatAmount(tx.amount);
             table.push([date, recipient, tx.token, amount]);
             table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + tx.hash }]);
         }
@@ -574,7 +595,7 @@ class Wallet {
         const contact = await this.db.get('contact', this.network.name, address);
         const recipient = contact ? `${address} (${contact.name})` : address;
 
-        table.push([date, recipient, token, parseFloat(amount).toFixed(3)]);
+        table.push([date, recipient, token, this.formatAmount(amount)]);
         table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + hash }]);
 
         console.log(table.toString());
