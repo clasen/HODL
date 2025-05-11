@@ -3,7 +3,7 @@ import Web3Network from './lib/Web3Network.js';
 export default {
     NetworkClass: Web3Network,
     name: '[ERC-20] Ethereum',
-    url: 'https://eth.public-rpc.com',
+    url: 'https://ethereum.publicnode.com',
     nativeToken: 'ETH',
     explorer: 'https://etherscan.io/tx/',
     tokens: {
