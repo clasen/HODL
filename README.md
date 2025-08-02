@@ -17,7 +17,7 @@ Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. 
 - 🚫 Zero ads, zero BS
 - 🔒 Create wallets offline (because paranoia is just good sense in crypto)
 - 🔍 Fully transparent, open-source code
-- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, Polygon, Avalanche, Optimism, Arbitrum, and Fantom.
+- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, TON, Polygon, Avalanche, Optimism, Arbitrum, and Fantom.
 
 That's it! Follow the prompts and you're in crypto heaven.
 
@@ -44,6 +44,9 @@ Keep your favorite addresses handy. No more copy-pasting!
 Seamlessly manage your assets on multiple networks. HODL Wallet supports the following networks:
 
 - Bitcoin
+- TON (The Open Network)
+  - Native TON transfers
+  - Jetton support (USDT)
 - EVM
   - Ethereum
   - Binance Smart Chain
@@ -95,6 +98,11 @@ We've carefully selected trusted and well-maintained dependencies for this proje
 - Web3
   - **web3**: The Ethereum JavaScript API for blockchain interactions.
   - **hdkey**: For handling hierarchical deterministic (HD) keys.
+- TON
+  - **@ton/ton**: The TON JavaScript SDK for blockchain interactions.
+  - **@ton/core**: Core TON blockchain operations and data structures.
+  - **@ton/crypto**: Cryptographic functions for TON blockchain.
+  - **@orbs-network/ton-access**: For reliable TON network access.
 - Bitcoin
   - **bitcoinjs-lib**: For Bitcoin-specific operations.
   - **bip32**: For handling hierarchical deterministic (HD) keys.

@@ -39,23 +39,21 @@ class Wallet {
 
     formatAmount(num) {
         num = parseFloat(num);
-        const numStr = num.toString();
-
-        if (!numStr.includes('.')) {
-          // No decimal point; append '.00'
-          return numStr + '.00';
+        
+        // Handle integers - add .00
+        if (num === Math.floor(num)) {
+            return num.toString() + '.00';
         }
-      
-        const decimalPart = numStr.split('.')[1];
-        const decimalLength = decimalPart.length;
-      
-        if (decimalLength === 1) {
-          // One decimal digit; append '0'
-          return num.toFixed(2);
+        
+        // For decimals, format to max 3 decimal places, then remove trailing zeros
+        let formatted = num.toFixed(3);
+        
+        // Remove trailing zeros, but keep at least 2 decimal places
+        while (formatted.endsWith('0') && formatted.split('.')[1].length > 2) {
+            formatted = formatted.slice(0, -1);
         }
-      
-        // More than one decimal digit; round to 3 decimal places if needed
-        return decimalLength > 3 ? num.toFixed(3) : numStr;
+        
+        return formatted;
     }
 
     async initialize() {
@@ -431,6 +429,9 @@ class Wallet {
             return;
         }
 
+        // Convert amount to number
+        const numericAmount = Number(amount);
+
         // Add confirmation step
         const { confirmTransaction } = await inquirer.prompt({
             type: 'confirm',
@@ -452,9 +453,9 @@ class Wallet {
             let signedTx;
             const account = await this.getAccount();
             if (token === this.selectedNetwork.nativeToken) {
-                signedTx = await this.network.handleNativeTransfer(account, address, amount);
+                signedTx = await this.network.handleNativeTransfer(account, address, numericAmount);
             } else {
-                signedTx = await this.network.handleERC20Transfer(account, token, address, amount);
+                signedTx = await this.network.handleERC20Transfer(account, token, address, numericAmount);
             }
 
             const receipt = await this.network.sendSignedTransaction(signedTx);
@@ -476,10 +477,10 @@ class Wallet {
                 console.error('Error getting current balance:', error.message);
             }
 
-            await this.displayTransactionResult(address, token, amount, transactionHash, currentBalance);
+            await this.displayTransactionResult(address, token, numericAmount, transactionHash, currentBalance);
 
             // Add transaction to history
-            await this.addToTransactions(address, token, amount, transactionHash, currentBalance);
+            await this.addToTransactions(address, token, numericAmount, transactionHash, currentBalance);
 
             // Check if the address is already in contacts before asking to add it
             const existingContact = await this.db.get('contact', this.network.name, address);
@@ -541,22 +542,22 @@ class Wallet {
         const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) || [];
 
         const table = new Table({
-            head: ['Date', 'Recipient', 'Token', 'Amount', 'Balance'],
+            head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance'],
             style: { head: ['blue'] },
         });
 
         if (history.length === 0) {
-            table.push([{ colSpan: 5, content: 'No transaction history available.' }]);
+            table.push([{ colSpan: 6, content: 'No transaction history available.' }]);
         }
 
         for (const tx of history) {
             const date = this.formatDate(tx.timestamp);
             const contact = await this.db.get('contact', this.network.name, tx.recipient);
-            const recipient = contact ? `${tx.recipient} (${contact.name})` : tx.recipient;
+            const contactName = contact ? contact.name : '-';
             const amount = this.formatAmount(tx.amount);
             const balance = tx.balance !== undefined ? this.formatAmount(tx.balance) : '-';
-            table.push([date, recipient, tx.token, amount, balance]);
-            table.push([{ colSpan: 5, content: this.selectedNetwork.explorer + tx.hash }]);
+            table.push([date, tx.recipient, contactName, tx.token, amount, balance]);
+            table.push([{ colSpan: 6, content: this.selectedNetwork.explorer + tx.hash }]);
         }
 
         console.log(table.toString());
@@ -633,17 +634,17 @@ class Wallet {
 
     async displayTransactionResult(address, token, amount, hash, balance) {
         const table = new Table({
-            head: ['Date', 'Recipient', 'Token', 'Amount', 'Balance'],
+            head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance'],
             style: { head: ['green'] },
         });
 
         const date = this.formatDate(new Date());
 
         const contact = await this.db.get('contact', this.network.name, address);
-        const recipient = contact ? `${address} (${contact.name})` : address;
+        const contactName = contact ? contact.name : '-';
 
-        table.push([date, recipient, token, this.formatAmount(amount), this.formatAmount(balance)]);
-        table.push([{ colSpan: 5, content: this.selectedNetwork.explorer + hash }]);
+        table.push([date, address, contactName, token, this.formatAmount(amount), this.formatAmount(balance)]);
+        table.push([{ colSpan: 6, content: this.selectedNetwork.explorer + hash }]);
 
         console.log(table.toString());
     }
