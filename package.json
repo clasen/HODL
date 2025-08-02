@@ -47,10 +47,14 @@
         "clasen"
     ],
     "dependencies": {
+        "@orbs-network/ton-access": "^2.3.3",
+        "@ton/core": "^0.60.0",
+        "@ton/crypto": "^3.2.0",
+        "@ton/ton": "^15.0.0",
         "axios": "^1.8.4",
         "bip32": "^5.0.0-rc.0",
         "bip39": "^3.1.0",
-        "bitcoinjs-lib": "^7.0.0-rc.0",
+        "bitcoinjs-lib": "^6.1.7",
         "cli-table3": "^0.6.5",
         "crypto-js": "^4.2.0",
         "deepbase": "^1.5.2",

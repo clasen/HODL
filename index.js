@@ -93,7 +93,10 @@ class Wallet {
     }
 
     async getAccount() {
-        return this.db.get('account', this.network.constructor.name);
+        const account = this.db.get('account', this.network.constructor.name);
+        
+        
+        return account;
     }
 
     async getAddress() {
@@ -130,15 +133,29 @@ class Wallet {
     }
 
     async selectNetwork(networkPlugins, { autoSelect = false } = {}) {
-        // Sort networks by usage count (descending)
-        const sortedNetworks = networkPlugins.sort((a, b) =>
-            (this.networkUsage[b.name] || 0) - (this.networkUsage[a.name] || 0)
-        );
+        // Sort networks by last used timestamp (most recent first)
+        const sortedNetworks = networkPlugins.sort((a, b) => {
+            const aUsage = this.networkUsage[a.name];
+            const bUsage = this.networkUsage[b.name];
+            
+            // Handle old format (number) vs new format (object)
+            const aLastUsed = typeof aUsage === 'object' ? aUsage.lastUsed || 0 : 0;
+            const bLastUsed = typeof bUsage === 'object' ? bUsage.lastUsed || 0 : 0;
+            
+            // If neither has lastUsed timestamp, sort by old count format
+            if (aLastUsed === 0 && bLastUsed === 0) {
+                const aCount = typeof aUsage === 'number' ? aUsage : (aUsage?.count || 0);
+                const bCount = typeof bUsage === 'number' ? bUsage : (bUsage?.count || 0);
+                return bCount - aCount;
+            }
+            
+            return bLastUsed - aLastUsed;
+        });
 
         let selectedNetwork;
 
         if (autoSelect) {
-            // Automatically select the first network (most used)
+            // Automatically select the first network (most recently used)
             selectedNetwork = sortedNetworks[0];
         } else {
             // Let user choose the network
@@ -151,8 +168,22 @@ class Wallet {
             selectedNetwork = sortedNetworks.find(plugin => plugin.name === network);
         }
 
-        // Increment usage count for the selected network
-        this.networkUsage[selectedNetwork.name] = (this.networkUsage[selectedNetwork.name] || 0) + 1;
+        // Update usage info for the selected network
+        // Handle migration from old format (number) to new format (object)
+        const currentUsage = this.networkUsage[selectedNetwork.name];
+        
+        if (!currentUsage || typeof currentUsage === 'number') {
+            // Old format (number) or doesn't exist - create new object
+            this.networkUsage[selectedNetwork.name] = { 
+                count: typeof currentUsage === 'number' ? currentUsage + 1 : 1, 
+                lastUsed: Date.now() 
+            };
+        } else {
+            // New format (object) - update values
+            this.networkUsage[selectedNetwork.name].count = (currentUsage.count || 0) + 1;
+            this.networkUsage[selectedNetwork.name].lastUsed = Date.now();
+        }
+        
         await this.db.set('networkUsage', this.networkUsage);
 
         this.selectedNetwork = selectedNetwork;
@@ -430,10 +461,25 @@ class Wallet {
 
             spinner.succeed('Transaction confirmed!');
 
-            await this.displayTransactionResult(address, token, amount, receipt.transactionHash);
+            const transactionHash = receipt?.transactionHash || receipt?.hash || 'UNKNOWN_HASH';
+
+            // Get current balance after transfer
+            let currentBalance = 0;
+            try {
+                const walletAddress = await this.getAddress();
+                if (token === this.selectedNetwork.nativeToken) {
+                    currentBalance = await this.network.getBalance(walletAddress);
+                } else {
+                    currentBalance = await this.network.getTokenBalance(walletAddress, token);
+                }
+            } catch (error) {
+                console.error('Error getting current balance:', error.message);
+            }
+
+            await this.displayTransactionResult(address, token, amount, transactionHash, currentBalance);
 
             // Add transaction to history
-            await this.addToTransactions(address, token, amount, receipt.transactionHash);
+            await this.addToTransactions(address, token, amount, transactionHash, currentBalance);
 
             // Check if the address is already in contacts before asking to add it
             const existingContact = await this.db.get('contact', this.network.name, address);
@@ -477,13 +523,14 @@ class Wallet {
         }).replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(",", "");
     }
 
-    async addToTransactions(recipient, token, amount, hash) {
+    async addToTransactions(recipient, token, amount, hash, balance) {
         const transaction = {
             timestamp: new Date().toISOString(),
             recipient,
             token,
             amount,
-            hash
+            hash,
+            balance
         };
         const address = await this.getAddress();
         this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
@@ -494,12 +541,12 @@ class Wallet {
         const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) || [];
 
         const table = new Table({
-            head: ['Date', 'Recipient', 'Token', 'Amount'],
+            head: ['Date', 'Recipient', 'Token', 'Amount', 'Balance'],
             style: { head: ['blue'] },
         });
 
         if (history.length === 0) {
-            table.push([{ colSpan: 4, content: 'No transaction history available.' }]);
+            table.push([{ colSpan: 5, content: 'No transaction history available.' }]);
         }
 
         for (const tx of history) {
@@ -507,8 +554,9 @@ class Wallet {
             const contact = await this.db.get('contact', this.network.name, tx.recipient);
             const recipient = contact ? `${tx.recipient} (${contact.name})` : tx.recipient;
             const amount = this.formatAmount(tx.amount);
-            table.push([date, recipient, tx.token, amount]);
-            table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + tx.hash }]);
+            const balance = tx.balance !== undefined ? this.formatAmount(tx.balance) : '-';
+            table.push([date, recipient, tx.token, amount, balance]);
+            table.push([{ colSpan: 5, content: this.selectedNetwork.explorer + tx.hash }]);
         }
 
         console.log(table.toString());
@@ -583,10 +631,9 @@ class Wallet {
         }
     }
 
-    async displayTransactionResult(address, token, amount, hash) {
-
+    async displayTransactionResult(address, token, amount, hash, balance) {
         const table = new Table({
-            head: ['Date', 'Recipient', 'Token', 'Amount'],
+            head: ['Date', 'Recipient', 'Token', 'Amount', 'Balance'],
             style: { head: ['green'] },
         });
 
@@ -595,8 +642,8 @@ class Wallet {
         const contact = await this.db.get('contact', this.network.name, address);
         const recipient = contact ? `${address} (${contact.name})` : address;
 
-        table.push([date, recipient, token, this.formatAmount(amount)]);
-        table.push([{ colSpan: 4, content: this.selectedNetwork.explorer + hash }]);
+        table.push([date, recipient, token, this.formatAmount(amount), this.formatAmount(balance)]);
+        table.push([{ colSpan: 5, content: this.selectedNetwork.explorer + hash }]);
 
         console.log(table.toString());
     }
@@ -634,7 +681,15 @@ class Wallet {
         const networkPlugins = await this.loadNetworkPlugins();
         await this.selectNetwork(networkPlugins);
         this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
-        await this.displayAccountAddress();
+        this.network.name = this.selectedNetwork.name;
+
+        const account = await this.getAccount();
+        if (account) {
+            await this.displayAccountAddress();
+        } else {
+            console.log(`\nNo account found for ${this.selectedNetwork.name}. Please create or import an account.`);
+            await this.loadAccount(true);
+        }
     }
 
     async exportHODLFile() {
