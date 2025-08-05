@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.8.0",
+    "version": "1.8.2",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -29,6 +29,7 @@
         "bep20",
         "bnb",
         "eth",
+        "ton",
         "binance",
         "trust",
         "blockchain",

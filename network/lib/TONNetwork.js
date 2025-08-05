@@ -137,32 +137,6 @@ export default class TONNetwork extends BaseNetwork {
         }));
     }
 
-    async getTokenBalances(address) {
-        const balances = [];
-        
-        // Add native TON balance
-        try {
-            const nativeBalance = await this.getBalance(address);
-            balances.push([this.config.nativeToken, nativeBalance]);
-        } catch (error) {
-            console.error('Failed to get TON balance:', error);
-            balances.push([this.config.nativeToken, 0]);
-        }
-
-        // Add token balances (not implemented yet)
-        for (const tokenSymbol in this.config.tokens) {
-            try {
-                const tokenBalance = await this.getTokenBalance(address, tokenSymbol);
-                balances.push([tokenSymbol, tokenBalance]);
-            } catch (error) {
-                console.error(`Failed to get ${tokenSymbol} balance:`, error);
-                balances.push([tokenSymbol, 0]);
-            }
-        }
-        
-        return balances;
-    }
-
     async sendSignedTransaction(signedTx) {
         // For TON, the transaction is already sent and signedTx contains the result
         let transactionHash;

@@ -98,30 +98,21 @@ export default class Web3Network extends BaseNetwork {
         return this.transfer(account, recipient, amount, { gasLimit, gasPrice });
     }
 
-    async getTokenBalances(address) {
-        const balances = [];
-        
-        // Get native token balance
-        const nativeBalance = await this.getBalance(address);
-        balances.push([this.config.nativeToken, parseFloat(nativeBalance)]);
-
-        // Get balances for all configured tokens
-        for (const [symbol, tokenConfig] of Object.entries(this.config.tokens)) {
-            const contract = new this.web3.eth.Contract(
-                ERC20_ABI, 
-                tokenConfig.address
-            );
-            const balance = await contract.methods.balanceOf(address).call();
-            const decimals = await contract.methods.decimals().call();
-
-            const formattedBalance = Number(
-                (BigInt(balance) * 100n) / (10n ** BigInt(decimals))
-            ) / 100;
-
-            balances.push([symbol, formattedBalance]);
+    async getTokenBalance(address, tokenSymbol) {
+        if (tokenSymbol === this.config.nativeToken) {
+            return await this.getBalance(address);
         }
 
-        return balances;
+        const tokenConfig = this.config.tokens[tokenSymbol];
+        if (!tokenConfig) throw new Error(`Token ${tokenSymbol} not supported`);
+
+        const contract = new this.web3.eth.Contract(ERC20_ABI, tokenConfig.address);
+        const balance = await contract.methods.balanceOf(address).call();
+        const decimals = await contract.methods.decimals().call();
+
+        return Number(
+            (BigInt(balance) * 100n) / (10n ** BigInt(decimals))
+        ) / 100;
     }
 
     async privateKeyToAccount(privateKey) {

@@ -30,14 +30,11 @@ export default class BitcoinNetwork extends BaseNetwork {
         }
     }
 
-
-    async getTokenBalances(address) {
-        const balances = [];
-
-        const nativeBalance = await this.getBalance(address);
-        balances.push([this.config.nativeToken, nativeBalance]);
-
-        return balances;
+    async getTokenBalance(address, tokenSymbol) {
+        if (tokenSymbol === this.config.nativeToken) {
+            return await this.getBalance(address);
+        }
+        throw new Error(`Token ${tokenSymbol} not supported on Bitcoin network`);
     }
 
     async transfer(from, to, amount, options = {}) {

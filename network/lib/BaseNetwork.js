@@ -47,7 +47,26 @@ export default class BaseNetwork {
         throw new Error("Method 'validateMnemonic' must be implemented.");
     }
 
-    // Add after line 51
+    async getTokenBalance(address, tokenSymbol) {
+        throw new Error("Method 'getTokenBalance' must be implemented.");
+    }
+
+    async getTokenBalances(address) {
+        const balances = [];
+        
+        // Get native token balance
+        const nativeBalance = await this.getBalance(address);
+        balances.push([this.config.nativeToken, parseFloat(nativeBalance)]);
+
+        // Get balances for all configured tokens
+        for (const symbol of Object.keys(this.config.tokens)) {
+            const tokenBalance = await this.getTokenBalance(address, symbol);
+            balances.push([symbol, tokenBalance]);
+        }
+
+        return balances;
+    }
+
     async sendSignedTransaction(signedTx) {
         throw new Error("Method 'sendSignedTransaction' must be implemented.");
     }
