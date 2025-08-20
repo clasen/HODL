@@ -40,7 +40,7 @@ export default class BitcoinNetwork extends BaseNetwork {
     async transfer(from, to, amount, options = {}) {
         try {
             const utxos = await this.getUTXOs(from.address);
-            const satoshis = BigInt(this.BTCToSatoshis(amount));
+            const satoshis = this.BTCToSatoshis(amount); // Regular number, not BigInt
             const feeRate = options.feeRate || 10; // sats/byte
 
             // Create PSBT instance with network
@@ -48,7 +48,7 @@ export default class BitcoinNetwork extends BaseNetwork {
             psbt.setVersion(2);
             psbt.setLocktime(0);
 
-            let totalInputValue = 0n;
+            let totalInputValue = 0;
 
             // Add inputs
             for (const utxo of utxos) {
@@ -62,16 +62,16 @@ export default class BitcoinNetwork extends BaseNetwork {
                     sequence: 0xffffffff
                 });
 
-                totalInputValue += BigInt(utxo.value);
+                totalInputValue += utxo.value;
 
                 // Break if we have enough funds (considering estimated fee)
-                const estimatedFee = BigInt(this.estimateTxSize(psbt.inputCount, 2) * feeRate);
+                const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
                 if (totalInputValue >= satoshis + estimatedFee) {
                     break;
                 }
             }
 
-            if (totalInputValue < satoshis + BigInt(feeRate)) {
+            if (totalInputValue < satoshis + feeRate) {
                 throw new Error('Insufficient balance for the transaction including fees.');
             }
 
@@ -82,9 +82,9 @@ export default class BitcoinNetwork extends BaseNetwork {
             });
 
             // Add change output if needed
-            const estimatedFee = BigInt(this.estimateTxSize(psbt.inputCount, 2) * feeRate);
+            const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
             const changeValue = totalInputValue - satoshis - estimatedFee;
-            if (changeValue > 546n) { // Dust threshold
+            if (changeValue > 546) { // Dust threshold
                 psbt.addOutput({
                     address: from.address,
                     value: changeValue
@@ -164,15 +164,23 @@ export default class BitcoinNetwork extends BaseNetwork {
         const path = `m/84'/0'/0'/0/0`; // BIP84 para SegWit nativo
         const child = root.derivePath(path);
 
+        // Convert Uint8Array to Buffer if needed
+        const privateKeyBuffer = Buffer.isBuffer(child.privateKey) 
+            ? child.privateKey 
+            : Buffer.from(child.privateKey);
+        
+        // Create ECPair from the private key buffer
+        const keyPair = ECPair.fromPrivateKey(privateKeyBuffer, { network: this.network });
+        
         const { address } = bitcoin.payments.p2wpkh({
-            pubkey: child.publicKey,
+            pubkey: keyPair.publicKey,
             network: this.network
         });
 
         return {
             address,
-            privateKey: child.toWIF(),
-            publicKey: child.publicKey.toString('hex'),
+            privateKey: keyPair.toWIF(),
+            publicKey: keyPair.publicKey.toString('hex'),
             mnemonic
         };
     }

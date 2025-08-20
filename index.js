@@ -464,17 +464,56 @@ class Wallet {
 
             const transactionHash = receipt?.transactionHash || receipt?.hash || 'UNKNOWN_HASH';
 
-            // Get current balance after transfer
+            // Calculate the post-transaction balance
             let currentBalance = 0;
             try {
                 const walletAddress = await this.getAddress();
+                
+                // Get the balance before transaction for calculation
+                let balanceBeforeTransaction = 0;
                 if (token === this.selectedNetwork.nativeToken) {
-                    currentBalance = await this.network.getBalance(walletAddress);
+                    balanceBeforeTransaction = await this.network.getBalance(walletAddress);
                 } else {
-                    currentBalance = await this.network.getTokenBalance(walletAddress, token);
+                    balanceBeforeTransaction = await this.network.getTokenBalance(walletAddress, token);
                 }
+                
+                // For Bitcoin transactions, calculate the expected balance after transaction
+                if (this.selectedNetwork.nativeToken === 'BTC' && token === this.selectedNetwork.nativeToken) {
+                    // For Bitcoin, we need to estimate the fee that was actually used
+                    // This is an approximation since we don't know the exact fee without parsing the transaction
+                    const estimatedFee = 0.00001; // Approximately 1000 sats as a reasonable estimate
+                    currentBalance = balanceBeforeTransaction - numericAmount - estimatedFee;
+                    
+                    // Ensure balance doesn't go negative
+                    if (currentBalance < 0) {
+                        currentBalance = 0;
+                    }
+                } else {
+                    // For tokens or other networks, subtract only the amount (fees are paid in native token)
+                    currentBalance = balanceBeforeTransaction - numericAmount;
+                    
+                    // Ensure balance doesn't go negative
+                    if (currentBalance < 0) {
+                        currentBalance = 0;
+                    }
+                }
+                
+                // Round to avoid floating point precision issues
+                currentBalance = Math.round(currentBalance * 100000000) / 100000000;
+                
             } catch (error) {
-                console.error('Error getting current balance:', error.message);
+                console.error('Error calculating post-transaction balance:', error.message);
+                // Fallback: try to get current balance from network
+                try {
+                    const walletAddress = await this.getAddress();
+                    if (token === this.selectedNetwork.nativeToken) {
+                        currentBalance = await this.network.getBalance(walletAddress);
+                    } else {
+                        currentBalance = await this.network.getTokenBalance(walletAddress, token);
+                    }
+                } catch (fallbackError) {
+                    console.error('Error getting fallback balance:', fallbackError.message);
+                }
             }
 
             await this.displayTransactionResult(address, token, numericAmount, transactionHash, currentBalance);
