@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.8.2",
+    "version": "1.8.6",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -18,7 +18,10 @@
     },
     "scripts": {
         "start": "node ./index.js",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "node ./test/test-all.js",
+        "test:network": "node ./test/test.js",
+        "test:integration": "node ./test/test-integration.js",
+        "test:quick": "node ./test/test.js --quick"
     },
     "keywords": [
         "hodl",
@@ -60,12 +63,18 @@
         "crypto-js": "^4.2.0",
         "deepbase": "^1.5.2",
         "ecpair": "^2.1.0",
+        "external-editor": "^3.1.0",
         "hdkey": "^2.1.0",
         "inquirer": "^9.3.7",
         "inquirer-autocomplete-prompt": "^3.0.1",
         "inquirer-fuzzy-path": "^2.3.0",
+        "ora": "^8.1.1",
         "tiny-secp256k1": "^2.2.3",
+        "tmp": "^0.2.4",
         "web3": "^4.14.0"
+    },
+    "overrides": {
+        "tmp": "^0.2.4"
     },
     "type": "module"
 }

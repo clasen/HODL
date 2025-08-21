@@ -86,30 +86,68 @@ export default class TONNetwork extends BaseNetwork {
     }
 
     async createAccount() {
-        const mnemonic = await this.generateMnemonic();
-        return this.accountFromMnemonic(mnemonic);
+        try {
+            const mnemonic = await this.generateMnemonic();
+            const account = await this.accountFromMnemonic(mnemonic);
+            
+            // Ensure all required fields are present
+            if (!account.address || !account.privateKey) {
+                throw new Error('Failed to create complete account');
+            }
+            
+            return account;
+        } catch (error) {
+            console.error('Error creating new account:', error.message);
+            throw error;
+        }
     }
 
     async accountFromMnemonic(mnemonic) {
-        const mnemonicArray = Array.isArray(mnemonic) ? mnemonic : mnemonic.split(' ');
-        const keyPair = await mnemonicToPrivateKey(mnemonicArray);
-        const wallet = WalletContractV4.create({ 
-            publicKey: keyPair.publicKey,
-            workchain: 0 
-        });
+        try {
+            const mnemonicArray = Array.isArray(mnemonic) ? mnemonic : mnemonic.split(' ');
+            
+            // Validate mnemonic first
+            if (!mnemonicValidate(mnemonicArray)) {
+                throw new Error('Invalid mnemonic phrase');
+            }
+            
+            const keyPair = await mnemonicToPrivateKey(mnemonicArray);
+            const wallet = WalletContractV4.create({ 
+                publicKey: keyPair.publicKey,
+                workchain: 0 
+            });
 
-        return {
-            address: wallet.address.toString(),
-            publicKey: keyPair.publicKey,
-            // Store secretKey as hex string to avoid Buffer serialization issues
-            secretKey: keyPair.secretKey.toString('hex'),
-            mnemonic: Array.isArray(mnemonic) ? mnemonic.join(' ') : mnemonic
-        };
+            const account = {
+                address: wallet.address.toString(),
+                publicKey: keyPair.publicKey,
+                // Store secretKey as hex string to avoid Buffer serialization issues
+                secretKey: keyPair.secretKey.toString('hex'),
+                privateKey: keyPair.secretKey.toString('hex'), // Add privateKey for compatibility
+                mnemonic: Array.isArray(mnemonic) ? mnemonic.join(' ') : mnemonic
+            };
+            
+            return account;
+        } catch (error) {
+            console.error('Error creating account from mnemonic:', error.message);
+            throw error;
+        }
     }
 
     async createAccountFromMnemonic() {
-        const mnemonic = await this.generateMnemonic();
-        return this.accountFromMnemonic(mnemonic);
+        try {
+            const mnemonic = await this.generateMnemonic();
+            const account = await this.accountFromMnemonic(mnemonic);
+            
+            // Ensure all required fields are present including mnemonic
+            if (!account.address || !account.privateKey || !account.mnemonic) {
+                throw new Error('Failed to create complete account with mnemonic');
+            }
+            
+            return account;
+        } catch (error) {
+            console.error('Error creating account with mnemonic:', error.message);
+            throw error;
+        }
     }
 
     async generateMnemonic() {
@@ -119,7 +157,13 @@ export default class TONNetwork extends BaseNetwork {
 
     validateMnemonic(mnemonic) {
         try {
-            return mnemonicValidate(mnemonic.split(' '));
+            const mnemonicArray = mnemonic.split(' ');
+            // Check if it has exactly 12 or 24 words
+            if (mnemonicArray.length !== 12 && mnemonicArray.length !== 24) {
+                return false;
+            }
+            // Use TON's built-in validation
+            return mnemonicValidate(mnemonicArray);
         } catch {
             return false;
         }

@@ -8,7 +8,6 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import Table from 'cli-table3';
 import os from 'os';
-import inquirerFuzzyPath from 'inquirer-fuzzy-path';
 import ora from 'ora';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -16,7 +15,6 @@ const __dirname = dirname(__filename);
 
 import inquirerAutocomplete from 'inquirer-autocomplete-prompt';
 inquirer.registerPrompt('autocomplete', inquirerAutocomplete);
-inquirer.registerPrompt('fuzzypath', inquirerFuzzyPath);
 
 process.on('SIGINT', () => {
     process.exit();
@@ -727,15 +725,15 @@ class Wallet {
 
     async importHODLFile() {
         const { filePath } = await inquirer.prompt({
-            type: 'fuzzypath',
+            type: 'input',
             name: 'filePath',
-            message: 'Select the .HODL file:',
-            rootPath: '.',
-            itemType: 'file',
-            suggestOnly: false,
-            depthLimit: 5,
-            excludePath: nodePath => nodePath.startsWith('node_modules'),
-            excludeFilter: nodePath => !nodePath.endsWith('.HODL'),
+            message: 'Enter the path to the .HODL file:',
+            validate: (input) => {
+                if (!input) return 'Please enter a file path';
+                if (!input.endsWith('.HODL')) return 'File must have .HODL extension';
+                if (!fs.existsSync(input)) return 'File does not exist';
+                return true;
+            }
         });
 
         if (!fs.existsSync(filePath)) {
