@@ -144,9 +144,11 @@ export default class Web3Network extends BaseNetwork {
         return account;
     }
 
-    async createAccountFromMnemonic() {
+    async createAccountFromMnemonic(wordCount = 12) {
         try {
-            const mnemonic = bip39.generateMnemonic();
+            // Support both 12 and 24 word mnemonics
+            const strength = wordCount === 24 ? 256 : 128; // 256 bits = 24 words, 128 bits = 12 words
+            const mnemonic = bip39.generateMnemonic(strength);
             return this.accountFromMnemonic(mnemonic);
         } catch (error) {
             throw new Error('Failed to create account from mnemonic: ' + error.message);

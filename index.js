@@ -255,7 +255,7 @@ class Wallet {
             }
 
             switch (accountAction) {
-                case 'Import Mnemonic (12 words)':
+                case 'Import Mnemonic (12 or 24 words)':
                     account = await this.importFromMnemonic();
                     if (!account) {
                         // Wallet.displayError('Invalid mnemonic.');
@@ -333,7 +333,7 @@ class Wallet {
         const { mnemonic } = await inquirer.prompt({
             type: 'password',
             name: 'mnemonic',
-            message: 'Enter your 12-word mnemonic phrase:',
+            message: 'Enter your mnemonic phrase (12 or 24 words):',
             mask: '*',
             validate: (input) => {
                 if (input.trim() === '') return true;
@@ -803,7 +803,19 @@ class Wallet {
             });
 
             if (createWithMnemonic) {
-                this.setAccount(await this.network.createAccountFromMnemonic());
+                // Ask for mnemonic word count
+                const { wordCount } = await inquirer.prompt({
+                    type: 'list',
+                    name: 'wordCount',
+                    message: 'Choose mnemonic phrase length:',
+                    choices: [
+                        { name: '12 words (standard)', value: 12 },
+                        { name: '24 words (more secure)', value: 24 }
+                    ],
+                    default: 12
+                });
+                
+                this.setAccount(await this.network.createAccountFromMnemonic(wordCount));
             } else {
                 this.setAccount(await this.network.createAccount());
             }

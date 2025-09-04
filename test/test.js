@@ -197,22 +197,51 @@ class NetworkTester {
             }
         });
 
-        // Test 8: Create account from new mnemonic
+        // Test 8: Create account from new mnemonic (12 words)
         tests.push({
-            name: 'Create Account From New Mnemonic',
+            name: 'Create Account From New Mnemonic (12 words)',
             test: async () => {
-                const account = await instance.createAccountFromMnemonic();
+                const account = await instance.createAccountFromMnemonic(12);
                 
                 if (!account || !account.address || !account.privateKey || !account.mnemonic) {
-                    throw new Error('Account creation with mnemonic failed');
+                    throw new Error('Account creation with 12-word mnemonic failed');
+                }
+                
+                const wordCount = account.mnemonic.split(' ').length;
+                if (wordCount !== 12) {
+                    throw new Error(`Expected 12 words, got: ${wordCount}`);
                 }
                 
                 // Verify the mnemonic is valid
                 if (!instance.validateMnemonic(account.mnemonic)) {
-                    throw new Error('Generated mnemonic is invalid');
+                    throw new Error('Generated 12-word mnemonic is invalid');
                 }
                 
-                return `Account with mnemonic: ${account.address.substring(0, 10)}...`;
+                return `12-word account: ${account.address.substring(0, 10)}...`;
+            }
+        });
+
+        // Test 8b: Create account from new mnemonic (24 words)
+        tests.push({
+            name: 'Create Account From New Mnemonic (24 words)',
+            test: async () => {
+                const account = await instance.createAccountFromMnemonic(24);
+                
+                if (!account || !account.address || !account.privateKey || !account.mnemonic) {
+                    throw new Error('Account creation with 24-word mnemonic failed');
+                }
+                
+                const wordCount = account.mnemonic.split(' ').length;
+                if (wordCount !== 24) {
+                    throw new Error(`Expected 24 words, got: ${wordCount}`);
+                }
+                
+                // Verify the mnemonic is valid
+                if (!instance.validateMnemonic(account.mnemonic)) {
+                    throw new Error('Generated 24-word mnemonic is invalid');
+                }
+                
+                return `24-word account: ${account.address.substring(0, 10)}...`;
             }
         });
 
