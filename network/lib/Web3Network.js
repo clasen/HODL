@@ -89,10 +89,11 @@ export default class Web3Network extends BaseNetwork {
 
     async handleNativeTransfer(account, recipient, amount) {
         const gasPrice = await this.getGasPrice();
+        const valueInWei = this.web3.utils.toWei(amount.toString(), 'ether');
         const gasLimit = await this.estimateGas({
             from: account.address,
             to: recipient,
-            value: amount
+            value: valueInWei
         });
 
         return this.transfer(account, recipient, amount, { gasLimit, gasPrice });

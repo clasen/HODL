@@ -239,7 +239,7 @@ class Wallet {
             }
 
             if (accountAction === 'Import Options') {
-                const importChoices = ['Import Mnemonic (12 or 24 words)', 'Import Private-key', 'Import HODL File', 'Go Back'];
+                const importChoices = ['Import HODL File', 'Import Mnemonic (12 or 24 words)', 'Import Private-key', 'Go Back'];
                 const { importAction } = await inquirer.prompt({
                     type: 'list',
                     name: 'importAction',
