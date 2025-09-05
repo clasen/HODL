@@ -151,11 +151,7 @@ export default class TONNetwork extends BaseNetwork {
     }
 
     async generateMnemonic(wordCount = 12) {
-        // TON supports both 12 and 24 word mnemonics
-        // mnemonicNew() generates 24 words by default, but we can specify word count
-        const mnemonic = wordCount === 24 
-            ? await mnemonicNew(24)  // 24 words
-            : await mnemonicNew();   // 12 words (default)
+        const mnemonic = await mnemonicNew(wordCount);
         return mnemonic.join(' ');
     }
 
