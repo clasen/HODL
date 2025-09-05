@@ -37,20 +37,20 @@ class Wallet {
 
     formatAmount(num) {
         num = parseFloat(num);
-        
+
         // Handle integers - add .00
         if (num === Math.floor(num)) {
             return num.toString() + '.00';
         }
-        
+
         // For decimals, format to max 3 decimal places, then remove trailing zeros
         let formatted = num.toFixed(3);
-        
+
         // Remove trailing zeros, but keep at least 2 decimal places
         while (formatted.endsWith('0') && formatted.split('.')[1].length > 2) {
             formatted = formatted.slice(0, -1);
         }
-        
+
         return formatted;
     }
 
@@ -82,6 +82,9 @@ class Wallet {
     }
 
     setAccount(account) {
+        if (!account) {
+            return;
+        }
         this.db.set('account', this.network.constructor.name, account);
         if (account.mnemonic) {
             this.db.set('mnemonic', account.mnemonic);
@@ -90,8 +93,8 @@ class Wallet {
 
     async getAccount() {
         const account = this.db.get('account', this.network.constructor.name);
-        
-        
+
+
         return account;
     }
 
@@ -111,7 +114,7 @@ class Wallet {
                 head: ['green']
             }
         });
-        
+
         table.push([await this.getAddress()]);
         console.log(table.toString());
     }
@@ -133,18 +136,18 @@ class Wallet {
         const sortedNetworks = networkPlugins.sort((a, b) => {
             const aUsage = this.networkUsage[a.name];
             const bUsage = this.networkUsage[b.name];
-            
+
             // Handle old format (number) vs new format (object)
             const aLastUsed = typeof aUsage === 'object' ? aUsage.lastUsed || 0 : 0;
             const bLastUsed = typeof bUsage === 'object' ? bUsage.lastUsed || 0 : 0;
-            
+
             // If neither has lastUsed timestamp, sort by old count format
             if (aLastUsed === 0 && bLastUsed === 0) {
                 const aCount = typeof aUsage === 'number' ? aUsage : (aUsage?.count || 0);
                 const bCount = typeof bUsage === 'number' ? bUsage : (bUsage?.count || 0);
                 return bCount - aCount;
             }
-            
+
             return bLastUsed - aLastUsed;
         });
 
@@ -167,19 +170,19 @@ class Wallet {
         // Update usage info for the selected network
         // Handle migration from old format (number) to new format (object)
         const currentUsage = this.networkUsage[selectedNetwork.name];
-        
+
         if (!currentUsage || typeof currentUsage === 'number') {
             // Old format (number) or doesn't exist - create new object
-            this.networkUsage[selectedNetwork.name] = { 
-                count: typeof currentUsage === 'number' ? currentUsage + 1 : 1, 
-                lastUsed: Date.now() 
+            this.networkUsage[selectedNetwork.name] = {
+                count: typeof currentUsage === 'number' ? currentUsage + 1 : 1,
+                lastUsed: Date.now()
             };
         } else {
             // New format (object) - update values
             this.networkUsage[selectedNetwork.name].count = (currentUsage.count || 0) + 1;
             this.networkUsage[selectedNetwork.name].lastUsed = Date.now();
         }
-        
+
         await this.db.set('networkUsage', this.networkUsage);
 
         this.selectedNetwork = selectedNetwork;
@@ -197,9 +200,9 @@ class Wallet {
             mainChoices.push('Manage Address Book');
             mainChoices.push('Go Back');
         } else {
-            mainChoices.push('Import Mnemonic (12 words)');
-            mainChoices.push('Import Private-key');
             mainChoices.push('Import HODL File');
+            mainChoices.push('Import Mnemonic (12 or 24 words)');
+            mainChoices.push('Import Private-key');
         }
 
         if (!account || loggedIn) {
@@ -236,7 +239,7 @@ class Wallet {
             }
 
             if (accountAction === 'Import Options') {
-                const importChoices = ['Import Mnemonic (12 words)', 'Import Private-key', 'Import HODL File', 'Go Back'];
+                const importChoices = ['Import Mnemonic (12 or 24 words)', 'Import Private-key', 'Import HODL File', 'Go Back'];
                 const { importAction } = await inquirer.prompt({
                     type: 'list',
                     name: 'importAction',
@@ -268,13 +271,16 @@ class Wallet {
                     await this.importPrivateKey();
                     break;
                 case 'Import HODL File':
-                    this.setAccount(await this.importHODLFile());
-                    await this.displayAccountAddress();
+                    const importedAccount = await this.importHODLFile();
+                    if (importedAccount) {
+                        this.setAccount(importedAccount);
+                        await this.displayAccountAddress();
+                    }
                     break;
             }
 
             if (accountAction === 'Export Options') {
-                const exportChoices = ['Export Private-key', 'Export HODL File', 'Go Back'];
+                const exportChoices = ['Export HODL File', 'Export Private-key', 'Go Back'];
                 const { exportAction } = await inquirer.prompt({
                     type: 'list',
                     name: 'exportAction',
@@ -466,17 +472,17 @@ class Wallet {
             let currentBalance = 0;
             try {
                 const walletAddress = await this.getAddress();
-                
+
                 // Get the balance AFTER transaction (not before)
                 if (token === this.selectedNetwork.nativeToken) {
                     currentBalance = await this.network.getBalance(walletAddress);
                 } else {
                     currentBalance = await this.network.getTokenBalance(walletAddress, token);
                 }
-                
+
                 // Round to avoid floating point precision issues
                 currentBalance = Math.round(currentBalance * 100000000) / 100000000;
-                
+
             } catch (error) {
                 console.error('Error getting post-transaction balance:', error.message);
             }
@@ -724,21 +730,58 @@ class Wallet {
     }
 
     async importHODLFile() {
+        // Scan current directory for .HODL files
+        const currentDir = process.cwd();
+        let hodlFiles = [];
+
+        try {
+            const files = fs.readdirSync(currentDir);
+            hodlFiles = files.filter(file => file.endsWith('.HODL'));
+        } catch (error) {
+            console.error('Error reading directory:', error.message);
+        }
+
+        // Create file options array for autocomplete
+        const fileOptions = hodlFiles.map(file => ({
+            name: file,
+            value: path.join(currentDir, file)
+        }));
+
+        // Use autocomplete pattern similar to transferFunds
         const { filePath } = await inquirer.prompt({
-            type: 'input',
+            type: 'autocomplete',
             name: 'filePath',
-            message: 'Enter the path to the .HODL file:',
-            validate: (input) => {
-                if (!input) return 'Please enter a file path';
-                if (!input.endsWith('.HODL')) return 'File must have .HODL extension';
-                if (!fs.existsSync(input)) return 'File does not exist';
-                return true;
-            }
+            message: 'HODL file path:',
+            source: (answersSoFar, input) => {
+                input = input || '';
+
+                const filenameOptions = fileOptions
+                    .filter(entry => entry.name.toLowerCase().includes(input.toLowerCase()) || entry.value.toLowerCase().includes(input.toLowerCase()))
+                    .map(entry => ({
+                        name: entry.name,
+                        value: entry.value
+                    }));
+
+                // Put path options first, then filename options, then manual input
+                return [].concat([{ name: input, value: input }])
+                    .concat(filenameOptions)
+            },
         });
+
+        // If user leaves empty, skip the operation
+        if (!filePath || filePath.trim() === '') {
+            return null;
+        }
+
+        // Validate the file path
+        if (!filePath.endsWith('.HODL')) {
+            Wallet.displayError('File must have .HODL extension');
+            return null;
+        }
 
         if (!fs.existsSync(filePath)) {
             Wallet.displayError('File not found.');
-            return;
+            return null;
         }
 
         const encryptedData = fs.readFileSync(filePath, 'utf8');
@@ -749,6 +792,7 @@ class Wallet {
             return this.getAccount();
         } catch (error) {
             Wallet.displayError('Failed to import HODL file.', 'The password is incorrect.');
+            return null;
         }
     }
 
@@ -814,7 +858,7 @@ class Wallet {
                     ],
                     default: 12
                 });
-                
+
                 this.setAccount(await this.network.createAccountFromMnemonic(wordCount));
             } else {
                 this.setAccount(await this.network.createAccount());
