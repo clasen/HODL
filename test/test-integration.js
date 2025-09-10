@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-import fs from 'fs';
-import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import Table from 'cli-table3';
@@ -99,7 +97,9 @@ class IntegrationTester extends NetworkTester {
             this.crossNetworkResults.push({
                 test: 'Network Type Distribution',
                 status: totalNetworks === allNetworks.length ? 'PASS' : 'FAIL',
-                message: `Found ${totalNetworks} categorized networks out of ${allNetworks.length} total`,
+                message: tonNetworks.length === 0 ? 
+                    `Found ${totalNetworks} categorized networks out of ${allNetworks.length} total (TON network disabled)` :
+                    `Found ${totalNetworks} categorized networks out of ${allNetworks.length} total`,
                 details: results
             });
             

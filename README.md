@@ -17,7 +17,7 @@ Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. 
 - 🚫 Zero ads, zero BS
 - 🔒 Create wallets offline (because paranoia is just good sense in crypto)
 - 🔍 Fully transparent, open-source code
-- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, TON, Polygon, Avalanche, Optimism, Arbitrum, and Fantom.
+- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, Polygon, Avalanche, Optimism, Arbitrum, and Fantom.
 
 That's it! Follow the prompts and you're in crypto heaven.
 
@@ -44,9 +44,6 @@ Keep your favorite addresses handy. No more copy-pasting!
 Seamlessly manage your assets on multiple networks. HODL Wallet supports the following networks:
 
 - Bitcoin
-- TON (The Open Network)
-  - Native TON transfers
-  - Jetton support (USDT)
 - EVM
   - Ethereum
   - Binance Smart Chain
@@ -75,6 +72,8 @@ The main advantage of exporting a HODL file is that to access the private key, y
 
 We encourage users to perform their own security audits. One easy way to do this is to copy the entire codebase into ChatGPT or another AI assistant and ask if the code appears secure or if there are any malicious intentions. This is a good practice for any open-source project you're considering using.
 
+**For a deeper understanding**: [HODL DeepWiki](https://deepwiki.com/clasen/HODL)
+
 ### 🔑 Private Key Storage
 
 Your private key is securely stored in a JSON file, encrypted with a password of your choice. The encryption adds an extra layer of security, making it significantly harder for unauthorized parties to access your private key even if they gain access to the JSON file.
@@ -98,11 +97,6 @@ We've carefully selected trusted and well-maintained dependencies for this proje
 - Web3
   - **web3**: The Ethereum JavaScript API for blockchain interactions.
   - **hdkey**: For handling hierarchical deterministic (HD) keys.
-- TON
-  - **@ton/ton**: The TON JavaScript SDK for blockchain interactions.
-  - **@ton/core**: Core TON blockchain operations and data structures.
-  - **@ton/crypto**: Cryptographic functions for TON blockchain.
-  - **@orbs-network/ton-access**: For reliable TON network access.
 - Bitcoin
   - **bitcoinjs-lib**: For Bitcoin-specific operations.
   - **bip32**: For handling hierarchical deterministic (HD) keys.
