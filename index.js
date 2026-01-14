@@ -56,7 +56,26 @@ class Wallet {
 
     async initialize() {
         try {
-            this.networkUsage = await this.db.get('networkUsage') || {};
+            const rawNetworkUsage = await this.db.get('networkUsage') || {};
+            
+            // Validate and clean networkUsage data
+            this.networkUsage = {};
+            for (const [networkName, usage] of Object.entries(rawNetworkUsage)) {
+                if (typeof usage === 'number') {
+                    // Old format - convert to new format
+                    this.networkUsage[networkName] = {
+                        count: usage,
+                        lastUsed: 0
+                    };
+                } else if (typeof usage === 'object' && usage !== null && !Array.isArray(usage) && typeof usage.count === 'number') {
+                    // Valid new format
+                    this.networkUsage[networkName] = {
+                        count: usage.count,
+                        lastUsed: usage.lastUsed || 0
+                    };
+                }
+                // Skip corrupted entries (they'll be recreated when needed)
+            }
 
             const networkPlugins = await this.loadNetworkPlugins();
             if (networkPlugins.length === 0) {
@@ -171,8 +190,8 @@ class Wallet {
         // Handle migration from old format (number) to new format (object)
         const currentUsage = this.networkUsage[selectedNetwork.name];
 
-        if (!currentUsage || typeof currentUsage === 'number') {
-            // Old format (number) or doesn't exist - create new object
+        if (!currentUsage || typeof currentUsage === 'number' || typeof currentUsage !== 'object' || currentUsage === null || Array.isArray(currentUsage)) {
+            // Old format (number), doesn't exist, or corrupted data - create new object
             this.networkUsage[selectedNetwork.name] = {
                 count: typeof currentUsage === 'number' ? currentUsage + 1 : 1,
                 lastUsed: Date.now()
