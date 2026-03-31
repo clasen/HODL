@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.9.2",
+    "version": "1.9.4",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -50,12 +50,10 @@
         "clasen"
     ],
     "dependencies": {
-        "axios": "^1.13.2",
         "bip32": "^4.0.0",
         "bip39": "3.1.0",
         "bitcoinjs-lib": "6.1.7",
         "cli-table3": "0.6.5",
-        "crypto-js": "4.2.0",
         "deepbase": "1.5.2",
         "ecpair": "2.1.0",
         "external-editor": "3.1.0",

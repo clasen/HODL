@@ -4,7 +4,6 @@ import bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
 import { BIP32Factory } from 'bip32';
 import { ECPairFactory } from 'ecpair';
-import axios from 'axios';
 
 const bip32 = BIP32Factory(ecc);
 const ECPair = ECPairFactory(ecc);
@@ -19,9 +18,9 @@ export default class BitcoinNetwork extends BaseNetwork {
 
     async getBalance(address) {
         try {
-            const response = await axios.get(`${this.url}/address/${address}`);
-            const chainStats = response.data.chain_stats;
-            const mempoolStats = response.data.mempool_stats;
+            const data = await this.fetchFromApi(`/address/${address}`);
+            const chainStats = data.chain_stats;
+            const mempoolStats = data.mempool_stats;
             const balance = (chainStats.funded_txo_sum - chainStats.spent_txo_sum) +
                 (mempoolStats.funded_txo_sum - mempoolStats.spent_txo_sum);
             return this.satoshisToBTC(balance);
@@ -118,8 +117,7 @@ export default class BitcoinNetwork extends BaseNetwork {
     // Add this helper method to get full transaction data
     async getTransaction(txid) {
         try {
-            const response = await axios.get(`${this.url}/tx/${txid}/hex`);
-            return response.data;
+            return await this.fetchFromApi(`/tx/${txid}/hex`, {}, 'text');
         } catch (error) {
             throw new Error(`Failed to get transaction: ${error.message}`);
         }
@@ -211,8 +209,7 @@ export default class BitcoinNetwork extends BaseNetwork {
 
     async getUTXOs(address) {
         try {
-            const response = await axios.get(`${this.url}/address/${address}/utxo`);
-            return response.data;
+            return await this.fetchFromApi(`/address/${address}/utxo`);
         } catch (error) {
             throw new Error(`Failed to get UTXOs: ${error.message}`);
         }
@@ -224,10 +221,32 @@ export default class BitcoinNetwork extends BaseNetwork {
 
     async sendSignedTransaction(signedTx) {
         try {
-            const response = await axios.post(`${this.url}/tx`, signedTx);
-            return { transactionHash: response.data };
+            const txHash = await this.fetchFromApi(
+                '/tx',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain'
+                    },
+                    body: signedTx
+                },
+                'text'
+            );
+            return { transactionHash: txHash };
         } catch (error) {
             throw new Error(`Failed to broadcast transaction: ${error.message}`);
         }
+    }
+
+    async fetchFromApi(path, options = {}, responseType = 'json') {
+        const response = await fetch(`${this.url}${path}`, options);
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            const details = errorBody ? ` - ${errorBody}` : '';
+            throw new Error(`${response.status} ${response.statusText}${details}`);
+        }
+
+        return responseType === 'text' ? response.text() : response.json();
     }
 } 

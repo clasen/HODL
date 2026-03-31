@@ -92,7 +92,7 @@ We've carefully selected trusted and well-maintained dependencies for this proje
   - **cli-table3**: For creating formatted CLI tables.
   - **ora**: For displaying progress bars.
   - **deepbase**: For persistent storage.
-  - **crypto-js**: For JSON encryption.
+  - **node:crypto**: Native encryption for JSON storage.
   - **bip39**: For generating and handling mnemonic phrases.
 - Web3
   - **web3**: The Ethereum JavaScript API for blockchain interactions.
@@ -102,7 +102,6 @@ We've carefully selected trusted and well-maintained dependencies for this proje
   - **bip32**: For handling hierarchical deterministic (HD) keys.
   - **ecpair**: For elliptic curve pairings.
   - **tiny-secp256k1**: For elliptic curve secp256k1 operations.
-  - **axios**: For making HTTP requests.
 
 ⚠️ **Important Notice**: HODL Wallet is a personal project created with the best intentions. While we strive for security, it may contain security flaws or vulnerabilities. Use at your own risk and always exercise caution with your crypto assets.
 

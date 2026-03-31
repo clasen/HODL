@@ -5,6 +5,6 @@ export default {
     name: '[BTC] Bitcoin',
     url: 'https://blockstream.info/api',
     nativeToken: 'BTC',
-    explorer: 'https://blockstream.info/tx/',
+    explorer: 'https://btcscan.org/tx/',
     tokens: {}
 }; 
