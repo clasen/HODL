@@ -69,5 +69,6 @@
     "overrides": {
         "tmp": "0.2.4"
     },
-    "type": "module"
+    "type": "module",
+    "packageManager": "pnpm@11.1.2"
 }
