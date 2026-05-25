@@ -1,6 +1,7 @@
 import Web3Network from './lib/Web3Network.js';
+import type { NetworkPlugin } from './types.js';
 
-export default {
+const optimism = {
     NetworkClass: Web3Network,
     name: '[ERC-20] Optimism',
     explorer: 'https://optimistic.etherscan.io/tx/',
@@ -11,4 +12,6 @@ export default {
             address: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
         }
     },
-};
+} satisfies NetworkPlugin;
+
+export default optimism;

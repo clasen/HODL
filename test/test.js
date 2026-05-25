@@ -9,6 +9,15 @@ import ora from 'ora';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const AnyTable = /** @type {any} */ (Table);
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
 
 // Test configuration
 const TEST_CONFIG = {
@@ -25,6 +34,7 @@ const TEST_CONFIG = {
 
 class NetworkTester {
     constructor() {
+        /** @type {{ passed: number, failed: number, skipped: number, details: any[] }} */
         this.results = {
             passed: 0,
             failed: 0,
@@ -33,12 +43,16 @@ class NetworkTester {
         };
     }
 
+    /**
+     * @returns {Promise<any[]>}
+     */
     async loadNetworkPlugins() {
         const pluginsDir = path.join(__dirname, '../network');
         const pluginFiles = fs.readdirSync(pluginsDir).filter(file => 
             file.endsWith('.js') && !file.startsWith('.')
         );
 
+        /** @type {any[]} */
         const networks = [];
         
         for (const file of pluginFiles) {
@@ -51,14 +65,19 @@ class NetworkTester {
                     });
                 }
             } catch (error) {
-                console.warn(`Warning: Could not load network plugin ${file}:`, error.message);
+                console.warn(`Warning: Could not load network plugin ${file}:`, errorMessage(error));
             }
         }
 
         return networks;
     }
 
+    /**
+     * @param {any} network
+     * @returns {Promise<Array<{ name: string, test: () => string | Promise<string> }>>}
+     */
     async testNetworkConfiguration(network) {
+        /** @type {Array<{ name: string, test: () => string | Promise<string> }>} */
         const tests = [];
         
         // Test 1: Basic configuration
@@ -91,7 +110,7 @@ class NetworkTester {
                     }
                     return 'Network class instantiated successfully';
                 } catch (error) {
-                    throw new Error(`Instantiation failed: ${error.message}`);
+                    throw new Error(`Instantiation failed: ${errorMessage(error)}`);
                 }
             }
         });
@@ -123,7 +142,12 @@ class NetworkTester {
         return tests;
     }
 
+    /**
+     * @param {any} network
+     * @returns {Promise<Array<{ name: string, test: () => string | Promise<string> }>>}
+     */
     async testNetworkFunctionality(network) {
+        /** @type {Array<{ name: string, test: () => string | Promise<string> }>} */
         const tests = [];
         const instance = new network.NetworkClass(network);
 
@@ -248,7 +272,12 @@ class NetworkTester {
         return tests;
     }
 
+    /**
+     * @param {any} network
+     * @returns {Promise<Array<{ name: string, test: () => string | Promise<string> }>>}
+     */
     async testNetworkConnectivity(network) {
+        /** @type {Array<{ name: string, test: () => string | Promise<string> }>} */
         const tests = [];
         
         // Test 9: Network connectivity (basic)
@@ -269,7 +298,7 @@ class NetworkTester {
                     return 'Network is reachable';
                 } catch (error) {
                     // Don't fail the test for network issues, just report
-                    return `Network unreachable: ${error.message}`;
+                    return `Network unreachable: ${errorMessage(error)}`;
                 }
             }
         });
@@ -277,9 +306,14 @@ class NetworkTester {
         return tests;
     }
 
+    /**
+     * @param {any} network
+     * @returns {Promise<any>}
+     */
     async runTestsForNetwork(network) {
         const spinner = ora(`Testing ${network.name}...`).start();
         
+        /** @type {{ network: string, fileName: string, passed: number, failed: number, skipped: number, tests: any[] }} */
         const networkResults = {
             network: network.name,
             fileName: network.fileName,
@@ -312,7 +346,7 @@ class NetworkTester {
                     networkResults.tests.push({
                         name: test.name,
                         status: 'FAIL',
-                        message: error.message
+                        message: errorMessage(error)
                     });
                     networkResults.failed++;
                     this.results.failed++;
@@ -322,11 +356,11 @@ class NetworkTester {
             spinner.succeed(`${network.name} - ${networkResults.passed} passed, ${networkResults.failed} failed`);
             
         } catch (error) {
-            spinner.fail(`${network.name} - Critical error: ${error.message}`);
+            spinner.fail(`${network.name} - Critical error: ${errorMessage(error)}`);
             networkResults.tests.push({
                 name: 'Critical Error',
                 status: 'FAIL',
-                message: error.message
+                message: errorMessage(error)
             });
             networkResults.failed++;
             this.results.failed++;
@@ -342,7 +376,7 @@ class NetworkTester {
         console.log('='.repeat(80));
 
         // Summary table
-        const summaryTable = new Table({
+        const summaryTable = new AnyTable({
             head: ['Network', 'File', 'Passed', 'Failed', 'Status'],
             style: { head: ['cyan'] },
             colWidths: [30, 15, 8, 8, 10]
@@ -368,7 +402,7 @@ class NetworkTester {
             if (result.tests.length > 0) {
                 console.log(`\n📋 Detailed Results for ${result.network}:`);
                 
-                const detailTable = new Table({
+                const detailTable = new AnyTable({
                     head: ['Test', 'Status', 'Message'],
                     style: { head: ['blue'] },
                     colWidths: [25, 8, 45],
@@ -448,7 +482,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         await tester.runAllTests();
         process.exit(tester.results.failed === 0 ? 0 : 1);
     } catch (error) {
-        console.error('❌ Test runner failed:', error.message);
+        console.error('❌ Test runner failed:', errorMessage(error));
         process.exit(1);
     }
 }

@@ -1,6 +1,7 @@
 import Web3Network from './lib/Web3Network.js';
+import type { NetworkPlugin } from './types.js';
 
-export default {
+const fantom = {
     NetworkClass: Web3Network,
     name: '[ERC-20] Fantom',
     explorer: 'https://ftmscan.com/tx/',
@@ -11,4 +12,6 @@ export default {
             address: '0x049d68029688eAbF473097a2fC38ef61633A3C7A',
         }
     },
-};
+} satisfies NetworkPlugin;
+
+export default fantom;

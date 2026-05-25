@@ -130,7 +130,7 @@ For each network found in `/network/`, these tests are executed:
 ## 🛠️ Troubleshooting
 
 ### Error: "No network plugins found"
-- Verify `.js` files exist in the `/network/` directory
+- Verify compiled `.js` files exist in the `/dist/network/` directory after `pnpm run build`
 - Confirm files export a valid default object
 
 ### Error: "Missing required properties"
@@ -169,7 +169,7 @@ Tests don't require special environment variables, but you can configure:
 
 To add tests for a new network:
 
-1. Create network file in `/network/new-network.js`
+1. Create network file in `/network/new-network.ts`
 2. Ensure it exports object with correct structure
 3. Tests will run automatically
 

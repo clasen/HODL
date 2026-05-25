@@ -6,15 +6,23 @@ const KEY_LENGTH = 32;
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 
+type PersistOptions = {
+    path: string;
+    encryptionKey: string;
+    name?: string;
+    stringify?: (obj: unknown) => string;
+    parse?: (encryptedData: string) => unknown;
+};
+
 class Persist extends Deepbase {
-    constructor(opts) {
+    constructor(opts: PersistOptions) {
         opts.name = 'persist';
-        opts.stringify = (obj) => Persist.encrypt(obj, opts.encryptionKey);
-        opts.parse = (encryptedData) => Persist.decrypt(encryptedData, opts.encryptionKey);
+        opts.stringify = (obj: unknown) => Persist.encrypt(obj, opts.encryptionKey);
+        opts.parse = (encryptedData: string) => Persist.decrypt(encryptedData, opts.encryptionKey);
         super(opts);
     }
 
-    static encrypt(obj, encryptionKey) {
+    static encrypt(obj: unknown, encryptionKey: string): string {
         const salt = crypto.randomBytes(SALT_LENGTH);
         const iv = crypto.randomBytes(IV_LENGTH);
         const key = crypto.scryptSync(encryptionKey, salt, KEY_LENGTH);
@@ -29,7 +37,7 @@ class Persist extends Deepbase {
         return `v2:${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
     }
 
-    static decrypt(encryptedData, encryptionKey) {
+    static decrypt(encryptedData: string, encryptionKey: string): unknown {
         const parts = encryptedData.split(':');
 
         if (parts[0] === 'v2' && parts.length === 5) {
@@ -53,7 +61,7 @@ class Persist extends Deepbase {
         return Persist.decryptLegacy(encryptedData, encryptionKey);
     }
 
-    static decryptLegacy(encryptedData, encryptionKey) {
+    static decryptLegacy(encryptedData: string, encryptionKey: string): unknown {
         const [, encrypted] = encryptedData.split(':');
         const payload = Buffer.from(encrypted, 'base64');
 
@@ -76,7 +84,12 @@ class Persist extends Deepbase {
         return JSON.parse(decrypted.toString('utf8'));
     }
 
-    static evpBytesToKey(password, salt, keyLen, ivLen) {
+    static evpBytesToKey(
+        password: Buffer,
+        salt: Buffer,
+        keyLen: number,
+        ivLen: number
+    ): { key: Buffer; iv: Buffer } {
         let derived = Buffer.alloc(0);
         let block = Buffer.alloc(0);
 

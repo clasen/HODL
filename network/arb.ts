@@ -1,6 +1,7 @@
 import Web3Network from './lib/Web3Network.js';
+import type { NetworkPlugin } from './types.js';
 
-export default {
+const arbitrum = {
     name: '[ERC-20] Arbitrum One',
     NetworkClass: Web3Network,
     explorer: 'https://arbiscan.io/tx/',
@@ -11,4 +12,6 @@ export default {
             address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
         }
     },
-};
+} satisfies NetworkPlugin;
+
+export default arbitrum;

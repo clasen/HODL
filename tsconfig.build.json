@@ -1,0 +1,16 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "rootDir": ".",
+        "outDir": "dist",
+        "noEmit": false,
+        "sourceMap": true,
+        "declaration": true
+    },
+    "exclude": [
+        "dist",
+        "export",
+        "network/disabled",
+        "network/lib/TONNetwork.js"
+    ]
+}

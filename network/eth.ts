@@ -1,6 +1,7 @@
 import Web3Network from './lib/Web3Network.js';
+import type { NetworkPlugin } from './types.js';
 
-export default {
+const ethereum = {
     NetworkClass: Web3Network,
     name: '[ERC-20] Ethereum',
     url: 'https://ethereum.publicnode.com',
@@ -11,4 +12,6 @@ export default {
             address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
         }
     }
-}; 
+} satisfies NetworkPlugin;
+
+export default ethereum;

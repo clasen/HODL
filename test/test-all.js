@@ -3,6 +3,14 @@
 import { NetworkTester } from './test.js';
 import { IntegrationTester } from './test-integration.js';
 import inquirer from 'inquirer';
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
 import Table from 'cli-table3';
 
 class ComprehensiveTester {
@@ -216,7 +224,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         await tester.run();
         process.exit(0);
     } catch (error) {
-        console.error('❌ Test suite failed:', error.message);
+        console.error('❌ Test suite failed:', errorMessage(error));
         process.exit(1);
     }
 }

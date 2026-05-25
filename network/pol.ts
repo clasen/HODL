@@ -1,6 +1,7 @@
 import Web3Network from './lib/Web3Network.js';
+import type { NetworkPlugin } from './types.js';
 
-export default {
+const polygon = {
     NetworkClass: Web3Network,
     name: '[ERC-20] Polygon',
     explorer: 'https://polygonscan.com/tx/',
@@ -11,4 +12,6 @@ export default {
             address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'
         }
     },
-};
+} satisfies NetworkPlugin;
+
+export default polygon;

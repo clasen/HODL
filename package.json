@@ -12,16 +12,29 @@
         "url": "https://github.com/clasen/HODL/issues"
     },
     "homepage": "https://github.com/clasen/HODL#readme",
-    "main": "index.js",
+    "files": [
+        "dist/index.js",
+        "dist/index.d.ts",
+        "dist/index.js.map",
+        "dist/persist.js",
+        "dist/persist.d.ts",
+        "dist/persist.js.map",
+        "dist/network",
+        "README.md"
+    ],
+    "main": "dist/index.js",
     "bin": {
-        "hodl": "index.js"
+        "hodl": "dist/index.js"
     },
     "scripts": {
-        "start": "node ./index.js",
-        "test": "node ./test/test-all.js",
-        "test:network": "node ./test/test.js",
-        "test:integration": "node ./test/test-integration.js",
-        "test:quick": "node ./test/test.js --quick"
+        "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
+        "start": "pnpm run build && node ./dist/index.js",
+        "typecheck": "tsc --noEmit",
+        "test": "pnpm run build && node ./dist/test/test-all.js",
+        "test:network": "pnpm run build && node ./dist/test/test.js",
+        "test:integration": "pnpm run build && node ./dist/test/test-integration.js",
+        "test:quick": "pnpm run build && node ./dist/test/test.js --quick",
+        "prepublishOnly": "pnpm run build && pnpm run test:quick && pnpm run test:integration"
     },
     "keywords": [
         "hodl",
@@ -65,6 +78,10 @@
         "tiny-secp256k1": "2.2.3",
         "tmp": "0.2.4",
         "web3": "4.14.0"
+    },
+    "devDependencies": {
+        "@types/node": "^24.0.0",
+        "typescript": "^5.9.2"
     },
     "overrides": {
         "tmp": "0.2.4"

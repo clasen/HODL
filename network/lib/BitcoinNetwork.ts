@@ -4,54 +4,83 @@ import bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
 import { BIP32Factory } from 'bip32';
 import { ECPairFactory } from 'ecpair';
+import type {
+    NetworkConfig,
+    SignedTransaction,
+    TransferOptions,
+    WalletAccount
+} from '../types.js';
 
 const bip32 = BIP32Factory(ecc);
 const ECPair = ECPairFactory(ecc);
 
+type BitcoinUtxo = { txid: string; vout: number; value: number };
+type BitcoinBroadcastResult = { transactionHash: string };
+type BitcoinAddressStats = {
+    chain_stats: {
+        funded_txo_sum: number;
+        spent_txo_sum: number;
+    };
+    mempool_stats: {
+        funded_txo_sum: number;
+        spent_txo_sum: number;
+    };
+};
+type BitcoinKeyPair = {
+    publicKey: Buffer | Uint8Array;
+    toWIF(): string;
+};
+
 export default class BitcoinNetwork extends BaseNetwork {
-    constructor(config) {
-        super();
-        this.config = config;
-        this.network = bitcoin.networks[config.network || 'bitcoin'];
+    private network: bitcoin.Network;
+    private url: string;
+
+    constructor(config: NetworkConfig) {
+        super(config);
+        const networkName = config.network || 'bitcoin';
+        this.network = networkName === 'testnet' ? bitcoin.networks.testnet : bitcoin.networks.bitcoin;
         this.url = config.url;
     }
 
-    async getBalance(address) {
+    async getBalance(address: string): Promise<number> {
         try {
-            const data = await this.fetchFromApi(`/address/${address}`);
+            const data = await this.fetchFromApi<BitcoinAddressStats>(`/address/${address}`);
             const chainStats = data.chain_stats;
             const mempoolStats = data.mempool_stats;
             const balance = (chainStats.funded_txo_sum - chainStats.spent_txo_sum) +
                 (mempoolStats.funded_txo_sum - mempoolStats.spent_txo_sum);
             return this.satoshisToBTC(balance);
         } catch (error) {
-            throw new Error(`Failed to get balance: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to get balance: ${message}`);
         }
     }
 
-    async getTokenBalance(address, tokenSymbol) {
+    async getTokenBalance(address: string, tokenSymbol: string): Promise<number> {
         if (tokenSymbol === this.config.nativeToken) {
             return await this.getBalance(address);
         }
         throw new Error(`Token ${tokenSymbol} not supported on Bitcoin network`);
     }
 
-    async transfer(from, to, amount, options = {}) {
+    async transfer(
+        from: WalletAccount,
+        to: string,
+        amount: number | string,
+        options: TransferOptions = {}
+    ): Promise<string> {
         try {
             const utxos = await this.getUTXOs(from.address);
-            const satoshis = this.BTCToSatoshis(amount); // Regular number, not BigInt
-            const feeRate = options.feeRate || 10; // sats/byte
+            const satoshis = this.BTCToSatoshis(amount);
+            const feeRate = options.feeRate || 10;
 
-            // Create PSBT instance with network
             const psbt = new bitcoin.Psbt({ network: this.network });
             psbt.setVersion(2);
             psbt.setLocktime(0);
 
             let totalInputValue = 0;
 
-            // Add inputs
             for (const utxo of utxos) {
-                // Get the full transaction for nonWitnessUtxo
                 const txHex = await this.getTransaction(utxo.txid);
 
                 psbt.addInput({
@@ -63,7 +92,6 @@ export default class BitcoinNetwork extends BaseNetwork {
 
                 totalInputValue += utxo.value;
 
-                // Break if we have enough funds (considering estimated fee)
                 const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
                 if (totalInputValue >= satoshis + estimatedFee) {
                     break;
@@ -74,28 +102,24 @@ export default class BitcoinNetwork extends BaseNetwork {
                 throw new Error('Insufficient balance for the transaction including fees.');
             }
 
-            // Add recipient output
             psbt.addOutput({
                 address: to,
                 value: satoshis
             });
 
-            // Add change output if needed
             const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
             const changeValue = totalInputValue - satoshis - estimatedFee;
-            if (changeValue > 546) { // Dust threshold
+            if (changeValue > 546) {
                 psbt.addOutput({
                     address: from.address,
                     value: changeValue
                 });
             }
 
-            // Sign all inputs
             const keyPair = ECPair.fromWIF(from.privateKey, this.network);
             for (let i = 0; i < psbt.inputCount; i++) {
                 psbt.signInput(i, keyPair);
 
-                // Validate signature
                 const valid = psbt.validateSignaturesOfInput(i, (pubkey, msghash, signature) => {
                     return ECPair.fromPublicKey(pubkey).verify(msghash, signature);
                 });
@@ -105,69 +129,74 @@ export default class BitcoinNetwork extends BaseNetwork {
                 }
             }
 
-            // Finalize and extract transaction
             psbt.finalizeAllInputs();
             return psbt.extractTransaction().toHex();
 
         } catch (error) {
-            throw new Error(`Failed to create transaction: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to create transaction: ${message}`);
         }
     }
 
-    // Add this helper method to get full transaction data
-    async getTransaction(txid) {
+    async getTransaction(txid: string): Promise<string> {
         try {
             return await this.fetchFromApi(`/tx/${txid}/hex`, {}, 'text');
         } catch (error) {
-            throw new Error(`Failed to get transaction: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to get transaction: ${message}`);
         }
     }
 
-    // Método para estimar el tamaño de la transacción
-    estimateTxSize(numInputs, numOutputs) {
-        return numInputs * 68 + numOutputs * 31 + 10; // Aproximación para P2WPKH
+    estimateTxSize(numInputs: number, numOutputs: number): number {
+        return numInputs * 68 + numOutputs * 31 + 10;
     }
 
-    // Helper function to create account details from a key pair
-    createAccountDetails(keyPair) {
+    createAccountDetails(keyPair: BitcoinKeyPair): WalletAccount {
         const { address } = bitcoin.payments.p2wpkh({
-            pubkey: keyPair.publicKey,
+            pubkey: Buffer.from(keyPair.publicKey),
             network: this.network
         });
+
+        if (!address) {
+            throw new Error('Failed to derive Bitcoin address.');
+        }
 
         return {
             address,
             privateKey: keyPair.toWIF(),
-            publicKey: keyPair.publicKey.toString('hex')
+            publicKey: Buffer.from(keyPair.publicKey).toString('hex')
         };
     }
 
-    async createAccount() {
+    async createAccount(): Promise<WalletAccount> {
         const keyPair = ECPair.makeRandom({ network: this.network });
         return this.createAccountDetails(keyPair);
     }
 
-    privateKeyToAccount(privateKeyWIF) {
+    async privateKeyToAccount(privateKeyWIF: string): Promise<WalletAccount> {
         try {
             const keyPair = ECPair.fromWIF(privateKeyWIF, this.network);
             return this.createAccountDetails(keyPair);
         } catch (error) {
-            throw new Error(`Failed to derive account from private key: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to derive account from private key: ${message}`);
         }
     }
 
-    async accountFromMnemonic(mnemonic) {
+    async accountFromMnemonic(mnemonic: string): Promise<WalletAccount> {
         const seed = await bip39.mnemonicToSeed(mnemonic);
         const root = bip32.fromSeed(seed, this.network);
-        const path = `m/84'/0'/0'/0/0`; // BIP84 para SegWit nativo
+        const path = `m/84'/0'/0'/0/0`;
         const child = root.derivePath(path);
 
-        // Convert Uint8Array to Buffer if needed
+        if (!child.privateKey) {
+            throw new Error('Failed to derive Bitcoin private key from mnemonic.');
+        }
+
         const privateKeyBuffer = Buffer.isBuffer(child.privateKey) 
             ? child.privateKey 
             : Buffer.from(child.privateKey);
         
-        // Create ECPair from the private key buffer
         const keyPair = ECPair.fromPrivateKey(privateKeyBuffer, { network: this.network });
         
         const { address } = bitcoin.payments.p2wpkh({
@@ -175,51 +204,65 @@ export default class BitcoinNetwork extends BaseNetwork {
             network: this.network
         });
 
+        if (!address) {
+            throw new Error('Failed to derive Bitcoin address from mnemonic.');
+        }
+
         return {
             address,
             privateKey: keyPair.toWIF(),
-            publicKey: keyPair.publicKey.toString('hex'),
+            publicKey: Buffer.from(keyPair.publicKey).toString('hex'),
             mnemonic
         };
     }
 
-    async createAccountFromMnemonic(wordCount = 12) {
+    async createAccountFromMnemonic(wordCount: 12 | 24 = 12): Promise<WalletAccount> {
         try {
-            // Support both 12 and 24 word mnemonics
-            const strength = wordCount === 24 ? 256 : 128; // 256 bits = 24 words, 128 bits = 12 words
+            const strength = wordCount === 24 ? 256 : 128;
             const mnemonic = bip39.generateMnemonic(strength);
             return this.accountFromMnemonic(mnemonic);
         } catch (error) {
-            throw new Error('Failed to create account from mnemonic: ' + error.message);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error('Failed to create account from mnemonic: ' + message);
         }
     }
 
-    validateMnemonic(mnemonic) {
+    validateMnemonic(mnemonic: string): boolean {
         return bip39.validateMnemonic(mnemonic);
     }
 
-    // Métodos auxiliares
-    satoshisToBTC(satoshis) {
+    satoshisToBTC(satoshis: number): number {
         return satoshis / 100000000;
     }
 
-    BTCToSatoshis(btc) {
-        return Math.floor(btc * 100000000);
+    BTCToSatoshis(btc: number | string): number {
+        return Math.floor(Number(btc) * 100000000);
     }
 
-    async getUTXOs(address) {
+    async getUTXOs(address: string): Promise<BitcoinUtxo[]> {
         try {
-            return await this.fetchFromApi(`/address/${address}/utxo`);
+            return await this.fetchFromApi<BitcoinUtxo[]>(`/address/${address}/utxo`);
         } catch (error) {
-            throw new Error(`Failed to get UTXOs: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to get UTXOs: ${message}`);
         }
     }
 
-    async handleNativeTransfer(from, to, amount, options = {}) {
+    async handleNativeTransfer(
+        from: WalletAccount,
+        to: string,
+        amount: number | string,
+        options: TransferOptions = {}
+    ): Promise<string> {
         return this.transfer(from, to, amount, options);
     }
 
-    async sendSignedTransaction(signedTx) {
+    async sendSignedTransaction(signedTx: SignedTransaction | string): Promise<BitcoinBroadcastResult> {
+        const rawTransaction = typeof signedTx === 'string' ? signedTx : signedTx.rawTransaction;
+        if (!rawTransaction) {
+            throw new Error('Signed transaction rawTransaction is required.');
+        }
+
         try {
             const txHash = await this.fetchFromApi(
                 '/tx',
@@ -228,17 +271,24 @@ export default class BitcoinNetwork extends BaseNetwork {
                     headers: {
                         'Content-Type': 'text/plain'
                     },
-                    body: signedTx
+                    body: rawTransaction
                 },
                 'text'
             );
             return { transactionHash: txHash };
         } catch (error) {
-            throw new Error(`Failed to broadcast transaction: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to broadcast transaction: ${message}`);
         }
     }
 
-    async fetchFromApi(path, options = {}, responseType = 'json') {
+    async fetchFromApi(path: string, options: RequestInit | undefined, responseType: 'text'): Promise<string>;
+    async fetchFromApi<T>(path: string, options?: RequestInit, responseType?: 'json'): Promise<T>;
+    async fetchFromApi<T>(
+        path: string,
+        options: RequestInit = {},
+        responseType: 'json' | 'text' = 'json'
+    ): Promise<T | string> {
         const response = await fetch(`${this.url}${path}`, options);
 
         if (!response.ok) {
@@ -248,5 +298,17 @@ export default class BitcoinNetwork extends BaseNetwork {
         }
 
         return responseType === 'text' ? response.text() : response.json();
+    }
+
+    async transferToken(): Promise<never> {
+        throw new Error('Tokens are not supported on Bitcoin network');
+    }
+
+    async estimateGas(): Promise<never> {
+        throw new Error('Gas estimation is not supported on Bitcoin network');
+    }
+
+    async getGasPrice(): Promise<never> {
+        throw new Error('Gas price is not supported on Bitcoin network');
     }
 } 

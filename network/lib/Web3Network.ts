@@ -1,22 +1,34 @@
 import BaseNetwork from './BaseNetwork.js';
-import Web3 from 'web3';
+import { Web3 } from 'web3';
 import { ERC20_ABI } from '../abis/erc20.js';
 import bip39 from 'bip39';
 import hdkey from 'hdkey';
+import type {
+    NetworkConfig,
+    SignedTransaction,
+    TransferOptions,
+    WalletAccount
+} from '../types.js';
 
 export default class Web3Network extends BaseNetwork {
-    constructor(config) {
-        super();
+    private web3: Web3;
+
+    constructor(config: NetworkConfig) {
+        super(config);
         this.web3 = new Web3(config.url);
-        this.config = config;
     }
 
-    async getBalance(address) {
+    async getBalance(address: string): Promise<string> {
         const balanceWei = await this.web3.eth.getBalance(address);
         return this.web3.utils.fromWei(balanceWei, 'ether');
     }
 
-    async transfer(from, to, amount, options = {}) {
+    async transfer(
+        from: WalletAccount,
+        to: string,
+        amount: number | string,
+        options: TransferOptions = {}
+    ): Promise<SignedTransaction> {
         const gasPrice = await this.getGasPrice();
         const gasLimit = options.gasLimit || 21000;
         
@@ -31,13 +43,20 @@ export default class Web3Network extends BaseNetwork {
         return this.web3.eth.accounts.signTransaction(tx, from.privateKey);
     }
 
-    async transferToken(from, to, amount, tokenSymbol, options = {}) {
+    async transferToken(
+        from: WalletAccount,
+        to: string,
+        amount: number | string,
+        tokenSymbol: string,
+        options: TransferOptions = {}
+    ): Promise<SignedTransaction> {
         const tokenConfig = this.config.tokens[tokenSymbol];
         if (!tokenConfig) throw new Error(`Token ${tokenSymbol} not supported`);
 
         const contract = new this.web3.eth.Contract(ERC20_ABI, tokenConfig.address);
-        const decimals = await contract.methods.decimals().call();
-        const value = BigInt(amount * (10 ** decimals));
+        const decimals = Number(await contract.methods.decimals().call());
+        const numericAmount = typeof amount === 'number' ? amount : Number(amount);
+        const value = BigInt(numericAmount * (10 ** decimals));
 
         const data = contract.methods.transfer(to, value.toString()).encodeABI();
         const gasLimit = options.gasLimit || 100000;
@@ -54,15 +73,20 @@ export default class Web3Network extends BaseNetwork {
         return this.web3.eth.accounts.signTransaction(tx, from.privateKey);
     }
 
-    async estimateGas(transaction) {
+    async estimateGas(transaction: Parameters<Web3['eth']['estimateGas']>[0]): Promise<bigint> {
         return this.web3.eth.estimateGas(transaction);
     }
 
-    async getGasPrice() {
+    async getGasPrice(): Promise<bigint> {
         return this.web3.eth.getGasPrice();
     }
 
-    async handleERC20Transfer(account, token, recipient, amount) {
+    async handleERC20Transfer(
+        account: WalletAccount,
+        token: string,
+        recipient: string,
+        amount: number | string
+    ): Promise<SignedTransaction> {
         const tokenConfig = this.config.tokens[token];
         if (!tokenConfig) throw new Error(`Token ${token} not supported`);
 
@@ -87,7 +111,11 @@ export default class Web3Network extends BaseNetwork {
         return this.web3.eth.accounts.signTransaction(tx, account.privateKey);
     }
 
-    async handleNativeTransfer(account, recipient, amount) {
+    async handleNativeTransfer(
+        account: WalletAccount,
+        recipient: string,
+        amount: number | string
+    ): Promise<SignedTransaction> {
         const gasPrice = await this.getGasPrice();
         const valueInWei = this.web3.utils.toWei(amount.toString(), 'ether');
         const gasLimit = await this.estimateGas({
@@ -99,7 +127,7 @@ export default class Web3Network extends BaseNetwork {
         return this.transfer(account, recipient, amount, { gasLimit, gasPrice });
     }
 
-    async getTokenBalance(address, tokenSymbol) {
+    async getTokenBalance(address: string, tokenSymbol: string): Promise<string | number> {
         if (tokenSymbol === this.config.nativeToken) {
             return await this.getBalance(address);
         }
@@ -108,15 +136,15 @@ export default class Web3Network extends BaseNetwork {
         if (!tokenConfig) throw new Error(`Token ${tokenSymbol} not supported`);
 
         const contract = new this.web3.eth.Contract(ERC20_ABI, tokenConfig.address);
-        const balance = await contract.methods.balanceOf(address).call();
-        const decimals = await contract.methods.decimals().call();
+        const balance = String(await contract.methods.balanceOf(address).call());
+        const decimals = Number(await contract.methods.decimals().call());
 
         return Number(
             (BigInt(balance) * 100n) / (10n ** BigInt(decimals))
         ) / 100;
     }
 
-    async privateKeyToAccount(privateKey) {
+    async privateKeyToAccount(privateKey: string): Promise<WalletAccount> {
         if (!privateKey) {
             throw new Error('Private key is required');
         }
@@ -127,40 +155,48 @@ export default class Web3Network extends BaseNetwork {
         try {
             return this.web3.eth.accounts.privateKeyToAccount(formattedKey);
         } catch (error) {
-            throw new Error(`Invalid private key: ${error.message}`);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Invalid private key: ${message}`);
         }
     }
 
-    async createAccount() {
+    async createAccount(): Promise<WalletAccount> {
         return this.web3.eth.accounts.create();
     }
 
-    async accountFromMnemonic(mnemonic) {
+    async accountFromMnemonic(mnemonic: string): Promise<WalletAccount> {
         const seed = await bip39.mnemonicToSeed(mnemonic);
         const root = hdkey.fromMasterSeed(seed);
         const addrNode = root.derive("m/44'/60'/0'/0/0");
         const privateKey = addrNode.privateKey.toString('hex');
         const account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
-        account.mnemonic = mnemonic;
-        return account;
+        return { ...account, mnemonic };
     }
 
-    async createAccountFromMnemonic(wordCount = 12) {
+    async createAccountFromMnemonic(wordCount: 12 | 24 = 12): Promise<WalletAccount> {
         try {
-            // Support both 12 and 24 word mnemonics
-            const strength = wordCount === 24 ? 256 : 128; // 256 bits = 24 words, 128 bits = 12 words
+            const strength = wordCount === 24 ? 256 : 128;
             const mnemonic = bip39.generateMnemonic(strength);
             return this.accountFromMnemonic(mnemonic);
         } catch (error) {
-            throw new Error('Failed to create account from mnemonic: ' + error.message);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error('Failed to create account from mnemonic: ' + message);
         }
     }
 
-    validateMnemonic(mnemonic) {
+    validateMnemonic(mnemonic: string): boolean {
         return bip39.validateMnemonic(mnemonic);
     }
 
-    async sendSignedTransaction(signedTx) {
+    async sendSignedTransaction(signedTx: SignedTransaction | string): Promise<unknown> {
+        if (typeof signedTx === 'string') {
+            return this.web3.eth.sendSignedTransaction(signedTx);
+        }
+
+        if (!signedTx.rawTransaction) {
+            throw new Error('Signed transaction rawTransaction is required.');
+        }
+
         return this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
     }
-} 
+}

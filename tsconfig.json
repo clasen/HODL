@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "strict": true,
+        "allowJs": true,
+        "checkJs": true,
+        "skipLibCheck": true,
+        "types": [
+            "node"
+        ]
+    },
+    "include": [
+        "index.ts",
+        "persist.ts",
+        "network/*.ts",
+        "network/lib/BaseNetwork.ts",
+        "network/lib/Web3Network.ts",
+        "network/lib/BitcoinNetwork.ts",
+        "network/types.ts",
+        "types/**/*.d.ts",
+        "test/**/*.js"
+    ]
+}

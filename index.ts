@@ -9,9 +9,48 @@ import { dirname } from 'path';
 import Table from 'cli-table3';
 import os from 'os';
 import ora from 'ora';
+import type {
+    BaseNetworkContract,
+    NetworkPlugin,
+    NetworkUsage,
+    NetworkUsageEntry,
+    SignedTransaction,
+    WalletAccount
+} from './network/types.js';
 
+type PromptSourceChoice = { name: string; value: string };
+type TransactionReceipt = {
+    transactionHash?: string;
+    hash?: string;
+};
+type StoredContact = {
+    name: string;
+};
+type StoredTransaction = {
+    timestamp: string;
+    recipient: string;
+    token: string;
+    amount: number;
+    hash: string;
+    balance?: number;
+};
+
+const AnyTable: any = Table;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+function isNetworkUsageEntry(value: unknown): value is NetworkUsageEntry {
+    return (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value) &&
+        typeof (value as Partial<NetworkUsageEntry>).count === 'number'
+    );
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
 
 import inquirerAutocomplete from 'inquirer-autocomplete-prompt';
 inquirer.registerPrompt('autocomplete', inquirerAutocomplete);
@@ -21,7 +60,12 @@ process.on('SIGINT', () => {
 });
 
 class Wallet {
-    constructor(encryptionKey) {
+    private db: Persist;
+    private network: BaseNetworkContract;
+    private selectedNetwork: NetworkPlugin;
+    private networkUsage: NetworkUsage;
+
+    constructor(encryptionKey: string) {
         const hodlDir = path.join(os.homedir(), '.HODL');
 
         if (!fs.existsSync(hodlDir)) {
@@ -30,13 +74,17 @@ class Wallet {
 
         this.db = new Persist({ path: hodlDir, encryptionKey });
 
-        this.network = null;
-        this.selectedNetwork = null;
+        this.network = null as unknown as BaseNetworkContract;
+        this.selectedNetwork = null as unknown as NetworkPlugin;
         this.networkUsage = {};
     }
 
-    formatAmount(num) {
-        num = parseFloat(num);
+    /**
+     * @param {number | string} num
+     * @returns {string}
+     */
+    formatAmount(num: number | string): string {
+        num = parseFloat(num.toString());
 
         // Handle integers - add .00
         if (num === Math.floor(num)) {
@@ -54,7 +102,7 @@ class Wallet {
         return formatted;
     }
 
-    async initialize() {
+    async initialize(): Promise<void> {
         try {
             const rawNetworkUsage = await this.db.get('networkUsage') || {};
             
@@ -67,7 +115,7 @@ class Wallet {
                         count: usage,
                         lastUsed: 0
                     };
-                } else if (typeof usage === 'object' && usage !== null && !Array.isArray(usage) && typeof usage.count === 'number') {
+                } else if (isNetworkUsageEntry(usage)) {
                     // Valid new format
                     this.networkUsage[networkName] = {
                         count: usage.count,
@@ -100,7 +148,11 @@ class Wallet {
         }
     }
 
-    setAccount(account) {
+    /**
+     * @param {WalletAccount | any} account
+     * @returns {void}
+     */
+    setAccount(account: WalletAccount | null): void {
         if (!account) {
             return;
         }
@@ -110,24 +162,23 @@ class Wallet {
         }
     }
 
-    async getAccount() {
+    async getAccount(): Promise<WalletAccount | null> {
         const account = this.db.get('account', this.network.constructor.name);
 
-
-        return account;
+        return account ?? null;
     }
 
-    async getAddress() {
+    async getAddress(): Promise<string> {
         return this.db.get('account', this.network.constructor.name, 'address');
     }
 
-    async getMnemonic() {
-        return this.db.get('mnemonic');
+    async getMnemonic(): Promise<string | null> {
+        return this.db.get('mnemonic') ?? null;
     }
 
-    async displayAccountAddress() {
+    async displayAccountAddress(): Promise<void> {
 
-        const table = new Table({
+        const table = new AnyTable({
             head: [`${this.selectedNetwork.name} Address`],
             style: {
                 head: ['green']
@@ -138,19 +189,30 @@ class Wallet {
         console.log(table.toString());
     }
 
-    async loadNetworkPlugins() {
+    /**
+     * @returns {Promise<NetworkPlugin[]>}
+     */
+    async loadNetworkPlugins(): Promise<NetworkPlugin[]> {
         const pluginsDir = path.join(__dirname, 'network');
         const pluginFiles = fs.readdirSync(pluginsDir).filter(file => file.endsWith('.js'));
 
         const networks = await Promise.all(pluginFiles.map(async file => {
-            const plugin = await import(`./network/${file}`);
-            return plugin.default;
+            const plugin = await import(`./network/${file}`) as { default: NetworkPlugin };
+            return { ...plugin.default, fileName: file };
         }));
 
         return networks.filter(network => network && network.name);
     }
 
-    async selectNetwork(networkPlugins, { autoSelect = false } = {}) {
+    /**
+     * @param {NetworkPlugin[]} networkPlugins
+     * @param {{ autoSelect?: boolean }} [options]
+     * @returns {Promise<void>}
+     */
+    async selectNetwork(
+        networkPlugins: NetworkPlugin[],
+        { autoSelect = false }: { autoSelect?: boolean } = {}
+    ): Promise<void> {
         // Sort networks by last used timestamp (most recent first)
         const sortedNetworks = networkPlugins.sort((a, b) => {
             const aUsage = this.networkUsage[a.name];
@@ -170,7 +232,7 @@ class Wallet {
             return bLastUsed - aLastUsed;
         });
 
-        let selectedNetwork;
+        let selectedNetwork: NetworkPlugin | undefined;
 
         if (autoSelect) {
             // Automatically select the first network (most recently used)
@@ -186,6 +248,10 @@ class Wallet {
             selectedNetwork = sortedNetworks.find(plugin => plugin.name === network);
         }
 
+        if (!selectedNetwork) {
+            throw new Error('Selected network was not found.');
+        }
+
         // Update usage info for the selected network
         // Handle migration from old format (number) to new format (object)
         const currentUsage = this.networkUsage[selectedNetwork.name];
@@ -196,10 +262,15 @@ class Wallet {
                 count: typeof currentUsage === 'number' ? currentUsage + 1 : 1,
                 lastUsed: Date.now()
             };
-        } else {
+        } else if (isNetworkUsageEntry(currentUsage)) {
             // New format (object) - update values
-            this.networkUsage[selectedNetwork.name].count = (currentUsage.count || 0) + 1;
-            this.networkUsage[selectedNetwork.name].lastUsed = Date.now();
+            currentUsage.count = (currentUsage.count || 0) + 1;
+            currentUsage.lastUsed = Date.now();
+        } else {
+            this.networkUsage[selectedNetwork.name] = {
+                count: 1,
+                lastUsed: Date.now()
+            };
         }
 
         await this.db.set('networkUsage', this.networkUsage);
@@ -207,7 +278,11 @@ class Wallet {
         this.selectedNetwork = selectedNetwork;
     }
 
-    async loadAccount(loggedIn = false) {
+    /**
+     * @param {boolean} [loggedIn]
+     * @returns {Promise<void>}
+     */
+    async loadAccount(loggedIn = false): Promise<void> {
         let account = await this.getAccount();
 
         const mainChoices = ['Create New Account'];
@@ -339,7 +414,10 @@ class Wallet {
         this.setAccount(account);
     }
 
-    async confirmOverwrite() {
+    /**
+     * @returns {Promise<boolean>}
+     */
+    async confirmOverwrite(): Promise<boolean> {
         if (await this.getAccount()) {
             const { confirmOverwrite } = await inquirer.prompt({
                 type: 'confirm',
@@ -354,13 +432,16 @@ class Wallet {
         return true;
     }
 
-    async importFromMnemonic() {
+    /**
+     * @returns {Promise<WalletAccount | null>}
+     */
+    async importFromMnemonic(): Promise<WalletAccount | null> {
         const { mnemonic } = await inquirer.prompt({
             type: 'password',
             name: 'mnemonic',
             message: 'Enter your mnemonic phrase (12 or 24 words):',
             mask: '*',
-            validate: (input) => {
+            validate: (input: string) => {
                 if (input.trim() === '') return true;
                 return this.network.validateMnemonic(input) || 'Please enter a valid mnemonic phrase or leave empty to cancel.';
             }
@@ -371,7 +452,7 @@ class Wallet {
         return this.network.accountFromMnemonic(mnemonic);
     }
 
-    async showBalance() {
+    async showBalance(): Promise<void> {
         const account = await this.getAccount();
 
         if (!account) {
@@ -381,7 +462,7 @@ class Wallet {
 
         const balances = await this.network.getTokenBalances(await this.getAddress());
 
-        const table = new Table({
+        const table = new AnyTable({
             head: ['Token', 'Balance'],
             style: { head: ['blue'] },
             colWidths: [21, 22]
@@ -394,9 +475,9 @@ class Wallet {
         console.log(table.toString());
     }
 
-    async transferFunds() {
-        const contacts = await this.db.entries('contact', this.network.name) || [];
-        const addressBook = contacts.map(([address, data]) => ({
+    async transferFunds(): Promise<void> {
+        const contacts = await this.db.entries('contact', this.network.name ?? '') || [];
+        const addressBook = contacts.map(([address, data]: [string, StoredContact]) => ({
             address,
             name: data.name
         }));
@@ -408,7 +489,7 @@ class Wallet {
             type: 'autocomplete',
             name: 'recipient',
             message: 'Recipient address:',
-            source: (answersSoFar, input) => {
+            source: (_answersSoFar: Record<string, unknown>, input = ''): PromptSourceChoice[] => {
                 input = input || '';
                 return addressBook
                     .filter(entry => entry.name.toLowerCase().includes(input.toLowerCase()) || entry.address.toLowerCase().includes(input.toLowerCase()))
@@ -442,9 +523,9 @@ class Wallet {
             type: 'input',
             name: 'amount',
             message: `Amount to transfer:`,
-            validate: value => {
+            validate: (value: string) => {
                 if (value.trim() === '') return true;
-                return !isNaN(value) && Number(value) > 0 ? true : 'Please enter a valid number or leave empty to cancel.';
+                return !Number.isNaN(Number(value)) && Number(value) > 0 ? true : 'Please enter a valid number or leave empty to cancel.';
             },
         });
 
@@ -473,15 +554,24 @@ class Wallet {
         }).start();
 
         try {
-            let signedTx;
+            let signedTx: SignedTransaction | string | unknown;
             const account = await this.getAccount();
+            if (!account) {
+                throw new Error('Account not initialized.');
+            }
             if (token === this.selectedNetwork.nativeToken) {
+                if (!this.network.handleNativeTransfer) {
+                    throw new Error('Selected network does not support native transfers.');
+                }
                 signedTx = await this.network.handleNativeTransfer(account, address, numericAmount);
             } else {
+                if (!this.network.handleERC20Transfer) {
+                    throw new Error('Selected network does not support token transfers.');
+                }
                 signedTx = await this.network.handleERC20Transfer(account, token, address, numericAmount);
             }
 
-            const receipt = await this.network.sendSignedTransaction(signedTx);
+            const receipt = await this.network.sendSignedTransaction(signedTx as SignedTransaction | string) as TransactionReceipt;
 
             spinner.succeed('Transaction confirmed!');
 
@@ -494,16 +584,16 @@ class Wallet {
 
                 // Get the balance AFTER transaction (not before)
                 if (token === this.selectedNetwork.nativeToken) {
-                    currentBalance = await this.network.getBalance(walletAddress);
+                    currentBalance = Number(await this.network.getBalance(walletAddress));
                 } else {
-                    currentBalance = await this.network.getTokenBalance(walletAddress, token);
+                    currentBalance = Number(await this.network.getTokenBalance(walletAddress, token));
                 }
 
                 // Round to avoid floating point precision issues
                 currentBalance = Math.round(currentBalance * 100000000) / 100000000;
 
             } catch (error) {
-                console.error('Error getting post-transaction balance:', error.message);
+                console.error('Error getting post-transaction balance:', errorMessage(error));
             }
 
             await this.displayTransactionResult(address, token, numericAmount, transactionHash, currentBalance);
@@ -512,7 +602,7 @@ class Wallet {
             await this.addToTransactions(address, token, numericAmount, transactionHash, currentBalance);
 
             // Check if the address is already in contacts before asking to add it
-            const existingContact = await this.db.get('contact', this.network.name, address);
+            const existingContact = await this.db.get('contact', this.network.name ?? '', address);
             if (!existingContact) {
                 await this.addToAddressBook(address);
             }
@@ -523,13 +613,26 @@ class Wallet {
         }
     }
 
-    displayTransactionError(error) {
-        const data = error.reason ? error.reason.replace(/(\w+):/g, "\n$1:").trim() : null;
-        Wallet.displayError(error.message, data);
+    /**
+     * @param {any} error
+     * @returns {void}
+     */
+    displayTransactionError(error: unknown): void {
+        const reason = typeof error === 'object' && error !== null && 'reason' in error
+            ? String(error.reason)
+            : null;
+        const message = error instanceof Error ? error.message : errorMessage(error);
+        const data = reason ? reason.replace(/(\w+):/g, "\n$1:").trim() : null;
+        Wallet.displayError(message, data);
     }
 
-    static displayError(message, data) {
-        const table = new Table({
+    /**
+     * @param {string} message
+     * @param {unknown} [data]
+     * @returns {void}
+     */
+    static displayError(message: string, data?: unknown): void {
+        const table = new AnyTable({
             head: [message],
             style: { head: ['red'] },
             wordWrap: true,
@@ -542,7 +645,11 @@ class Wallet {
         console.log(table.toString());
     }
 
-    formatDate(date) {
+    /**
+     * @param {string | number | Date} date
+     * @returns {string}
+     */
+    formatDate(date: string | number | Date): string {
         return new Date(date).toLocaleString('en-GB', {
             year: 'numeric',
             month: '2-digit',
@@ -553,7 +660,21 @@ class Wallet {
         }).replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1').replace(",", "");
     }
 
-    async addToTransactions(recipient, token, amount, hash, balance) {
+    /**
+     * @param {string} recipient
+     * @param {string} token
+     * @param {number} amount
+     * @param {string} hash
+     * @param {number} balance
+     * @returns {Promise<void>}
+     */
+    async addToTransactions(
+        recipient: string,
+        token: string,
+        amount: number,
+        hash: string,
+        balance: number
+    ): Promise<void> {
         const transaction = {
             timestamp: new Date().toISOString(),
             recipient,
@@ -566,11 +687,11 @@ class Wallet {
         this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
     }
 
-    async showTransactions() {
+    async showTransactions(): Promise<void> {
         const address = await this.getAddress();
-        const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) || [];
+        const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) as StoredTransaction[] || [];
 
-        const table = new Table({
+        const table = new AnyTable({
             head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance'],
             style: { head: ['blue'] },
         });
@@ -581,7 +702,7 @@ class Wallet {
 
         for (const tx of history) {
             const date = this.formatDate(tx.timestamp);
-            const contact = await this.db.get('contact', this.network.name, tx.recipient);
+            const contact = await this.db.get('contact', this.network.name, tx.recipient) as StoredContact | undefined;
             const contactName = contact ? contact.name : '-';
             const amount = this.formatAmount(tx.amount);
             const balance = tx.balance !== undefined ? this.formatAmount(tx.balance) : '-';
@@ -592,7 +713,11 @@ class Wallet {
         console.log(table.toString());
     }
 
-    async addToAddressBook(address) {
+    /**
+     * @param {string} address
+     * @returns {Promise<void>}
+     */
+    async addToAddressBook(address: string): Promise<void> {
         const { name } = await inquirer.prompt({
             type: 'input',
             name: 'name',
@@ -602,7 +727,7 @@ class Wallet {
         if (name.trim() !== '') {
             await this.db.set('contact', this.network.name, address, 'name', name);
 
-            const table = new Table({
+            const table = new AnyTable({
                 head: [{ colSpan: 2, content: "Recipient saved to the address book." }],
                 style: { head: ['green'] },
             });
@@ -612,15 +737,15 @@ class Wallet {
         }
     }
 
-    async deleteFromAddressBook() {
-        const contacts = await this.db.get('contact', this.network.name) || {};
+    async deleteFromAddressBook(): Promise<void> {
+        const contacts = await this.db.get('contact', this.network.name) as Record<string, StoredContact> || {};
         const addressBook = Object.entries(contacts).map(([address, data]) => ({
             address,
             name: data.name
         }));
 
         if (addressBook.length === 0) {
-            const table = new Table({
+            const table = new AnyTable({
                 head: ['Address Book'],
                 style: { head: ['yellow'] },
             });
@@ -652,7 +777,7 @@ class Wallet {
 
         if (confirmDelete) {
             await this.db.del('contact', this.network.name, addressToDelete);
-            const table = new Table({
+            const table = new AnyTable({
                 head: ['Address Book'],
                 style: { head: ['green'] },
             });
@@ -661,15 +786,29 @@ class Wallet {
         }
     }
 
-    async displayTransactionResult(address, token, amount, hash, balance) {
-        const table = new Table({
+    /**
+     * @param {string} address
+     * @param {string} token
+     * @param {number} amount
+     * @param {string} hash
+     * @param {number} balance
+     * @returns {Promise<void>}
+     */
+    async displayTransactionResult(
+        address: string,
+        token: string,
+        amount: number,
+        hash: string,
+        balance: number
+    ): Promise<void> {
+        const table = new AnyTable({
             head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance'],
             style: { head: ['green'] },
         });
 
         const date = this.formatDate(new Date());
 
-        const contact = await this.db.get('contact', this.network.name, address);
+        const contact = await this.db.get('contact', this.network.name, address) as StoredContact | undefined;
         const contactName = contact ? contact.name : '-';
 
         table.push([date, address, contactName, token, this.formatAmount(amount), this.formatAmount(balance)]);
@@ -678,19 +817,23 @@ class Wallet {
         console.log(table.toString());
     }
 
-    clearAccountData() {
+    clearAccountData(): void {
 
     }
 
-    async displayAccountDetails() {
+    async displayAccountDetails(): Promise<void> {
 
-        const table = new Table({
+        const table = new AnyTable({
             head: [{ colSpan: 2, content: 'Account Details' }],
             style: { head: ['green'] },
             wordWrap: true
         });
 
         const account = await this.getAccount();
+        if (!account) {
+            Wallet.displayError('Account not initialized.');
+            return;
+        }
         table.push(
             ['Address', await this.getAddress()],
             ['Private-key', account.privateKey]
@@ -707,7 +850,7 @@ class Wallet {
         console.log(table.toString());
     }
 
-    async switchNetwork() {
+    async switchNetwork(): Promise<void> {
         const networkPlugins = await this.loadNetworkPlugins();
         await this.selectNetwork(networkPlugins);
         this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
@@ -722,7 +865,7 @@ class Wallet {
         }
     }
 
-    async exportHODLFile() {
+    async exportHODLFile(): Promise<void> {
         const address = await this.getAddress();
         const defaultFileName = `${address.slice(-6).toUpperCase()}`;
         let { fileName } = await inquirer.prompt({
@@ -740,7 +883,7 @@ class Wallet {
 
         fs.writeFileSync(fileName, encryptedData);
 
-        const table = new Table({
+        const table = new AnyTable({
             head: ['HODL File Exported'],
             style: { head: ['green'] }
         });
@@ -748,16 +891,16 @@ class Wallet {
         console.log(table.toString());
     }
 
-    async importHODLFile() {
+    async importHODLFile(): Promise<WalletAccount | null> {
         // Scan current directory for .HODL files
         const currentDir = process.cwd();
-        let hodlFiles = [];
+        let hodlFiles: string[] = [];
 
         try {
             const files = fs.readdirSync(currentDir);
             hodlFiles = files.filter(file => file.endsWith('.HODL'));
         } catch (error) {
-            console.error('Error reading directory:', error.message);
+            console.error('Error reading directory:', errorMessage(error));
         }
 
         // Create file options array for autocomplete
@@ -771,7 +914,7 @@ class Wallet {
             type: 'autocomplete',
             name: 'filePath',
             message: 'HODL file path:',
-            source: (answersSoFar, input) => {
+            source: (_answersSoFar: Record<string, unknown>, input = ''): PromptSourceChoice[] => {
                 input = input || '';
 
                 const filenameOptions = fileOptions
@@ -782,8 +925,7 @@ class Wallet {
                     }));
 
                 // Put path options first, then filename options, then manual input
-                return [].concat([{ name: input, value: input }])
-                    .concat(filenameOptions)
+                return [{ name: input, value: input }, ...filenameOptions];
             },
         });
 
@@ -815,13 +957,13 @@ class Wallet {
         }
     }
 
-    async importPrivateKey() {
+    async importPrivateKey(): Promise<void> {
         const { privateKey } = await inquirer.prompt({
             type: 'password',
             name: 'privateKey',
             message: 'Private-key (leave empty to cancel):',
             mask: '*',
-            validate: (input) => {
+            validate: (input: string) => {
                 if (input.trim() === '') return true;
                 return /^(0x)?[0-9a-fA-F]{64}$/.test(input) || 'Please enter a valid private-key or leave empty to cancel.';
             }
@@ -839,7 +981,7 @@ class Wallet {
         }
     }
 
-    async createNewAccount() {
+    async createNewAccount(): Promise<void> {
         let existingMnemonic = await this.getMnemonic();
         let useMnemonic = false;
 
@@ -878,7 +1020,7 @@ class Wallet {
                     default: 12
                 });
 
-                this.setAccount(await this.network.createAccountFromMnemonic(wordCount));
+                this.setAccount(await this.network.createAccountFromMnemonic(wordCount as 12 | 24));
             } else {
                 this.setAccount(await this.network.createAccount());
             }
@@ -899,7 +1041,7 @@ class Wallet {
 
                 await this.db.del('contact');
 
-                const table = new Table({
+                const table = new AnyTable({
                     head: ['Address Book'],
                     style: { head: ['green'] },
                 });
@@ -930,7 +1072,7 @@ class Wallet {
 }
 
 class UIManager {
-    static displayWelcome() {
+    static displayWelcome(): void {
         console.log('\x1b[32m');  // Set text color to green
         console.log(` ░░░░░░░░░░░░░░ █ █ █▀█ █▀▄ █   ░░░░░░░░░░░░░░
  ░░░░░░░░░░░░░░ █▀█ █▄█ █▄▀ █▄▄ ░░░░░░░░░░░░░░
@@ -938,7 +1080,7 @@ class UIManager {
         console.log('\x1b[0m');  // Reset text color
     }
 
-    static async getEncryptionKey() {
+    static async getEncryptionKey(): Promise<string> {
         const { key } = await inquirer.prompt({
             type: 'password',
             name: 'key',
@@ -948,7 +1090,7 @@ class UIManager {
         return key;
     }
 
-    static async confirmEncryptionKey() {
+    static async confirmEncryptionKey(): Promise<string> {
         const { confirmKey } = await inquirer.prompt({
             type: 'password',
             name: 'confirmKey',
@@ -958,7 +1100,7 @@ class UIManager {
         return confirmKey;
     }
 
-    static displayExitPhrase() {
+    static displayExitPhrase(): void {
         const phrases = [
             "Buy the rumor, sell the news",
             "The trend is your friend",
@@ -988,7 +1130,7 @@ class UIManager {
         ];
         const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
 
-        const table = new Table({
+        const table = new AnyTable({
             head: ['✨ Good bye!'],
             style: { head: ['yellow'] },
             wordWrap: true,
@@ -1002,12 +1144,12 @@ class UIManager {
 
 UIManager.displayWelcome();
 const encryptionKey = await UIManager.getEncryptionKey();
-let wallet;
+let wallet: Wallet;
 
 try {
     wallet = new Wallet(encryptionKey);
 } catch (error) {
-    console.error(error.message);
+    console.error(errorMessage(error));
     Wallet.displayError('Wrong password.');
     process.exit(1);
 }
@@ -1035,7 +1177,7 @@ process.on('exit', () => {
     UIManager.displayExitPhrase();
 });
 
-async function mainMenu() {
+async function mainMenu(): Promise<void> {
     const { action } = await inquirer.prompt({
         type: 'list',
         name: 'action',

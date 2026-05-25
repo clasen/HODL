@@ -8,10 +8,20 @@ import { NetworkTester, TEST_CONFIG } from './test.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const AnyTable = /** @type {any} */ (Table);
+
+/**
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
 
 class IntegrationTester extends NetworkTester {
     constructor() {
         super();
+        /** @type {any[]} */
         this.crossNetworkResults = [];
     }
 
@@ -38,11 +48,16 @@ class IntegrationTester extends NetworkTester {
         this.displayIntegrationResults();
     }
 
+    /**
+     * @param {any[]} web3Networks
+     * @returns {Promise<void>}
+     */
     async testMnemonicConsistency(web3Networks) {
         const spinner = ora('Testing mnemonic consistency across Web3 networks...').start();
         
         try {
             const testMnemonic = TEST_CONFIG.TEST_MNEMONIC;
+            /** @type {Record<string, string>} */
             const addresses = {};
             
             for (const network of web3Networks) {
@@ -72,15 +87,21 @@ class IntegrationTester extends NetworkTester {
             
             spinner.succeed('Mnemonic consistency test completed');
         } catch (error) {
-            spinner.fail(`Mnemonic consistency test failed: ${error.message}`);
+            spinner.fail(`Mnemonic consistency test failed: ${errorMessage(error)}`);
             this.crossNetworkResults.push({
                 test: 'Mnemonic Consistency',
                 status: 'FAIL',
-                message: error.message
+                message: errorMessage(error)
             });
         }
     }
 
+    /**
+     * @param {any[]} web3Networks
+     * @param {any[]} bitcoinNetworks
+     * @param {any[]} tonNetworks
+     * @returns {Promise<void>}
+     */
     async testNetworkTypeGrouping(web3Networks, bitcoinNetworks, tonNetworks) {
         const spinner = ora('Testing network type grouping...').start();
         
@@ -105,14 +126,19 @@ class IntegrationTester extends NetworkTester {
             
             spinner.succeed('Network type grouping completed');
         } catch (error) {
-            spinner.fail(`Network type grouping failed: ${error.message}`);
+            spinner.fail(`Network type grouping failed: ${errorMessage(error)}`);
         }
     }
 
+    /**
+     * @param {any[]} networks
+     * @returns {Promise<void>}
+     */
     async testTokenConsistency(networks) {
         const spinner = ora('Testing token configuration consistency...').start();
         
         try {
+            /** @type {Record<string, any[]>} */
             const tokensBySymbol = {};
             
             for (const network of networks) {
@@ -147,14 +173,19 @@ class IntegrationTester extends NetworkTester {
             
             spinner.succeed('Token consistency test completed');
         } catch (error) {
-            spinner.fail(`Token consistency test failed: ${error.message}`);
+            spinner.fail(`Token consistency test failed: ${errorMessage(error)}`);
         }
     }
 
+    /**
+     * @param {any[]} networks
+     * @returns {Promise<void>}
+     */
     async testExplorerUrls(networks) {
         const spinner = ora('Testing explorer URL formats...').start();
         
         try {
+            /** @type {any[]} */
             const invalidUrls = [];
             const urlPattern = /^https?:\/\/.+\/$/;
             
@@ -179,7 +210,7 @@ class IntegrationTester extends NetworkTester {
             
             spinner.succeed('Explorer URL test completed');
         } catch (error) {
-            spinner.fail(`Explorer URL test failed: ${error.message}`);
+            spinner.fail(`Explorer URL test failed: ${errorMessage(error)}`);
         }
     }
 
@@ -188,7 +219,7 @@ class IntegrationTester extends NetworkTester {
         console.log('🔗 INTEGRATION TEST RESULTS');
         console.log('='.repeat(80));
 
-        const integrationTable = new Table({
+        const integrationTable = new AnyTable({
             head: ['Test', 'Status', 'Message'],
             style: { head: ['cyan'] },
             colWidths: [25, 8, 45],
@@ -226,7 +257,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         await tester.testWalletIntegration();
         process.exit(0);
     } catch (error) {
-        console.error('❌ Integration test runner failed:', error.message);
+        console.error('❌ Integration test runner failed:', errorMessage(error));
         process.exit(1);
     }
 }

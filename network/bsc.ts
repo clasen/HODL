@@ -1,6 +1,7 @@
 import Web3Network from './lib/Web3Network.js';
+import type { NetworkPlugin } from './types.js';
 
-export default {
+const bsc = {
     NetworkClass: Web3Network,
     name: '[BEP-20] Binance Smart Chain',
     url: 'https://bsc-dataseed1.binance.org',
@@ -11,4 +12,6 @@ export default {
             address: '0x55d398326f99059fF775485246999027B3197955',
         }
     }
-}; 
+} satisfies NetworkPlugin;
+
+export default bsc;

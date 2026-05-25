@@ -1,4 +1,3 @@
-// Crear un nuevo archivo para el ABI
 export const ERC20_ABI = [
     {
         "constant": true,
