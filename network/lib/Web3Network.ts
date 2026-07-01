@@ -37,7 +37,8 @@ export default class Web3Network extends BaseNetwork {
             to,
             value: this.web3.utils.toWei(amount.toString(), 'ether'),
             gas: gasLimit,
-            gasPrice
+            gasPrice,
+            ...(this.config.chainId !== undefined ? { chainId: this.config.chainId } : {})
         };
 
         return this.web3.eth.accounts.signTransaction(tx, from.privateKey);
@@ -67,7 +68,8 @@ export default class Web3Network extends BaseNetwork {
             to: tokenConfig.address,
             data,
             gas: gasLimit,
-            gasPrice
+            gasPrice,
+            ...(this.config.chainId !== undefined ? { chainId: this.config.chainId } : {})
         };
 
         return this.web3.eth.accounts.signTransaction(tx, from.privateKey);

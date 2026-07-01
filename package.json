@@ -11,7 +11,7 @@
     "bugs": {
         "url": "https://github.com/clasen/HODL/issues"
     },
-    "homepage": "https://github.com/clasen/HODL#readme",
+    "homepage": "https://hodl-waller.com",
     "files": [
         "dist/index.js",
         "dist/index.d.ts",
@@ -60,6 +60,9 @@
         "optimism",
         "avalanche",
         "avax",
+        "hyperliquid",
+        "hyperevm",
+        "hype",
         "clasen"
     ],
     "dependencies": {

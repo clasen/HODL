@@ -17,7 +17,7 @@ Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. 
 - 🚫 Zero ads, zero BS
 - 🔒 Create wallets offline (because paranoia is just good sense in crypto)
 - 🔍 Fully transparent, open-source code
-- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, Polygon, Avalanche, Optimism, Arbitrum, and Fantom.
+- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, Polygon, Avalanche, Optimism, Arbitrum, Fantom, and Hyperliquid.
 
 That's it! Follow the prompts and you're in crypto heaven.
 
@@ -52,6 +52,7 @@ Seamlessly manage your assets on multiple networks. HODL Wallet supports the fol
   - Arbitrum One
   - Fantom
   - Avalanche C-Chain
+  - Hyperliquid
 
 Each network supports its native token and popular tokens like USDT. You can easily add more tokens as needed.
 

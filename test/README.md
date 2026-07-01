@@ -31,7 +31,7 @@ npm run test:quick        # Quick validation
 ## 📊 Current Status
 
 - **✅ 9/9 networks fully functional** (100% success)
-- **✅ 79 individual tests**
+- **✅ 89 individual tests**
 - **✅ Complete functionality coverage**
 
 ### Validated Networks:
@@ -41,9 +41,9 @@ npm run test:quick        # Quick validation
 - ✅ Avalanche C-Chain (AVAX)
 - ✅ Fantom (FTM)
 - ✅ Optimism (OP)
-- ✅ Polygon (MATIC)
+- ✅ Polygon (POL)
 - ✅ Bitcoin (BTC)
-- ✅ TON (fully fixed and functional)
+- ✅ Hyperliquid (HYPE)
 
 ## 📖 Documentation
 

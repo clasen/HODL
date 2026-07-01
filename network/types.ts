@@ -9,6 +9,7 @@ export type NetworkConfig = {
     nativeToken: string;
     explorer: string;
     tokens: Record<string, TokenConfig>;
+    chainId?: number;
     network?: string;
 };
 

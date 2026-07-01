@@ -112,15 +112,15 @@ For each network found in `/network/`, these tests are executed:
 ┌──────────────────────────────┬───────────────┬────────┬────────┬──────────┐
 │ Network                      │ File          │ Passed │ Failed │ Status   │
 ├──────────────────────────────┼───────────────┼────────┼────────┼──────────┤
-│ [ERC-20] Ethereum            │ eth.js        │ 9      │ 0      │ ✅ PASS  │
-│ [BEP-20] Binance Smart Chain │ bsc.js        │ 9      │ 0      │ ✅ PASS  │
-│ [BTC] Bitcoin                │ btc.js        │ 8      │ 0      │ ✅ PASS  │
-│ [TON] The Open Network       │ ton.js        │ 8      │ 0      │ ✅ PASS  │
+│ [ERC-20] Ethereum            │ eth.js        │ 10     │ 0      │ ✅ PASS  │
+│ [BEP-20] Binance Smart Chain │ bsc.js        │ 10     │ 0      │ ✅ PASS  │
+│ [ERC-20] Hyperliquid         │ hyperliquid.… │ 10     │ 0      │ ✅ PASS  │
+│ [BTC] Bitcoin                │ btc.js        │ 9      │ 0      │ ✅ PASS  │
 └──────────────────────────────┴───────────────┴────────┴────────┴──────────┘
 
 🎯 OVERALL SUMMARY:
-   Total Tests: 79
-   Passed: 79
+   Total Tests: 89
+   Passed: 89
    Failed: 0
    Success Rate: 100.0%
 ================================================================================
