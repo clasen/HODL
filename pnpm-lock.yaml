@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  tmp: 0.2.4
+  tmp: 0.2.7
 
 importers:
 
@@ -51,14 +51,14 @@ importers:
         specifier: 2.2.3
         version: 2.2.3
       tmp:
-        specifier: 0.2.4
-        version: 0.2.4
+        specifier: 0.2.7
+        version: 0.2.7
       web3:
         specifier: 4.14.0
         version: 4.14.0(typescript@5.9.2)(zod@3.23.8)
     devDependencies:
       '@types/node':
-        specifier: ^24.0.0
+        specifier: ^24.12.4
         version: 24.12.4
       typescript:
         specifier: ^5.9.2
@@ -709,8 +709,8 @@ packages:
     resolution: {integrity: sha512-SGcL07SxcPN2nGKHTCvRMkQLYPSoeFcvArUSCYtjVARiFAWU44cCIqYS0mYAU6nY7XfvwURuTIGo2Omt3ZQr0Q==}
     engines: {node: '>=14.0.0'}
 
-  tmp@0.2.4:
-    resolution: {integrity: sha512-UdiSoX6ypifLmrfQ/XfiawN6hkjSBpCjhKxxZcWlUUmoXLaCKQU0bx4HF/tdDK2uzRuchf1txGvrWBzYREssoQ==}
+  tmp@0.2.7:
+    resolution: {integrity: sha512-e0votIpp4Uo2AJYSzVHV6xCcawuiez3DzqDAbrTc3YxBkplN6e+dM13ZeIcZnDg/QpSuU2zfZ3rzwY8ukEnaXw==}
     engines: {node: '>=14.14'}
 
   to-buffer@1.2.1:
@@ -1177,7 +1177,7 @@ snapshots:
     dependencies:
       chardet: 0.7.0
       iconv-lite: 0.4.24
-      tmp: 0.2.4
+      tmp: 0.2.7
 
   figures@2.0.0:
     dependencies:
@@ -1554,7 +1554,7 @@ snapshots:
     dependencies:
       uint8array-tools: 0.0.7
 
-  tmp@0.2.4: {}
+  tmp@0.2.7: {}
 
   to-buffer@1.2.1:
     dependencies:

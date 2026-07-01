@@ -1,7 +1,7 @@
 minimumReleaseAgeExclude:
-  - tmp@0.2.4
   - lodash@4.17.24
   - ws@8.20.1
+  - tmp@0.2.6
 
 overrides:
-  tmp: 0.2.4
+  tmp: 0.2.7

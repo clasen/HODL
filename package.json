@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.9.6",
+    "version": "1.9.8",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -76,15 +76,15 @@
         "inquirer-fuzzy-path": "2.3.0",
         "ora": "8.1.1",
         "tiny-secp256k1": "2.2.3",
-        "tmp": "0.2.4",
+        "tmp": "0.2.7",
         "web3": "4.14.0"
     },
     "devDependencies": {
-        "@types/node": "^24.0.0",
+        "@types/node": "^24.12.4",
         "typescript": "^5.9.2"
     },
     "overrides": {
-        "tmp": "0.2.4"
+        "tmp": "0.2.7"
     },
     "type": "module",
     "packageManager": "pnpm@11.1.2"
