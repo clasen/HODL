@@ -1281,4 +1281,10 @@ async function run(): Promise<void> {
     }
 }
 
-await run();
+void run().catch(async error => {
+    if (!(error instanceof Error && error.name === 'ExitPromptError')) {
+        Wallet.displayError('Unexpected error.', error);
+        process.exitCode = 1;
+    }
+    await shutdown();
+});
