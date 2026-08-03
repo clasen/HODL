@@ -39,6 +39,19 @@ const AnyTable: any = Table;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+function suppressPunycodeDeprecationWarning(): void {
+    const warningListeners = process.rawListeners('warning');
+    process.removeAllListeners('warning');
+    process.on('warning', warning => {
+        if ((warning as Error & { code?: string }).code === 'DEP0040') {
+            return;
+        }
+        warningListeners.forEach(listener => listener.call(process, warning));
+    });
+}
+
+suppressPunycodeDeprecationWarning();
+
 function isNetworkUsageEntry(value: unknown): value is NetworkUsageEntry {
     return (
         typeof value === 'object' &&
