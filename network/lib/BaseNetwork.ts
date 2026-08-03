@@ -36,6 +36,8 @@ export default abstract class BaseNetwork implements BaseNetworkContract {
 
     abstract getGasPrice(): Promise<unknown>;
 
+    abstract validatePrivateKey(privateKey: string): boolean;
+
     abstract privateKeyToAccount(privateKey: string): Promise<WalletAccount>;
 
     abstract createAccount(): Promise<WalletAccount>;

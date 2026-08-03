@@ -4,4 +4,5 @@ minimumReleaseAgeExclude:
   - tmp@0.2.6
 
 overrides:
+  node-fetch@2.x>whatwg-url: 14.2.0
   tmp: 0.2.7

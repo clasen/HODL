@@ -55,15 +55,12 @@ function errorMessage(error: unknown): string {
 import inquirerAutocomplete from 'inquirer-autocomplete-prompt';
 inquirer.registerPrompt('autocomplete', inquirerAutocomplete);
 
-process.on('SIGINT', () => {
-    process.exit();
-});
-
 class Wallet {
     private db: Persist;
     private network: BaseNetworkContract;
     private selectedNetwork: NetworkPlugin;
     private networkUsage: NetworkUsage;
+    private readonly databaseExisted: boolean;
 
     constructor(encryptionKey: string) {
         const hodlDir = path.join(os.homedir(), '.HODL');
@@ -72,11 +69,20 @@ class Wallet {
             fs.mkdirSync(hodlDir, { recursive: true });
         }
 
+        this.databaseExisted = fs.existsSync(path.join(hodlDir, 'persist.json'));
         this.db = new Persist({ path: hodlDir, encryptionKey });
 
         this.network = null as unknown as BaseNetworkContract;
         this.selectedNetwork = null as unknown as NetworkPlugin;
         this.networkUsage = {};
+    }
+
+    async connect(): Promise<void> {
+        await this.db.connect();
+    }
+
+    hasStoredDatabase(): boolean {
+        return this.databaseExisted;
     }
 
     /**
@@ -127,24 +133,20 @@ class Wallet {
 
             const networkPlugins = await this.loadNetworkPlugins();
             if (networkPlugins.length === 0) {
-                Wallet.displayError('No valid network plugins found.');
-                process.exit(1);
+                throw new Error('No valid network plugins found.');
             }
             await this.selectNetwork(networkPlugins, { autoSelect: true });
             this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
             this.network.name = this.selectedNetwork.name;
 
             await this.loadAccount();
-            const account = await this.getAccount();
 
-            if (!account) {
-                Wallet.displayError('Failed to initialize account.');
-                process.exit(1);
+            if (!await this.hasAccount()) {
+                throw new Error('Failed to initialize account.');
             }
 
         } catch (error) {
-            Wallet.displayError('Initialization failed', error);
-            process.exit(1);
+            throw new Error(`Initialization failed: ${errorMessage(error)}`);
         }
     }
 
@@ -152,18 +154,19 @@ class Wallet {
      * @param {WalletAccount | any} account
      * @returns {void}
      */
-    setAccount(account: WalletAccount | null): void {
+    async setAccount(account: WalletAccount | null): Promise<void> {
         if (!account) {
             return;
         }
-        this.db.set('account', this.network.constructor.name, account);
+
+        await this.db.set('account', this.network.constructor.name, account);
         if (account.mnemonic) {
-            this.db.set('mnemonic', account.mnemonic);
+            await this.db.set('mnemonic', account.mnemonic);
         }
     }
 
     async getAccount(): Promise<WalletAccount | null> {
-        const account = this.db.get('account', this.network.constructor.name);
+        const account = await this.db.get('account', this.network.constructor.name);
 
         return account ?? null;
     }
@@ -173,7 +176,15 @@ class Wallet {
     }
 
     async getMnemonic(): Promise<string | null> {
-        return this.db.get('mnemonic') ?? null;
+        return await this.db.get('mnemonic') ?? null;
+    }
+
+    async hasAccount(): Promise<boolean> {
+        return typeof await this.db.get(
+            'account',
+            this.network.constructor.name,
+            'address'
+        ) === 'string';
     }
 
     async displayAccountAddress(): Promise<void> {
@@ -283,7 +294,7 @@ class Wallet {
      * @returns {Promise<void>}
      */
     async loadAccount(loggedIn = false): Promise<void> {
-        let account = await this.getAccount();
+        let accountExists = await this.hasAccount();
 
         const mainChoices = ['Create New Account'];
 
@@ -299,7 +310,7 @@ class Wallet {
             mainChoices.push('Import Private-key');
         }
 
-        if (!account || loggedIn) {
+        if (!accountExists || loggedIn) {
             let { accountAction } = await inquirer.prompt({
                 type: 'list',
                 name: 'accountAction',
@@ -353,13 +364,15 @@ class Wallet {
 
             switch (accountAction) {
                 case 'Import Mnemonic (12 or 24 words)':
-                    account = await this.importFromMnemonic();
+                    const account = await this.importFromMnemonic();
                     if (!account) {
                         // Wallet.displayError('Invalid mnemonic.');
                         return;
                     }
-                    this.setAccount(account);
+                    await this.setAccount(account);
+                    Persist.clearSensitiveData(account);
                     await this.displayAccountAddress();
+                    accountExists = true;
                     break;
                 case 'Import Private-key':
                     await this.importPrivateKey();
@@ -367,8 +380,9 @@ class Wallet {
                 case 'Import HODL File':
                     const importedAccount = await this.importHODLFile();
                     if (importedAccount) {
-                        this.setAccount(importedAccount);
+                        Persist.clearSensitiveData(importedAccount);
                         await this.displayAccountAddress();
+                        accountExists = true;
                     }
                     break;
             }
@@ -411,14 +425,16 @@ class Wallet {
             return;
         }
 
-        this.setAccount(account);
+        if (!accountExists) {
+            throw new Error('Account was not initialized.');
+        }
     }
 
     /**
      * @returns {Promise<boolean>}
      */
     async confirmOverwrite(): Promise<boolean> {
-        if (await this.getAccount()) {
+        if (await this.hasAccount()) {
             const { confirmOverwrite } = await inquirer.prompt({
                 type: 'confirm',
                 name: 'confirmOverwrite',
@@ -453,9 +469,7 @@ class Wallet {
     }
 
     async showBalance(): Promise<void> {
-        const account = await this.getAccount();
-
-        if (!account) {
+        if (!await this.hasAccount()) {
             Wallet.displayError('Account not initialized.');
             return;
         }
@@ -559,16 +573,21 @@ class Wallet {
             if (!account) {
                 throw new Error('Account not initialized.');
             }
-            if (token === this.selectedNetwork.nativeToken) {
-                if (!this.network.handleNativeTransfer) {
-                    throw new Error('Selected network does not support native transfers.');
+
+            try {
+                if (token === this.selectedNetwork.nativeToken) {
+                    if (!this.network.handleNativeTransfer) {
+                        throw new Error('Selected network does not support native transfers.');
+                    }
+                    signedTx = await this.network.handleNativeTransfer(account, address, numericAmount);
+                } else {
+                    if (!this.network.handleERC20Transfer) {
+                        throw new Error('Selected network does not support token transfers.');
+                    }
+                    signedTx = await this.network.handleERC20Transfer(account, token, address, numericAmount);
                 }
-                signedTx = await this.network.handleNativeTransfer(account, address, numericAmount);
-            } else {
-                if (!this.network.handleERC20Transfer) {
-                    throw new Error('Selected network does not support token transfers.');
-                }
-                signedTx = await this.network.handleERC20Transfer(account, token, address, numericAmount);
+            } finally {
+                Persist.clearSensitiveData(account);
             }
 
             const receipt = await this.network.sendSignedTransaction(signedTx as SignedTransaction | string) as TransactionReceipt;
@@ -684,7 +703,7 @@ class Wallet {
             balance
         };
         const address = await this.getAddress();
-        this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
+        await this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
     }
 
     async showTransactions(): Promise<void> {
@@ -817,8 +836,8 @@ class Wallet {
         console.log(table.toString());
     }
 
-    clearAccountData(): void {
-
+    async clearAccountData(): Promise<void> {
+        await this.db.dispose();
     }
 
     async displayAccountDetails(): Promise<void> {
@@ -848,6 +867,7 @@ class Wallet {
         }
 
         console.log(table.toString());
+        Persist.clearSensitiveData(account);
     }
 
     async switchNetwork(): Promise<void> {
@@ -856,8 +876,7 @@ class Wallet {
         this.network = new this.selectedNetwork.NetworkClass(this.selectedNetwork);
         this.network.name = this.selectedNetwork.name;
 
-        const account = await this.getAccount();
-        if (account) {
+        if (await this.hasAccount()) {
             await this.displayAccountAddress();
         } else {
             console.log(`\nNo account found for ${this.selectedNetwork.name}. Please create or import an account.`);
@@ -879,9 +898,13 @@ class Wallet {
 
         const data = await this.db.get();
         const encryptionKey = await UIManager.getEncryptionKey();
-        const encryptedData = Persist.encrypt(data, encryptionKey);
 
-        fs.writeFileSync(fileName, encryptedData);
+        try {
+            const encryptedData = Persist.encrypt(data, encryptionKey);
+            fs.writeFileSync(fileName, encryptedData);
+        } finally {
+            Persist.clearSensitiveData(data);
+        }
 
         const table = new AnyTable({
             head: ['HODL File Exported'],
@@ -948,12 +971,17 @@ class Wallet {
         const encryptedData = fs.readFileSync(filePath, 'utf8');
         const encryptionKey = await UIManager.getEncryptionKey();
 
+        let importedData: unknown;
+
         try {
-            this.db.set(Persist.decrypt(encryptedData, encryptionKey));
-            return this.getAccount();
+            importedData = Persist.decrypt(encryptedData, encryptionKey);
+            await this.db.set(importedData);
+            return await this.getAccount();
         } catch (error) {
             Wallet.displayError('Failed to import HODL file.', 'The password is incorrect.');
             return null;
+        } finally {
+            Persist.clearSensitiveData(importedData);
         }
     }
 
@@ -965,7 +993,8 @@ class Wallet {
             mask: '*',
             validate: (input: string) => {
                 if (input.trim() === '') return true;
-                return /^(0x)?[0-9a-fA-F]{64}$/.test(input) || 'Please enter a valid private-key or leave empty to cancel.';
+                return this.network.validatePrivateKey(input) ||
+                    'Please enter a valid private-key for the selected network or leave empty to cancel.';
             }
         });
 
@@ -974,7 +1003,7 @@ class Wallet {
         }
 
         try {
-            this.setAccount(await this.network.privateKeyToAccount(privateKey));
+            await this.setAccount(await this.network.privateKeyToAccount(privateKey));
             await this.displayAccountAddress();
         } catch (error) {
             Wallet.displayError('Invalid private-key.');
@@ -995,7 +1024,8 @@ class Wallet {
 
             if (useExistingMnemonic) {
                 useMnemonic = true;
-                this.setAccount(await this.network.accountFromMnemonic(existingMnemonic));
+                await this.setAccount(await this.network.accountFromMnemonic(existingMnemonic));
+                existingMnemonic = null;
             }
         }
 
@@ -1020,9 +1050,9 @@ class Wallet {
                     default: 12
                 });
 
-                this.setAccount(await this.network.createAccountFromMnemonic(wordCount as 12 | 24));
+                await this.setAccount(await this.network.createAccountFromMnemonic(wordCount as 12 | 24));
             } else {
-                this.setAccount(await this.network.createAccount());
+                await this.setAccount(await this.network.createAccount());
             }
         }
 
@@ -1142,42 +1172,7 @@ class UIManager {
     }
 }
 
-UIManager.displayWelcome();
-const encryptionKey = await UIManager.getEncryptionKey();
-let wallet: Wallet;
-
-try {
-    wallet = new Wallet(encryptionKey);
-} catch (error) {
-    console.error(errorMessage(error));
-    Wallet.displayError('Wrong password.');
-    process.exit(1);
-}
-
-const accountExists = await wallet.getMnemonic();
-
-if (!accountExists) {
-    const confirmedKey = await UIManager.confirmEncryptionKey();
-    if (confirmedKey !== encryptionKey) {
-        Wallet.displayError('Passwords do not match. Please try again.');
-        process.exit(1);
-    }
-}
-
-try {
-    await wallet.initialize();
-    if (accountExists) await wallet.displayAccountAddress();
-} catch (error) {
-    Wallet.displayError('Failed to initialize wallet.', error);
-    process.exit(1);
-}
-
-process.on('exit', () => {
-    wallet.clearAccountData();
-    UIManager.displayExitPhrase();
-});
-
-async function mainMenu(): Promise<void> {
+async function mainMenu(wallet: Wallet): Promise<void> {
     const { action } = await inquirer.prompt({
         type: 'list',
         name: 'action',
@@ -1194,20 +1189,83 @@ async function mainMenu(): Promise<void> {
     switch (action) {
         case 'transferFunds':
             await wallet.transferFunds();
-            return mainMenu();
+            return mainMenu(wallet);
         case 'balance':
             await wallet.showBalance();
-            return mainMenu();
+            return mainMenu(wallet);
         case 'showTransactions':
             await wallet.showTransactions();
-            return mainMenu();
+            return mainMenu(wallet);
         case 'account':
             await wallet.loadAccount(true);
-            return mainMenu();
+            return mainMenu(wallet);
         case 'exit':
-            process.exit();
+            return;
     }
 }
 
-// Start the application
-mainMenu();
+let activeWallet: Wallet | null = null;
+let shutdownPromise: Promise<void> | null = null;
+
+async function shutdown(): Promise<void> {
+    if (!shutdownPromise) {
+        shutdownPromise = (async () => {
+            if (activeWallet) {
+                await activeWallet.clearAccountData();
+                activeWallet = null;
+            }
+            UIManager.displayExitPhrase();
+        })();
+    }
+
+    await shutdownPromise;
+}
+
+process.once('SIGINT', () => {
+    void shutdown().finally(() => process.exit(130));
+});
+
+async function run(): Promise<void> {
+    UIManager.displayWelcome();
+    let encryptionKey: string | null = await UIManager.getEncryptionKey();
+
+    try {
+        const wallet = new Wallet(encryptionKey);
+        activeWallet = wallet;
+        const databaseExisted = wallet.hasStoredDatabase();
+
+        try {
+            await wallet.connect();
+        } catch (error) {
+            console.error(errorMessage(error));
+            Wallet.displayError('Wrong password.');
+            process.exitCode = 1;
+            return;
+        }
+
+        if (!databaseExisted) {
+            const confirmedKey = await UIManager.confirmEncryptionKey();
+            if (confirmedKey !== encryptionKey) {
+                Wallet.displayError('Passwords do not match. Please try again.');
+                process.exitCode = 1;
+                return;
+            }
+        }
+
+        encryptionKey = null;
+
+        try {
+            await wallet.initialize();
+            await wallet.displayAccountAddress();
+            await mainMenu(wallet);
+        } catch (error) {
+            Wallet.displayError('Failed to initialize wallet.', error);
+            process.exitCode = 1;
+        }
+    } finally {
+        encryptionKey = null;
+        await shutdown();
+    }
+}
+
+await run();

@@ -1,15 +1,3 @@
-declare module "deepbase" {
-    export default class Deepbase {
-        constructor(opts: Record<string, unknown>);
-        get(...path: string[]): any;
-        set(...args: unknown[]): void | Promise<void>;
-        add(...args: unknown[]): void | Promise<void>;
-        del(...path: string[]): void | Promise<void>;
-        entries(...path: string[]): Array<[string, any]>;
-        values(...path: string[]): any[];
-    }
-}
-
 declare module "hdkey" {
     type HDKeyNode = {
         privateKey: Buffer;

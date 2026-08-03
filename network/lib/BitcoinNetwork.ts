@@ -173,6 +173,15 @@ export default class BitcoinNetwork extends BaseNetwork {
         return this.createAccountDetails(keyPair);
     }
 
+    validatePrivateKey(privateKeyWIF: string): boolean {
+        try {
+            ECPair.fromWIF(privateKeyWIF, this.network);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     async privateKeyToAccount(privateKeyWIF: string): Promise<WalletAccount> {
         try {
             const keyPair = ECPair.fromWIF(privateKeyWIF, this.network);

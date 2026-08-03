@@ -18,6 +18,10 @@ export default class Web3Network extends BaseNetwork {
         this.web3 = new Web3(config.url);
     }
 
+    private formatPrivateKey(privateKey: string): string {
+        return privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    }
+
     async getBalance(address: string): Promise<string> {
         const balanceWei = await this.web3.eth.getBalance(address);
         return this.web3.utils.fromWei(balanceWei, 'ether');
@@ -146,16 +150,26 @@ export default class Web3Network extends BaseNetwork {
         ) / 100;
     }
 
+    validatePrivateKey(privateKey: string): boolean {
+        if (!privateKey) {
+            return false;
+        }
+
+        try {
+            this.web3.eth.accounts.privateKeyToAccount(this.formatPrivateKey(privateKey));
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
     async privateKeyToAccount(privateKey: string): Promise<WalletAccount> {
         if (!privateKey) {
             throw new Error('Private key is required');
         }
         
-        // Ensure private key has '0x' prefix
-        const formattedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-        
         try {
-            return this.web3.eth.accounts.privateKeyToAccount(formattedKey);
+            return this.web3.eth.accounts.privateKeyToAccount(this.formatPrivateKey(privateKey));
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Invalid private key: ${message}`);

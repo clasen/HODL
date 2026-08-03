@@ -65,6 +65,7 @@ export interface BaseNetworkContract {
     ): Promise<SignedTransaction | string | unknown>;
     estimateGas(transaction: unknown): Promise<unknown>;
     getGasPrice(): Promise<unknown>;
+    validatePrivateKey(privateKey: string): boolean;
     privateKeyToAccount(privateKey: string): Promise<WalletAccount>;
     createAccount(): Promise<WalletAccount>;
     accountFromMnemonic(mnemonic: string): Promise<WalletAccount>;

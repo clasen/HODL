@@ -122,7 +122,7 @@ class NetworkTester {
                 const instance = new network.NetworkClass(network);
                 const requiredMethods = [
                     'getBalance', 'transfer', 'transferToken', 'estimateGas',
-                    'getGasPrice', 'privateKeyToAccount', 'createAccount',
+                    'getGasPrice', 'validatePrivateKey', 'privateKeyToAccount', 'createAccount',
                     'accountFromMnemonic', 'createAccountFromMnemonic', 'validateMnemonic',
                     'getTokenBalance', 'getTokenBalances', 'sendSignedTransaction'
                 ];
@@ -168,6 +168,23 @@ class NetworkTester {
                 }
                 
                 return 'Mnemonic validation works correctly';
+            }
+        });
+
+        tests.push({
+            name: 'Private Key Validation',
+            test: async () => {
+                const account = await instance.createAccount();
+
+                if (!instance.validatePrivateKey(account.privateKey)) {
+                    throw new Error('Valid private key was rejected');
+                }
+
+                if (instance.validatePrivateKey('invalid-private-key')) {
+                    throw new Error('Invalid private key was accepted');
+                }
+
+                return 'Private key validation works correctly';
             }
         });
 

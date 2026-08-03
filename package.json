@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "1.9.9",
+    "version": "2.0.0",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -33,8 +33,9 @@
         "test": "pnpm run build && node ./dist/test/test-all.js",
         "test:network": "pnpm run build && node ./dist/test/test.js",
         "test:integration": "pnpm run build && node ./dist/test/test-integration.js",
+        "test:persist": "pnpm run build && node ./dist/test/test-persist.js",
         "test:quick": "pnpm run build && node ./dist/test/test.js --quick",
-        "prepublishOnly": "pnpm run build && pnpm run test:quick && pnpm run test:integration"
+        "prepublishOnly": "pnpm run build && pnpm run test:persist && pnpm run test:quick && pnpm run test:integration"
     },
     "keywords": [
         "hodl",
@@ -70,7 +71,7 @@
         "bip39": "3.1.0",
         "bitcoinjs-lib": "6.1.7",
         "cli-table3": "0.6.5",
-        "deepbase": "1.5.2",
+        "deepbase": "3.8.2",
         "ecpair": "2.1.0",
         "external-editor": "3.1.0",
         "hdkey": "^0.6.0",
@@ -80,7 +81,7 @@
         "ora": "8.1.1",
         "tiny-secp256k1": "2.2.3",
         "tmp": "0.2.7",
-        "web3": "4.14.0"
+        "web3": "4.16.0"
     },
     "devDependencies": {
         "@types/node": "^24.12.4",
