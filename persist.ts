@@ -6,7 +6,7 @@ const KEY_LENGTH = 32;
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 const SEALED_SECRET_VERSION = 1;
-const SENSITIVE_FIELDS = new Set(['privateKey', 'mnemonic']);
+const SENSITIVE_FIELDS = new Set(['privateKey', 'mnemonic', 'rawTransaction']);
 
 type PersistOptions = {
     path: string;

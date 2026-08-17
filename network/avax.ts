@@ -3,6 +3,9 @@ import type { NetworkPlugin } from './types.js';
 
 const avalanche = {
     NetworkClass: Web3Network,
+    id: 'avax',
+    family: 'evm',
+    chainId: 43114,
     name: '[ERC-20] Avalanche C-Chain',
     url: 'https://api.avax.network/ext/bc/C/rpc',
     explorer: 'https://snowtrace.io/tx/',

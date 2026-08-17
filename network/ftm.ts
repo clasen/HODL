@@ -2,6 +2,9 @@ import Web3Network from './lib/Web3Network.js';
 import type { NetworkPlugin } from './types.js';
 
 const fantom = {
+    id: 'ftm',
+    family: 'evm',
+    chainId: 250,
     NetworkClass: Web3Network,
     name: '[ERC-20] Fantom',
     explorer: 'https://ftmscan.com/tx/',

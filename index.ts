@@ -4,8 +4,10 @@ import fs from 'fs';
 import path from 'path';
 import inquirer from 'inquirer';
 import Persist from './persist.js';
+import { normalizeDecimal } from './amounts.js';
+import { NetworkRegistry } from './network-registry.js';
+import { ProfileLock } from './profile-lock.js';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import Table from 'cli-table3';
 import os from 'os';
 import ora from 'ora';
@@ -30,14 +32,13 @@ type StoredTransaction = {
     timestamp: string;
     recipient: string;
     token: string;
-    amount: number;
+    amount: string | number;
     hash: string;
-    balance?: number;
+    balance?: string | number;
 };
 
 const AnyTable: any = Table;
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 function suppressPunycodeDeprecationWarning(): void {
     const warningListeners = process.rawListeners('warning');
@@ -74,16 +75,27 @@ class Wallet {
     private selectedNetwork: NetworkPlugin;
     private networkUsage: NetworkUsage;
     private readonly databaseExisted: boolean;
+    private readonly profileLock: ProfileLock;
+    private readonly hodlDir: string;
 
     constructor(encryptionKey: string) {
         const hodlDir = path.join(os.homedir(), '.HODL');
+        this.hodlDir = hodlDir;
 
         if (!fs.existsSync(hodlDir)) {
-            fs.mkdirSync(hodlDir, { recursive: true });
+            fs.mkdirSync(hodlDir, { recursive: true, mode: 0o700 });
         }
+        fs.chmodSync(hodlDir, 0o700);
 
         this.databaseExisted = fs.existsSync(path.join(hodlDir, 'persist.json'));
-        this.db = new Persist({ path: hodlDir, encryptionKey });
+        this.profileLock = new ProfileLock(path.join(hodlDir, '.default.lock'));
+        this.profileLock.acquire();
+        try {
+            this.db = new Persist({ path: hodlDir, encryptionKey });
+        } catch (error) {
+            this.profileLock.release();
+            throw error;
+        }
 
         this.network = null as unknown as BaseNetworkContract;
         this.selectedNetwork = null as unknown as NetworkPlugin;
@@ -92,6 +104,7 @@ class Wallet {
 
     async connect(): Promise<void> {
         await this.db.connect();
+        this.securePersistFile();
     }
 
     hasStoredDatabase(): boolean {
@@ -217,15 +230,7 @@ class Wallet {
      * @returns {Promise<NetworkPlugin[]>}
      */
     async loadNetworkPlugins(): Promise<NetworkPlugin[]> {
-        const pluginsDir = path.join(__dirname, 'network');
-        const pluginFiles = fs.readdirSync(pluginsDir).filter(file => file.endsWith('.js'));
-
-        const networks = await Promise.all(pluginFiles.map(async file => {
-            const plugin = await import(`./network/${file}`) as { default: NetworkPlugin };
-            return { ...plugin.default, fileName: file };
-        }));
-
-        return networks.filter(network => network && network.name);
+        return new NetworkRegistry().list();
     }
 
     /**
@@ -552,7 +557,12 @@ class Wallet {
             message: `Amount to transfer:`,
             validate: (value: string) => {
                 if (value.trim() === '') return true;
-                return !Number.isNaN(Number(value)) && Number(value) > 0 ? true : 'Please enter a valid number or leave empty to cancel.';
+                try {
+                    normalizeDecimal(value.trim());
+                    return true;
+                } catch {
+                    return 'Please enter a valid decimal amount or leave empty to cancel.';
+                }
             },
         });
 
@@ -560,8 +570,7 @@ class Wallet {
             return;
         }
 
-        // Convert amount to number
-        const numericAmount = Number(amount);
+        const transferAmount = amount.trim();
 
         // Add confirmation step
         const { confirmTransaction } = await inquirer.prompt({
@@ -592,12 +601,12 @@ class Wallet {
                     if (!this.network.handleNativeTransfer) {
                         throw new Error('Selected network does not support native transfers.');
                     }
-                    signedTx = await this.network.handleNativeTransfer(account, address, numericAmount);
+                    signedTx = await this.network.handleNativeTransfer(account, address, transferAmount);
                 } else {
                     if (!this.network.handleERC20Transfer) {
                         throw new Error('Selected network does not support token transfers.');
                     }
-                    signedTx = await this.network.handleERC20Transfer(account, token, address, numericAmount);
+                    signedTx = await this.network.handleERC20Transfer(account, token, address, transferAmount);
                 }
             } finally {
                 Persist.clearSensitiveData(account);
@@ -610,28 +619,25 @@ class Wallet {
             const transactionHash = receipt?.transactionHash || receipt?.hash || 'UNKNOWN_HASH';
 
             // Calculate the post-transaction balance
-            let currentBalance = 0;
+            let currentBalance = '0';
             try {
                 const walletAddress = await this.getAddress();
 
                 // Get the balance AFTER transaction (not before)
                 if (token === this.selectedNetwork.nativeToken) {
-                    currentBalance = Number(await this.network.getBalance(walletAddress));
+                    currentBalance = await this.network.getBalance(walletAddress);
                 } else {
-                    currentBalance = Number(await this.network.getTokenBalance(walletAddress, token));
+                    currentBalance = await this.network.getTokenBalance(walletAddress, token);
                 }
-
-                // Round to avoid floating point precision issues
-                currentBalance = Math.round(currentBalance * 100000000) / 100000000;
 
             } catch (error) {
                 console.error('Error getting post-transaction balance:', errorMessage(error));
             }
 
-            await this.displayTransactionResult(address, token, numericAmount, transactionHash, currentBalance);
+            await this.displayTransactionResult(address, token, transferAmount, transactionHash, currentBalance);
 
             // Add transaction to history
-            await this.addToTransactions(address, token, numericAmount, transactionHash, currentBalance);
+            await this.addToTransactions(address, token, transferAmount, transactionHash, currentBalance);
 
             // Check if the address is already in contacts before asking to add it
             const existingContact = await this.db.get('contact', this.network.name ?? '', address);
@@ -695,17 +701,17 @@ class Wallet {
     /**
      * @param {string} recipient
      * @param {string} token
-     * @param {number} amount
+     * @param {string} amount
      * @param {string} hash
-     * @param {number} balance
+     * @param {string} balance
      * @returns {Promise<void>}
      */
     async addToTransactions(
         recipient: string,
         token: string,
-        amount: number,
+        amount: string,
         hash: string,
-        balance: number
+        balance: string
     ): Promise<void> {
         const transaction = {
             timestamp: new Date().toISOString(),
@@ -721,7 +727,25 @@ class Wallet {
 
     async showTransactions(): Promise<void> {
         const address = await this.getAddress();
-        const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) as StoredTransaction[] || [];
+        const history = await this.db.values(
+            'transactions',
+            address,
+            this.selectedNetwork.nativeToken
+        ) as StoredTransaction[] || [];
+        const legacyHistoryKey = this.selectedNetwork.id === 'op'
+            ? 'OP'
+            : this.selectedNetwork.id === 'arb'
+                ? 'ARB'
+                : null;
+        if (legacyHistoryKey) {
+            const legacyHistory = await this.db.values(
+                'transactions',
+                address,
+                legacyHistoryKey
+            ) as StoredTransaction[] || [];
+            history.push(...legacyHistory);
+            history.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        }
 
         const table = new AnyTable({
             head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance'],
@@ -821,17 +845,17 @@ class Wallet {
     /**
      * @param {string} address
      * @param {string} token
-     * @param {number} amount
+     * @param {string} amount
      * @param {string} hash
-     * @param {number} balance
+     * @param {string} balance
      * @returns {Promise<void>}
      */
     async displayTransactionResult(
         address: string,
         token: string,
-        amount: number,
+        amount: string,
         hash: string,
-        balance: number
+        balance: string
     ): Promise<void> {
         const table = new AnyTable({
             head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance'],
@@ -850,7 +874,19 @@ class Wallet {
     }
 
     async clearAccountData(): Promise<void> {
-        await this.db.dispose();
+        try {
+            await this.db.dispose();
+        } finally {
+            this.securePersistFile();
+            this.profileLock.release();
+        }
+    }
+
+    private securePersistFile(): void {
+        const persistPath = path.join(this.hodlDir, 'persist.json');
+        if (fs.existsSync(persistPath)) {
+            fs.chmodSync(persistPath, 0o600);
+        }
     }
 
     async displayAccountDetails(): Promise<void> {
@@ -1234,10 +1270,6 @@ async function shutdown(): Promise<void> {
     await shutdownPromise;
 }
 
-process.once('SIGINT', () => {
-    void shutdown().finally(() => process.exit(130));
-});
-
 async function run(): Promise<void> {
     UIManager.displayWelcome();
     let encryptionKey: string | null = await UIManager.getEncryptionKey();
@@ -1281,10 +1313,48 @@ async function run(): Promise<void> {
     }
 }
 
-void run().catch(async error => {
-    if (!(error instanceof Error && error.name === 'ExitPromptError')) {
-        Wallet.displayError('Unexpected error.', error);
-        process.exitCode = 1;
+export function selectCliMode(argv: string[]): 'interactive' | 'agent' {
+    return argv.length === 0 ? 'interactive' : 'agent';
+}
+
+interface CliDependencies {
+    runInteractive?: () => Promise<void>;
+    runAgent?: (argv: string[]) => Promise<number>;
+}
+
+export async function runCli(argv: string[], dependencies: CliDependencies = {}): Promise<number> {
+    if (selectCliMode(argv) === 'agent') {
+        const runAgent = dependencies.runAgent || (await import('./agent-cli.js')).runAgentCli;
+        return runAgent(argv);
     }
-    await shutdown();
-});
+
+    await (dependencies.runInteractive || run)();
+    return 0;
+}
+
+async function runEntrypoint(argv: string[]): Promise<void> {
+    if (selectCliMode(argv) === 'agent') {
+        process.removeAllListeners('warning');
+        process.on('warning', () => undefined);
+        process.exitCode = await runCli(argv);
+        return;
+    }
+
+    process.once('SIGINT', () => {
+        void shutdown().finally(() => process.exit(130));
+    });
+
+    try {
+        process.exitCode = await runCli(argv);
+    } catch (error) {
+        if (!(error instanceof Error && error.name === 'ExitPromptError')) {
+            Wallet.displayError('Unexpected error.', error);
+            process.exitCode = 1;
+        }
+        await shutdown();
+    }
+}
+
+if (path.resolve(process.argv[1] || '') === __filename) {
+    void runEntrypoint(process.argv.slice(2));
+}

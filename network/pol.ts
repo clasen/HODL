@@ -3,6 +3,9 @@ import type { NetworkPlugin } from './types.js';
 
 const polygon = {
     NetworkClass: Web3Network,
+    id: 'pol',
+    family: 'evm',
+    chainId: 137,
     name: '[ERC-20] Polygon',
     explorer: 'https://polygonscan.com/tx/',
     url: 'https://polygon-rpc.com/',

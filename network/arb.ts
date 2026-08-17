@@ -2,11 +2,14 @@ import Web3Network from './lib/Web3Network.js';
 import type { NetworkPlugin } from './types.js';
 
 const arbitrum = {
+    id: 'arb',
+    family: 'evm',
+    chainId: 42161,
     name: '[ERC-20] Arbitrum One',
     NetworkClass: Web3Network,
     explorer: 'https://arbiscan.io/tx/',
     url: 'https://arb1.arbitrum.io/rpc',
-    nativeToken: 'ARB',
+    nativeToken: 'ETH',
     tokens: {
         'USDT': {
             address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',

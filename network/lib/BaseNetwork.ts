@@ -1,7 +1,10 @@
 import type {
+    AssetBalance,
     BaseNetworkContract,
     NetworkConfig,
+    PreparedTransfer,
     SignedTransaction,
+    TransactionStatus,
     TransferOptions,
     WalletAccount
 } from '../types.js';
@@ -15,7 +18,7 @@ export default abstract class BaseNetwork implements BaseNetworkContract {
         this.name = config.name;
     }
 
-    abstract getBalance(address: string): Promise<string | number>;
+    abstract getBalance(address: string): Promise<string>;
 
     abstract transfer(
         from: WalletAccount,
@@ -48,13 +51,27 @@ export default abstract class BaseNetwork implements BaseNetworkContract {
 
     abstract validateMnemonic(mnemonic: string): boolean;
 
-    abstract getTokenBalance(address: string, tokenSymbol: string): Promise<string | number>;
+    abstract getTokenBalance(address: string, tokenSymbol: string): Promise<string>;
 
-    async getTokenBalances(address: string): Promise<Array<[string, string | number]>> {
-        const balances: Array<[string, string | number]> = [];
+    abstract getAssetBalance(address: string, asset: string): Promise<AssetBalance>;
+
+    abstract validateAddress(address: string): boolean;
+
+    abstract prepareTransfer(
+        from: WalletAccount,
+        to: string,
+        amount: string,
+        asset: string,
+        options?: TransferOptions
+    ): Promise<PreparedTransfer>;
+
+    abstract getTransactionStatus(transactionHash: string): Promise<TransactionStatus>;
+
+    async getTokenBalances(address: string): Promise<Array<[string, string]>> {
+        const balances: Array<[string, string]> = [];
 
         const nativeBalance = await this.getBalance(address);
-        balances.push([this.config.nativeToken, Number(nativeBalance)]);
+        balances.push([this.config.nativeToken, nativeBalance]);
 
         for (const symbol of Object.keys(this.config.tokens)) {
             const tokenBalance = await this.getTokenBalance(address, symbol);

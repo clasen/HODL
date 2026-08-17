@@ -13,12 +13,9 @@
     },
     "homepage": "https://hodl-waller.com",
     "files": [
-        "dist/index.js",
-        "dist/index.d.ts",
-        "dist/index.js.map",
-        "dist/persist.js",
-        "dist/persist.d.ts",
-        "dist/persist.js.map",
+        "dist/*.js",
+        "dist/*.d.ts",
+        "dist/*.js.map",
         "dist/network",
         "README.md"
     ],
@@ -34,8 +31,9 @@
         "test:network": "pnpm run build && node ./dist/test/test.js",
         "test:integration": "pnpm run build && node ./dist/test/test-integration.js",
         "test:persist": "pnpm run build && node ./dist/test/test-persist.js",
+        "test:agent": "pnpm run build && node ./dist/test/test-agent-cli.js",
         "test:quick": "pnpm run build && node ./dist/test/test.js --quick",
-        "prepublishOnly": "pnpm run build && pnpm run test:persist && pnpm run test:quick && pnpm run test:integration"
+        "prepublishOnly": "pnpm run build && pnpm run test:agent && pnpm run test:persist && pnpm run test:quick && pnpm run test:integration"
     },
     "keywords": [
         "hodl",
@@ -64,6 +62,8 @@
         "hyperliquid",
         "hyperevm",
         "hype",
+        "agent-friendly",
+        "ai-agent",
         "clasen"
     ],
     "dependencies": {

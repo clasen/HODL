@@ -3,6 +3,8 @@ import type { NetworkPlugin } from './types.js';
 
 const hyperliquid = {
     NetworkClass: Web3Network,
+    id: 'hyperliquid',
+    family: 'evm',
     name: '[ERC-20] Hyperliquid',
     url: 'https://rpc.hyperliquid.xyz/evm',
     nativeToken: 'HYPE',

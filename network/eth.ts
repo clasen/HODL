@@ -3,6 +3,9 @@ import type { NetworkPlugin } from './types.js';
 
 const ethereum = {
     NetworkClass: Web3Network,
+    id: 'eth',
+    family: 'evm',
+    chainId: 1,
     name: '[ERC-20] Ethereum',
     url: 'https://ethereum.publicnode.com',
     nativeToken: 'ETH',

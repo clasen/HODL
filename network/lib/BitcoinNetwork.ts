@@ -4,9 +4,13 @@ import bip39 from 'bip39';
 import * as ecc from 'tiny-secp256k1';
 import { BIP32Factory } from 'bip32';
 import { ECPairFactory } from 'ecpair';
+import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
 import type {
+    AssetBalance,
     NetworkConfig,
+    PreparedTransfer,
     SignedTransaction,
+    TransactionStatus,
     TransferOptions,
     WalletAccount
 } from '../types.js';
@@ -16,6 +20,7 @@ const ECPair = ECPairFactory(ecc);
 
 type BitcoinUtxo = { txid: string; vout: number; value: number };
 type BitcoinBroadcastResult = { transactionHash: string };
+type BitcoinTransactionStatus = { confirmed: boolean };
 type BitcoinAddressStats = {
     chain_stats: {
         funded_txo_sum: number;
@@ -42,21 +47,46 @@ export default class BitcoinNetwork extends BaseNetwork {
         this.url = config.url;
     }
 
-    async getBalance(address: string): Promise<number> {
+    validateAddress(address: string): boolean {
+        try {
+            bitcoin.address.toOutputScript(address, this.network);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    async getBalance(address: string): Promise<string> {
+        return (await this.getAssetBalance(address, this.config.nativeToken)).amount;
+    }
+
+    async getAssetBalance(address: string, asset: string): Promise<AssetBalance> {
+        if (asset.toUpperCase() !== this.config.nativeToken) {
+            throw new Error(`Token ${asset} not supported on Bitcoin network`);
+        }
+        if (!this.validateAddress(address)) {
+            throw new Error('Invalid Bitcoin address.');
+        }
+
         try {
             const data = await this.fetchFromApi<BitcoinAddressStats>(`/address/${address}`);
             const chainStats = data.chain_stats;
             const mempoolStats = data.mempool_stats;
             const balance = (chainStats.funded_txo_sum - chainStats.spent_txo_sum) +
                 (mempoolStats.funded_txo_sum - mempoolStats.spent_txo_sum);
-            return this.satoshisToBTC(balance);
+            return {
+                asset: this.config.nativeToken,
+                amount: formatUnits(BigInt(balance), 8),
+                baseUnits: balance.toString(),
+                decimals: 8
+            };
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Failed to get balance: ${message}`);
         }
     }
 
-    async getTokenBalance(address: string, tokenSymbol: string): Promise<number> {
+    async getTokenBalance(address: string, tokenSymbol: string): Promise<string> {
         if (tokenSymbol === this.config.nativeToken) {
             return await this.getBalance(address);
         }
@@ -69,10 +99,30 @@ export default class BitcoinNetwork extends BaseNetwork {
         amount: number | string,
         options: TransferOptions = {}
     ): Promise<string> {
+        return (await this.buildTransaction(from, to, amount.toString(), options)).rawTransaction;
+    }
+
+    private async buildTransaction(
+        from: WalletAccount,
+        to: string,
+        amount: string,
+        options: TransferOptions
+    ): Promise<{ rawTransaction: string; feeBaseUnits: bigint; amountBaseUnits: bigint }> {
+        if (!this.validateAddress(from.address) || !this.validateAddress(to)) {
+            throw new Error('Invalid Bitcoin address.');
+        }
+
         try {
             const utxos = await this.getUTXOs(from.address);
-            const satoshis = this.BTCToSatoshis(amount);
-            const feeRate = options.feeRate || 10;
+            const amountBaseUnits = parseDecimalToUnits(amount, 8);
+            if (amountBaseUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
+                throw new Error('Bitcoin amount exceeds the safe transaction range.');
+            }
+            const satoshis = Number(amountBaseUnits);
+            const feeRate = options.feeRate ?? this.config.feeRate;
+            if (typeof feeRate !== 'number' || !Number.isInteger(feeRate) || feeRate <= 0) {
+                throw new Error('Bitcoin fee rate must be configured as a positive integer.');
+            }
 
             const psbt = new bitcoin.Psbt({ network: this.network });
             psbt.setVersion(2);
@@ -98,7 +148,8 @@ export default class BitcoinNetwork extends BaseNetwork {
                 }
             }
 
-            if (totalInputValue < satoshis + feeRate) {
+            const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
+            if (totalInputValue < satoshis + estimatedFee) {
                 throw new Error('Insufficient balance for the transaction including fees.');
             }
 
@@ -107,13 +158,14 @@ export default class BitcoinNetwork extends BaseNetwork {
                 value: satoshis
             });
 
-            const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
             const changeValue = totalInputValue - satoshis - estimatedFee;
+            let returnedChange = 0;
             if (changeValue > 546) {
                 psbt.addOutput({
                     address: from.address,
                     value: changeValue
                 });
+                returnedChange = changeValue;
             }
 
             const keyPair = ECPair.fromWIF(from.privateKey, this.network);
@@ -130,12 +182,48 @@ export default class BitcoinNetwork extends BaseNetwork {
             }
 
             psbt.finalizeAllInputs();
-            return psbt.extractTransaction().toHex();
+            return {
+                rawTransaction: psbt.extractTransaction().toHex(),
+                feeBaseUnits: BigInt(totalInputValue - satoshis - returnedChange),
+                amountBaseUnits
+            };
 
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Failed to create transaction: ${message}`);
         }
+    }
+
+    async prepareTransfer(
+        from: WalletAccount,
+        to: string,
+        amount: string,
+        asset: string,
+        options: TransferOptions = {}
+    ): Promise<PreparedTransfer> {
+        if (asset.toUpperCase() !== this.config.nativeToken) {
+            throw new Error(`Token ${asset} not supported on Bitcoin network`);
+        }
+
+        const built = await this.buildTransaction(from, to, amount, options);
+        const transaction = bitcoin.Transaction.fromHex(built.rawTransaction);
+
+        return {
+            from: from.address,
+            to,
+            asset: this.config.nativeToken,
+            amount: formatUnits(built.amountBaseUnits, 8),
+            amountBaseUnits: built.amountBaseUnits.toString(),
+            fee: {
+                asset: this.config.nativeToken,
+                amount: formatUnits(built.feeBaseUnits, 8),
+                baseUnits: built.feeBaseUnits.toString(),
+                decimals: 8,
+                estimated: true
+            },
+            transactionHash: transaction.getId(),
+            rawTransaction: built.rawTransaction
+        };
     }
 
     async getTransaction(txid: string): Promise<string> {
@@ -240,12 +328,16 @@ export default class BitcoinNetwork extends BaseNetwork {
         return bip39.validateMnemonic(mnemonic);
     }
 
-    satoshisToBTC(satoshis: number): number {
-        return satoshis / 100000000;
+    satoshisToBTC(satoshis: number): string {
+        return formatUnits(BigInt(satoshis), 8);
     }
 
     BTCToSatoshis(btc: number | string): number {
-        return Math.floor(Number(btc) * 100000000);
+        const units = parseDecimalToUnits(btc.toString(), 8);
+        if (units > BigInt(Number.MAX_SAFE_INTEGER)) {
+            throw new Error('Bitcoin amount exceeds the safe transaction range.');
+        }
+        return Number(units);
     }
 
     async getUTXOs(address: string): Promise<BitcoinUtxo[]> {
@@ -289,6 +381,22 @@ export default class BitcoinNetwork extends BaseNetwork {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Failed to broadcast transaction: ${message}`);
         }
+    }
+
+    async getTransactionStatus(transactionHash: string): Promise<TransactionStatus> {
+        const response = await fetch(`${this.url}/tx/${transactionHash}/status`);
+        if (response.status === 404) {
+            return { state: 'not_found', transactionHash };
+        }
+        if (!response.ok) {
+            throw new Error(`Failed to get transaction status: ${response.status} ${response.statusText}`);
+        }
+
+        const status = await response.json() as BitcoinTransactionStatus;
+        return {
+            state: status.confirmed ? 'confirmed' : 'submitted',
+            transactionHash
+        };
     }
 
     async fetchFromApi(path: string, options: RequestInit | undefined, responseType: 'text'): Promise<string>;

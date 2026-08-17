@@ -12,8 +12,7 @@
         ]
     },
     "include": [
-        "index.ts",
-        "persist.ts",
+        "*.ts",
         "network/*.ts",
         "network/lib/BaseNetwork.ts",
         "network/lib/Web3Network.ts",

@@ -84,7 +84,9 @@ class NetworkTester {
         tests.push({
             name: 'Basic Configuration',
             test: () => {
-                const required = ['name', 'NetworkClass', 'url', 'nativeToken', 'explorer'];
+                const required = [
+                    'id', 'family', 'name', 'NetworkClass', 'url', 'nativeToken', 'explorer'
+                ];
                 const missing = required.filter(prop => !network[prop]);
                 
                 if (missing.length > 0) {
@@ -93,6 +95,9 @@ class NetworkTester {
                 
                 if (typeof network.tokens !== 'object') {
                     throw new Error('tokens property must be an object');
+                }
+                if (network.family === 'evm' && !Number.isInteger(network.chainId)) {
+                    throw new Error('EVM networks must define an integer chainId');
                 }
                 
                 return 'Configuration is valid';
@@ -124,7 +129,9 @@ class NetworkTester {
                     'getBalance', 'transfer', 'transferToken', 'estimateGas',
                     'getGasPrice', 'validatePrivateKey', 'privateKeyToAccount', 'createAccount',
                     'accountFromMnemonic', 'createAccountFromMnemonic', 'validateMnemonic',
-                    'getTokenBalance', 'getTokenBalances', 'sendSignedTransaction'
+                    'getTokenBalance', 'getTokenBalances', 'getAssetBalance',
+                    'validateAddress', 'prepareTransfer', 'getTransactionStatus',
+                    'sendSignedTransaction'
                 ];
                 
                 const missingMethods = requiredMethods.filter(method => 

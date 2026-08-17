@@ -66,7 +66,9 @@ class ComprehensiveTester {
             
             try {
                 // Quick config check
-                const required = ['name', 'NetworkClass', 'url', 'nativeToken', 'explorer'];
+                const required = [
+                    'id', 'family', 'name', 'NetworkClass', 'url', 'nativeToken', 'explorer'
+                ];
                 const missing = required.filter(prop => !network[prop]);
                 if (missing.length > 0) {
                     configStatus = '❌';
@@ -95,7 +97,9 @@ class ComprehensiveTester {
         
         return networks.every(network => {
             try {
-                const required = ['name', 'NetworkClass', 'url', 'nativeToken', 'explorer'];
+                const required = [
+                    'id', 'family', 'name', 'NetworkClass', 'url', 'nativeToken', 'explorer'
+                ];
                 const missing = required.filter(prop => !network[prop]);
                 if (missing.length > 0) return false;
                 new network.NetworkClass(network);

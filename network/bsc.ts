@@ -3,6 +3,9 @@ import type { NetworkPlugin } from './types.js';
 
 const bsc = {
     NetworkClass: Web3Network,
+    id: 'bsc',
+    family: 'evm',
+    chainId: 56,
     name: '[BEP-20] Binance Smart Chain',
     url: 'https://bsc-dataseed1.binance.org',
     nativeToken: 'BNB',

@@ -2,8 +2,7 @@
 
 #### 📦 Install and try!
 ```bash
-npm install -g hodl-wallet
-hodl
+npm i -g hodl-wallet && hodl
 ```
 
 ![HODL Wallet](https://raw.githubusercontent.com/clasen/HODL/refs/heads/master/example.jpg)
@@ -13,7 +12,8 @@ hodl
 Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. HODL Wallet is here to agilize your crypto experience.
 
 - 🏎️ Lightning-fast operations
-- 🧊 Cool, minimalist CLI interface
+- 🖥️ Interactive TUI and direct CLI commands
+- 🤖 Agent-ready, non-interactive JSON interface
 - 🚫 Zero ads, zero BS
 - 🔒 Create wallets offline (because paranoia is just good sense in crypto)
 - 🔍 Fully transparent, open-source code
@@ -66,6 +66,44 @@ HODL Wallet now supports exporting and importing encrypted .HODL files, which se
 These files are encrypted using your wallet password, providing an additional layer of security for storing and transferring your wallet information.
 
 The main advantage of exporting a HODL file is that to access the private key, you need BOTH the file AND the password. This two-factor approach significantly enhances security. However, keep in mind that this solution is only compatible with HODL Wallet.
+
+## Agent-friendly JSON CLI
+
+Running `hodl` without arguments keeps the interactive wallet. Subcommands are
+non-interactive: they emit one JSON object, use stable network IDs, and never
+accept passwords, mnemonics, or private keys as command-line arguments.
+
+```bash
+hodl networks
+hodl wallet list
+
+printf '%s' '{"password":"vault-password"}' |
+  hodl wallet create --wallet treasury --words 24
+
+printf '%s' '{"password":"vault-password"}' |
+  hodl balance --wallet treasury --network eth
+
+printf '%s' '{"password":"vault-password"}' |
+  hodl send --wallet treasury --network eth \
+    --to "$RECIPIENT_ADDRESS" \
+    --asset ETH --amount 0.01 --dry-run
+
+printf '%s' '{"password":"vault-password"}' |
+  hodl send --wallet treasury --network eth \
+    --to "$RECIPIENT_ADDRESS" \
+    --asset ETH --amount 0.01 --yes --request-id payment-001
+```
+
+Successful commands write an envelope such as
+`{"version":1,"ok":true,"command":"balance","data":{...}}` to stdout.
+Failures write the equivalent `ok:false` envelope to stderr and return a
+non-zero exit code. Amounts, balances, fees, and base units are JSON strings so
+large values and token decimals remain exact.
+
+Named profiles live under `~/.HODL/profiles/`. The special profile `default`
+continues to use the existing `~/.HODL/persist.json` vault. A real transfer
+requires both `--yes` and a unique `--request-id`; retries reuse the previously
+prepared signed transaction instead of creating a second payment.
 
 ## 🔒 Security
 
