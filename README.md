@@ -72,23 +72,24 @@ The main advantage of exporting a HODL file is that to access the private key, y
 Running `hodl` without arguments keeps the interactive wallet. Subcommands are
 non-interactive: they emit one JSON object, use stable network IDs, and never
 accept passwords, mnemonics, or private keys as command-line arguments.
+Protected commands receive the password as JSON through stdin:
 
 ```bash
 hodl networks
 hodl wallet list
 
-printf '%s' '{"password":"vault-password"}' |
+echo '{"password":"vault-password"}' |
   hodl wallet create --wallet treasury --words 24
 
-printf '%s' '{"password":"vault-password"}' |
+echo '{"password":"vault-password"}' |
   hodl balance --wallet treasury --network eth
 
-printf '%s' '{"password":"vault-password"}' |
+echo '{"password":"vault-password"}' |
   hodl send --wallet treasury --network eth \
     --to "$RECIPIENT_ADDRESS" \
     --asset ETH --amount 0.01 --dry-run
 
-printf '%s' '{"password":"vault-password"}' |
+echo '{"password":"vault-password"}' |
   hodl send --wallet treasury --network eth \
     --to "$RECIPIENT_ADDRESS" \
     --asset ETH --amount 0.01 --yes --request-id payment-001
