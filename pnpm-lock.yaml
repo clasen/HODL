@@ -556,8 +556,8 @@ packages:
     resolution: {integrity: sha512-avsJQhyd+680gKXyG/sQc0nXaC6rBkPOfyHYcFb9+hdkqQkR9bdnkJ0AMZhke0oesPqIO+mFFJ+IdBc7mst4IA==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
 
-  nanoid@5.1.5:
-    resolution: {integrity: sha512-Ir/+ZpE9fDsNH0hQ3C68uyThDXzYcim2EqcZ8zn8Chtt1iylPT9xXJB0kPCnqzgcEGikO9RxSrh63MsmVCU7Fw==}
+  nanoid@5.1.16:
+    resolution: {integrity: sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==}
     engines: {node: ^18 || >=20}
     hasBin: true
 
@@ -1167,7 +1167,7 @@ snapshots:
   deepbase@3.8.2:
     dependencies:
       deepbase-json: 3.8.2(deepbase@3.8.2)
-      nanoid: 5.1.5
+      nanoid: 5.1.16
 
   defaults@1.0.4:
     dependencies:
@@ -1432,7 +1432,7 @@ snapshots:
 
   mute-stream@1.0.0: {}
 
-  nanoid@5.1.5: {}
+  nanoid@5.1.16: {}
 
   node-fetch@2.7.0:
     dependencies:
