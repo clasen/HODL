@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { runAgentCli } from '../agent-cli.js';
 import { formatUnits, normalizeDecimal, parseDecimalToUnits } from '../amounts.js';
 import { NetworkRegistry } from '../network-registry.js';
@@ -220,6 +222,39 @@ function assertFailure(result, exitCode, code) {
     assert.notEqual(result.stderr, '');
     assert.equal(result.json.ok, false);
     assert.equal(result.json.error.code, code);
+}
+
+function testCliEntrypoint() {
+    const entrypoint = fileURLToPath(new URL('../index.js', import.meta.url));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-entrypoint-'));
+    try {
+        const command = path.join(directory, 'hodl');
+        const packageLink = path.join(directory, 'package');
+        fs.symlinkSync(path.dirname(entrypoint), packageLink, 'dir');
+        fs.symlinkSync(path.join(packageLink, 'index.js'), command);
+        for (const entry of [entrypoint, path.join(packageLink, 'index.js'), command]) {
+            const result = spawnSync(process.execPath, [entry, 'networks'], { encoding: 'utf8' });
+            assert.ifError(result.error);
+            assert.equal(result.status, 0);
+            assert.equal(result.stderr, '');
+            assert.notEqual(result.stdout, '', `CLI did not start through ${entry}`);
+            const output = JSON.parse(result.stdout);
+            assert.equal(output.ok, true);
+            assert.equal(output.command, 'networks');
+            assert.ok(output.data.networks.length > 0);
+        }
+
+        const code = `await import(${JSON.stringify(new URL('../index.js', import.meta.url).href)});`;
+        for (const args of [['--input-type=module', '--eval', code], ['--input-type=module', '-']]) {
+            const result = spawnSync(process.execPath, args, { encoding: 'utf8', input: code });
+            assert.ifError(result.error);
+            assert.equal(result.status, 0, result.stderr);
+            assert.equal(result.stdout, '');
+            assert.equal(result.stderr, '');
+        }
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
 }
 
 async function testAmounts() {
@@ -519,6 +554,7 @@ async function testLocks() {
     }
 }
 
+testCliEntrypoint();
 await testAmounts();
 await testRegistryAndDerivation();
 await testProfilesAndCli();

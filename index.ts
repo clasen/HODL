@@ -1355,6 +1355,6 @@ async function runEntrypoint(argv: string[]): Promise<void> {
     }
 }
 
-if (path.resolve(process.argv[1] || '') === __filename) {
+if (process.argv[1] && fs.existsSync(process.argv[1]) && fs.realpathSync(process.argv[1]) === fs.realpathSync(__filename)) {
     void runEntrypoint(process.argv.slice(2));
 }
