@@ -114,11 +114,12 @@ export default class BitcoinNetwork extends BaseNetwork {
 
         try {
             const utxos = await this.getUTXOs(from.address);
-            const amountBaseUnits = parseDecimalToUnits(amount, 8);
+            const maximum = amount.trim().toLowerCase() === 'max';
+            let amountBaseUnits = maximum ? 0n : parseDecimalToUnits(amount, 8);
             if (amountBaseUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
                 throw new Error('Bitcoin amount exceeds the safe transaction range.');
             }
-            const satoshis = Number(amountBaseUnits);
+            let satoshis = Number(amountBaseUnits);
             const feeRate = options.feeRate ?? this.config.feeRate;
             if (typeof feeRate !== 'number' || !Number.isInteger(feeRate) || feeRate <= 0) {
                 throw new Error('Bitcoin fee rate must be configured as a positive integer.');
@@ -143,12 +144,19 @@ export default class BitcoinNetwork extends BaseNetwork {
                 totalInputValue += utxo.value;
 
                 const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
-                if (totalInputValue >= satoshis + estimatedFee) {
+                if (!maximum && totalInputValue >= satoshis + estimatedFee) {
                     break;
                 }
             }
 
-            const estimatedFee = this.estimateTxSize(psbt.inputCount, 2) * feeRate;
+            const estimatedFee = this.estimateTxSize(psbt.inputCount, maximum ? 1 : 2) * feeRate;
+            if (maximum) {
+                satoshis = totalInputValue - estimatedFee;
+                if (!Number.isSafeInteger(satoshis) || satoshis <= 546) {
+                    throw new Error('Insufficient spendable Bitcoin balance after fees.');
+                }
+                amountBaseUnits = BigInt(satoshis);
+            }
             if (totalInputValue < satoshis + estimatedFee) {
                 throw new Error('Insufficient balance for the transaction including fees.');
             }

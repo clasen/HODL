@@ -172,7 +172,9 @@ export default class Web3Network extends BaseNetwork {
 
         const symbol = asset.toUpperCase();
         const balance = await this.getAssetBalance(from.address, symbol);
-        const amountBaseUnits = parseDecimalToUnits(amount, balance.decimals);
+        const maximum = amount.trim().toLowerCase() === 'max';
+        let amountBaseUnits = maximum ? BigInt(balance.baseUnits) : parseDecimalToUnits(amount, balance.decimals);
+        if (amountBaseUnits <= 0n) throw new Error(`Insufficient ${symbol} balance.`);
         if (BigInt(balance.baseUnits) < amountBaseUnits) {
             throw new Error(`Insufficient ${symbol} balance.`);
         }
@@ -187,7 +189,7 @@ export default class Web3Network extends BaseNetwork {
             transaction = {
                 from: from.address,
                 to,
-                value: amountBaseUnits.toString()
+                value: maximum ? '0' : amountBaseUnits.toString()
             };
         } else {
             const tokenConfig = this.config.tokens[symbol];
@@ -208,6 +210,14 @@ export default class Web3Network extends BaseNetwork {
             : await this.web3.eth.estimateGas(transaction);
         const feeBaseUnits = gas * gasPrice;
         const nativeBalance = await this.getAssetBalance(from.address, this.config.nativeToken);
+        if (maximum && symbol === this.config.nativeToken) {
+            amountBaseUnits = BigInt(nativeBalance.baseUnits) - feeBaseUnits;
+            if (amountBaseUnits <= 0n) throw new Error(`Insufficient ${symbol} balance for fee.`);
+            transaction.value = amountBaseUnits.toString();
+            if (options.gasLimit === undefined && await this.web3.eth.estimateGas(transaction) > gas) {
+                throw new Error('Gas estimate increased for the maximum amount. Specify a smaller amount.');
+            }
+        }
         const requiredNative = symbol === this.config.nativeToken
             ? amountBaseUnits + feeBaseUnits
             : feeBaseUnits;

@@ -577,14 +577,14 @@ class Wallet {
         const { amount } = await inquirer.prompt({
             type: 'input',
             name: 'amount',
-            message: `Amount to transfer:`,
+            message: `Amount to transfer (or max):`,
             validate: (value: string) => {
-                if (value.trim() === '') return true;
+                if (value.trim() === '' || value.trim().toLowerCase() === 'max') return true;
                 try {
                     normalizeDecimal(value.trim());
                     return true;
                 } catch {
-                    return 'Please enter a valid decimal amount or leave empty to cancel.';
+                    return 'Please enter a valid decimal amount, max, or leave empty to cancel.';
                 }
             },
         });
@@ -593,13 +593,25 @@ class Wallet {
             return;
         }
 
-        const transferAmount = amount.trim();
+        let transferAmount = amount.trim();
+        if (transferAmount.toLowerCase() === 'max') {
+            try {
+                const preview = await service.send({ wallet: 'default', to: address, asset: token, amount: 'max', dryRun: true });
+                transferAmount = preview.amount;
+                console.log(`Maximum: ${preview.amount} ${token} | Estimated fee: ${preview.fee.amount} ${preview.fee.asset}`);
+            } catch (error) {
+                this.displayTransactionError(error);
+                return;
+            }
+        }
 
         // Add confirmation step
         const { confirmTransaction } = await inquirer.prompt({
             type: 'confirm',
             name: 'confirmTransaction',
-            message: `Confirm transfer?`,
+            message: amount.trim().toLowerCase() === 'max'
+                ? `Confirm transfer of maximum available ${token} (estimated ${transferAmount})?`
+                : `Confirm transfer of ${transferAmount} ${token}?`,
             default: true
         });
 
@@ -607,7 +619,7 @@ class Wallet {
             return;
         }
 
-        await this.submitTransfer(service, address, token, transferAmount, crypto.randomUUID());
+        await this.submitTransfer(service, address, token, amount.trim().toLowerCase() === 'max' ? 'max' : transferAmount, crypto.randomUUID());
     }
 
     private async submitTransfer(
@@ -635,8 +647,8 @@ class Wallet {
         console.log(this.selectedNetwork.explorer + result.transactionHash);
         try {
             const currentBalance = (await this.network.getAssetBalance(result.from, token)).amount;
-            await this.addToTransactions(address, token, amount, result.transactionHash, currentBalance);
-            await this.displayTransactionResult(address, token, amount, result.transactionHash, currentBalance);
+            await this.addToTransactions(address, token, result.amount, result.transactionHash, currentBalance);
+            await this.displayTransactionResult(address, token, result.amount, result.transactionHash, currentBalance);
             const existingContact = await this.db.get('contact', this.storageNetworkName, address);
             if (!existingContact) await this.addToAddressBook(address);
         } catch (error) {

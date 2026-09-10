@@ -54,7 +54,7 @@ export class TransferService {
             throw new AgentError('INVALID_ARGUMENT', `Asset ${asset} is not configured for ${this.plugin.id}.`, 2);
         }
         let amount: string;
-        try { amount = normalizeDecimal(request.amount); }
+        try { amount = request.amount.trim().toLowerCase() === 'max' ? 'max' : normalizeDecimal(request.amount); }
         catch (error) { throw new AgentError('INVALID_ARGUMENT', (error as Error).message, 2); }
         if (!request.dryRun && (!request.requestId || !REQUEST_ID_PATTERN.test(request.requestId))) {
             throw new AgentError('INVALID_ARGUMENT', 'A valid request ID is required.', 2);
@@ -72,7 +72,9 @@ export class TransferService {
                 finally { Persist.clearSensitiveData(prepared); }
             }
             const requestId = request.requestId!;
-            const fingerprint = crypto.createHash('sha256').update(JSON.stringify({
+            stored = await this.db.get('sendRequest', requestId) ?? undefined;
+            if (amount === 'max' && stored) amount = stored.amount;
+            const fingerprint = () => crypto.createHash('sha256').update(JSON.stringify({
                 wallet: request.wallet,
                 network: this.plugin.id,
                 chainId: this.plugin.chainId ?? null,
@@ -81,8 +83,7 @@ export class TransferService {
                 asset,
                 amount
             })).digest('hex');
-            stored = await this.db.get('sendRequest', requestId) ?? undefined;
-            if (stored && stored.fingerprint !== fingerprint) {
+            if (stored && stored.fingerprint !== fingerprint()) {
                 throw new AgentError('IDEMPOTENCY_CONFLICT', 'Request ID was already used with different transfer parameters.', 3);
             }
             if (stored) {
@@ -111,7 +112,8 @@ export class TransferService {
                 }
                 const prepared = await this.prepare(account, request.to, amount, asset);
                 const now = new Date().toISOString();
-                stored = { ...prepared, fingerprint, state: 'prepared', network: this.plugin.id, createdAt: now, updatedAt: now };
+                if (amount === 'max') amount = prepared.amount;
+                stored = { ...prepared, fingerprint: fingerprint(), state: 'prepared', network: this.plugin.id, createdAt: now, updatedAt: now };
                 Persist.clearSensitiveData(prepared);
                 await this.save(stored, requestId);
             }

@@ -221,7 +221,7 @@ test('integration runner exits with failure for FAIL results, exceptions and mis
 
 test('interactive transfers survive lost responses and do not report post-send errors as failed payments', () => {
     const moduleUrl = (name: string) => JSON.stringify(new URL(`../${name}.js`, import.meta.url).href);
-    for (const scenario of ['lost-response', 'balance-error']) {
+    for (const scenario of ['lost-response', 'balance-error', 'max']) {
         const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-interactive-'));
         try {
             const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
@@ -248,6 +248,7 @@ test('interactive transfers survive lost responses and do not report post-send e
                 let signs = 0, broadcasts = 0, status = 'not_found';
                 BitcoinNetwork.prototype.prepareTransfer = async (from, to, amount, asset) => {
                     signs++;
+                    if (amount === 'max') amount = '0.001';
                     return {
                         from: from.address, to, amount, asset, amountBaseUnits: '100000',
                         fee: { asset: 'BTC', amount: '0.00001', baseUnits: '1000', decimals: 8, estimated: true },
@@ -274,12 +275,12 @@ test('interactive transfers survive lost responses and do not report post-send e
                         status = resumes === 1 ? 'submitted' : 'confirmed';
                         return { requestId: question.choices[0].value };
                     }
-                    const answers = { key: 'fixture-password', recipient: ${JSON.stringify(FROM)}, amount: '0.001', confirmTransaction: true, name: '' };
+                    const answers = { key: 'fixture-password', recipient: ${JSON.stringify(FROM)}, amount: scenario === 'max' ? ' MAX ' : '0.001', confirmTransaction: true, name: '' };
                     assert.ok(name in answers, 'Unexpected prompt: ' + name);
                     return { [name]: answers[name] };
                 };
                 await runCli([]);
-                assert.equal(signs, 1);
+                assert.equal(signs, scenario === 'max' ? 2 : 1);
                 assert.equal(broadcasts, 1);
                 assert.equal(actions.length, 0);
                 const read = new Persist({ path: root, encryptionKey: 'fixture-password' });
@@ -298,10 +299,85 @@ test('interactive transfers survive lost responses and do not report post-send e
                 assert.match(output, /Transfer recorded; could not update/);
                 assert.doesNotMatch(output, /Transaction confirmed!/);
                 assert.match(output, /submitted/);
+            } else if (scenario === 'max') {
+                assert.match(output, /Maximum: 0.001 BTC/);
+                assert.doesNotMatch(output, /NaN/);
             } else {
                 assert.match(output, /Transaction confirmed!/);
                 assert.match(output, /Saved transfer:/);
             }
         } finally { fs.rmSync(home, { recursive: true, force: true }); }
     }
+});
+
+test('max retries and menu recovery reuse the resolved amount without signing again', async () => {
+    const f = await fixture();
+    try {
+        const original = f.service();
+        const network = (original as any).network;
+        const prepare = network.prepareTransfer.bind(network);
+        network.prepareTransfer = (from: WalletAccount, to: string, amount: string, asset: string) =>
+            prepare(from, to, amount === 'max' ? '0.001' : amount, asset);
+        const sent = await original.send({ ...request, amount: 'MAX' });
+        assert.equal(sent.amount, '0.001');
+        f.state.status = 'confirmed';
+        await f.reopen();
+        assert.equal((await f.service().send({ ...request, amount: 'max' })).transactionHash, sent.transactionHash);
+        assert.equal((await f.service().send(request)).transactionHash, sent.transactionHash);
+        assert.equal(f.state.signs, 1);
+        assert.equal(f.state.broadcasts.length, 1);
+    } finally { await f.close(); }
+});
+
+test('EVM max reserves gas for native funds and sends the full token balance', async () => {
+    const { default: Web3Network } = await import('../network/lib/Web3Network.js');
+    const { default: bsc } = await import('../network/bsc.js');
+    const network = new Web3Network(bsc);
+    let native = 1000000n;
+    let signed: any;
+    const web3 = (network as any).web3;
+    web3.eth.getChainId = async () => 56n;
+    web3.eth.getTransactionCount = async () => 0n;
+    web3.eth.estimateGas = async () => 21000n;
+    web3.eth.accounts.signTransaction = async (tx: any) => {
+        signed = tx;
+        return { rawTransaction: '0x01', transactionHash: '0xabc' };
+    };
+    network.getGasPrice = async () => 2n;
+    network.getAssetBalance = async (_address, asset) => ({
+        asset, decimals: 18, baseUnits: String(asset === 'BNB' ? native : 1234567890123456789n), amount: 'unused'
+    });
+    const from = { address: '0x1111111111111111111111111111111111111111', privateKey: 'fixture' };
+    const nativeResult = await network.prepareTransfer(from, from.address, 'max', 'BNB');
+    assert.equal(nativeResult.amountBaseUnits, '958000');
+    assert.equal(BigInt(signed.value) + BigInt(signed.gas) * BigInt(signed.gasPrice), native);
+    const tokenResult = await network.prepareTransfer(from, from.address, 'max', 'USDT');
+    assert.equal(tokenResult.amountBaseUnits, '1234567890123456789');
+    assert.ok(signed.data.endsWith(1234567890123456789n.toString(16).padStart(64, '0')));
+    native = 42000n;
+    await assert.rejects(network.prepareTransfer(from, from.address, 'max', 'BNB'), /Insufficient/);
+    native = 0n;
+    await assert.rejects(network.prepareTransfer(from, from.address, 'max', 'USDT'), /Insufficient/);
+});
+
+test('Bitcoin max spends all inputs with one output and subtracts the fee', async () => {
+    const bitcoin = await import('bitcoinjs-lib');
+    const network = new BitcoinNetwork(btc);
+    const from = await network.createAccount();
+    const previous = [100000, 200000].map((value, index) => {
+        const tx = new bitcoin.Transaction();
+        tx.addInput(Buffer.alloc(32, index + 1), 0);
+        tx.addOutput(bitcoin.address.toOutputScript(from.address), value);
+        return tx;
+    });
+    network.getUTXOs = async () => previous.map(tx => ({ txid: tx.getId(), vout: 0, value: tx.outs[0].value }));
+    network.getTransaction = async id => previous.find(tx => tx.getId() === id)!.toHex();
+    const result = await network.prepareTransfer(from, FROM, 'max', 'BTC', { feeRate: 2 });
+    const tx = bitcoin.Transaction.fromHex(result.rawTransaction);
+    assert.equal(tx.ins.length, 2);
+    assert.equal(tx.outs.length, 1);
+    assert.equal(tx.outs[0].value, 300000 - network.estimateTxSize(2, 1) * 2);
+    assert.equal(BigInt(result.amountBaseUnits) + BigInt(result.fee.baseUnits), 300000n);
+    network.getUTXOs = async () => [];
+    await assert.rejects(network.prepareTransfer(from, FROM, 'max', 'BTC'), /Insufficient/);
 });
