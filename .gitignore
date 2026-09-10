@@ -135,3 +135,6 @@ export
 *.HODL
 CLAUDE.md
 .claude
+
+# Generated npm package documentation
+/packages/hodl-wallet/README.md

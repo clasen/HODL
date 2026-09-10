@@ -6,14 +6,20 @@ This file provides guidance to Agents when working with code in this repository.
 
 HODL Wallet is a CLI-based multi-network cryptocurrency wallet written in TypeScript for Node.js. It supports Bitcoin and EVM-compatible networks.
 
+This repository is a pnpm workspace. The published package and CLI live in
+`packages/hodl-wallet/`; `apps/*` is reserved for future applications. Source paths
+below are relative to `packages/hodl-wallet/`. Run the commands below from the
+repository root. Workspace dependency policy and the shared lockfile stay at the root.
+
 ## Key Commands
 
-- **Start the application**: `pnpm start` or `node dist/index.js` after building
+- **Start the application**: `pnpm start` or `node packages/hodl-wallet/dist/index.js` after building
 - **Install globally**: `npm install -g hodl-wallet` then run `hodl`
-- **Build**: `pnpm run build` (TypeScript sources emit to `dist/`)
+- **Build**: `pnpm run build` (TypeScript sources emit to `packages/hodl-wallet/dist/`; copies the root README into the package)
 - **Typecheck**: `pnpm run typecheck`
 - **Focused checks**: `pnpm run test:agent`, `pnpm run test:persist`, `pnpm run test:transfer`, `pnpm run test:swap`
 - **Release checks**: `pnpm run prepublishOnly`
+- **Package tarball**: `pnpm --filter hodl-wallet pack` after building; publish only the package, never the private workspace root
 
 ## Swap Module
 

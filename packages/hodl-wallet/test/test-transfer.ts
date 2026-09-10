@@ -198,6 +198,27 @@ test('an active BSC swap blocks a new transfer in the shared service', async () 
     } finally { await f.close(); }
 });
 
+for (const family of ['bitcoin', 'evm'] as const) {
+    for (const state of ['completed', 'partial_completed', 'refunded', 'failed']) {
+        test(`${family} transfer is allowed after the blocking swap is saved as ${state}`, async () => {
+            const f = await fixture(family);
+            try {
+                await f.db.set('swapOperation', 'blocking-swap', { state: 'deposit_pending' });
+                await assert.rejects(f.service().send(request), {
+                    code: 'SWAP_IN_PROGRESS', details: { requestId: 'blocking-swap' }
+                });
+                assert.equal(await f.db.get('sendRequest', request.requestId), null);
+                assert.equal(f.state.signs, 0);
+                assert.equal(f.state.broadcasts.length, 0);
+                await f.db.set('swapOperation', 'blocking-swap', { state });
+                await f.service().send(request);
+                assert.equal(f.state.signs, 1);
+                assert.equal(f.state.broadcasts.length, 1);
+            } finally { await f.close(); }
+        });
+    }
+}
+
 test('integration runner exits with failure for FAIL results, exceptions and missing plugins', () => {
     const runner = new URL('./test-integration.js', import.meta.url);
     for (const scenario of ['fail', 'throw', 'empty', 'pass']) {

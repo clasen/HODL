@@ -12,11 +12,13 @@ The HODL Wallet testing system includes three types of tests:
 
 ## 🚀 How to Run Tests
 
+Run these commands from the repository root.
+
 ### Method 1: Complete Suite (Recommended)
 ```bash
 npm test
 # or directly:
-node test-all.js
+node packages/hodl-wallet/dist/test/test-all.js
 ```
 
 ### Method 2: Specific Tests
@@ -33,21 +35,23 @@ npm run test:quick
 
 ### Method 3: Run individual files
 ```bash
+pnpm run build
+
 # Complete network tests
-node test/test.js
+node packages/hodl-wallet/dist/test/test.js
 
 # Integration tests
-node test/test-integration.js
+node packages/hodl-wallet/dist/test/test-integration.js
 
 # Complete suite with interactive menu
-node test/test-all.js
+node packages/hodl-wallet/dist/test/test-all.js
 ```
 
 ## 🔍 What the Tests Cover
 
 ### Network Tests (test.js)
 
-For each network found in `/network/`, these tests are executed:
+For each network found in `packages/hodl-wallet/network/`, these tests are executed:
 
 #### ✅ Basic Configuration
 - Verifies required properties: `name`, `NetworkClass`, `url`, `nativeToken`, `explorer`
@@ -130,7 +134,7 @@ For each network found in `/network/`, these tests are executed:
 ## 🛠️ Troubleshooting
 
 ### Error: "No network plugins found"
-- Verify compiled `.js` files exist in the `/dist/network/` directory after `pnpm run build`
+- Verify compiled `.js` files exist in `packages/hodl-wallet/dist/network/` after `pnpm run build`
 - Confirm files export a valid default object
 
 ### Error: "Missing required properties"

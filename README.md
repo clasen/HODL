@@ -7,6 +7,15 @@ npm i -g hodl-wallet && hodl
 
 ![HODL Wallet](https://raw.githubusercontent.com/clasen/HODL/refs/heads/master/example.jpg)
 
+## Development
+
+The repository uses pnpm workspaces. The npm package and CLI live in
+`packages/hodl-wallet/`; `apps/*` is reserved for future applications.
+Run `pnpm install`, `pnpm run build`, `pnpm run typecheck`, and
+`pnpm run prepublishOnly` from the repository root. Start the CLI with `pnpm start`.
+To create a package tarball after building, run `pnpm --filter hodl-wallet pack`.
+The root README is the source of truth and is copied into the package during build.
+
 ## 🚀 Why HODL Wallet?
 
 Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. HODL Wallet is here to agilize your crypto experience.

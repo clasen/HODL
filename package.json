@@ -1,100 +1,20 @@
 {
-    "name": "hodl-wallet",
-    "version": "2.0.6",
-    "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
-    "author": "Martin Clasen",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/clasen/HODL.git"
-    },
-    "license": "MIT",
-    "bugs": {
-        "url": "https://github.com/clasen/HODL/issues"
-    },
-    "homepage": "https://hodl-wallet.com",
-    "files": [
-        "dist/*.js",
-        "dist/*.d.ts",
-        "dist/*.js.map",
-        "dist/network",
-        "dist/swap/*.js",
-        "dist/swap/*.d.ts",
-        "dist/swap/*.js.map",
-        "README.md"
-    ],
-    "main": "dist/index.js",
-    "bin": {
-        "hodl": "dist/index.js"
-    },
-    "scripts": {
-        "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
-        "start": "pnpm run build && node ./dist/index.js",
-        "typecheck": "tsc --noEmit",
-        "test": "pnpm run build && node ./dist/test/test-all.js",
-        "test:network": "pnpm run build && node ./dist/test/test.js",
-        "test:integration": "pnpm run build && node ./dist/test/test-integration.js",
-        "test:persist": "pnpm run build && node ./dist/test/test-persist.js",
-        "test:agent": "pnpm run build && node ./dist/test/test-agent-cli.js",
-        "test:transfer": "pnpm run build && node --test ./dist/test/test-transfer.js",
-        "test:swap": "pnpm run build && node --test ./dist/swap/test/swap.js ./dist/swap/test/reverse.js",
-        "test:quick": "pnpm run build && node ./dist/test/test.js --quick",
-        "prepublishOnly": "pnpm run build && pnpm run test:agent && pnpm run test:persist && pnpm run test:transfer && pnpm run test:swap && pnpm run test:quick && pnpm run test:integration"
-    },
-    "keywords": [
-        "hodl",
-        "wallet",
-        "crypto",
-        "ethereum",
-        "bsc20",
-        "bep20",
-        "bnb",
-        "eth",
-        "binance",
-        "trust",
-        "blockchain",
-        "bitcoin",
-        "usdt",
-        "stable",
-        "coin",
-        "evm",
-        "polygon",
-        "matic",
-        "arbitrum",
-        "fantom",
-        "optimism",
-        "avalanche",
-        "avax",
-        "hyperliquid",
-        "hyperevm",
-        "hype",
-        "agent-friendly",
-        "ai-agent",
-        "clasen"
-    ],
-    "dependencies": {
-        "bip32": "^4.0.0",
-        "bip39": "3.1.0",
-        "bitcoinjs-lib": "6.1.7",
-        "cli-table3": "0.6.5",
-        "deepbase": "3.8.2",
-        "ecpair": "2.1.0",
-        "external-editor": "3.1.0",
-        "hdkey": "^0.6.0",
-        "inquirer": "9.3.7",
-        "inquirer-autocomplete-prompt": "3.0.1",
-        "inquirer-fuzzy-path": "2.3.0",
-        "ora": "8.1.1",
-        "tiny-secp256k1": "2.2.3",
-        "tmp": "0.2.7",
-        "web3": "4.16.0"
-    },
-    "devDependencies": {
-        "@types/node": "^24.12.4",
-        "typescript": "^5.9.2"
-    },
-    "overrides": {
-        "tmp": "0.2.7"
-    },
+    "name": "hodl-monorepo",
+    "private": true,
     "type": "module",
-    "packageManager": "pnpm@11.1.2"
+    "packageManager": "pnpm@12.3.4",
+    "scripts": {
+        "build": "pnpm --filter hodl-wallet run build",
+        "start": "pnpm --filter hodl-wallet run start",
+        "typecheck": "pnpm --filter hodl-wallet run typecheck",
+        "test": "pnpm --filter hodl-wallet run test",
+        "test:network": "pnpm --filter hodl-wallet run test:network",
+        "test:integration": "pnpm --filter hodl-wallet run test:integration",
+        "test:persist": "pnpm --filter hodl-wallet run test:persist",
+        "test:agent": "pnpm --filter hodl-wallet run test:agent",
+        "test:transfer": "pnpm --filter hodl-wallet run test:transfer",
+        "test:swap": "pnpm --filter hodl-wallet run test:swap",
+        "test:quick": "pnpm --filter hodl-wallet run test:quick",
+        "prepublishOnly": "pnpm --filter hodl-wallet run prepublishOnly"
+    }
 }

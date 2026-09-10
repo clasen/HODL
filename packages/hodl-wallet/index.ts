@@ -632,6 +632,11 @@ class Wallet {
         } catch (error) {
             spinner.fail('Could not complete the transfer request.');
             this.displayTransactionError(error);
+            if (error instanceof AgentError && error.code === 'SWAP_IN_PROGRESS') {
+                console.log(`Blocking swap: ${error.details?.requestId}`);
+                console.log('Open Swap > Track Swaps to refresh its saved status, then retry the transfer once the swap has finished.');
+                return;
+            }
             if (error instanceof AgentError && error.details?.transactionHash) {
                 console.log(`Saved transfer: ${error.details.requestId}`);
                 console.log(this.selectedNetwork.explorer + error.details.transactionHash);

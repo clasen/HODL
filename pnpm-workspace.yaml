@@ -1,3 +1,7 @@
+packages:
+  - 'packages/*'
+  - 'apps/*'
+
 minimumReleaseAgeExclude:
   - lodash@4.17.24
   - ws@8.20.1
