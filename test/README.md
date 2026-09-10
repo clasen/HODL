@@ -36,7 +36,7 @@ npm run test:quick        # Quick validation
 
 ### Validated Networks:
 - ✅ Ethereum (ETH)
-- ✅ Binance Smart Chain (BNB)  
+- ✅ BNB Smart Chain (BSC)
 - ✅ Arbitrum One (ARB)
 - ✅ Avalanche C-Chain (AVAX)
 - ✅ Fantom (FTM)

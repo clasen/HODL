@@ -4,30 +4,53 @@ This file provides guidance to Agents when working with code in this repository.
 
 ## Project Overview
 
-HODL Wallet is a CLI-based multi-network cryptocurrency wallet written in Node.js. It supports Bitcoin, TON (The Open Network), and multiple EVM-compatible networks (Ethereum, BSC, Polygon, Arbitrum, Optimism, Fantom, Avalanche).
+HODL Wallet is a CLI-based multi-network cryptocurrency wallet written in TypeScript for Node.js. It supports Bitcoin and EVM-compatible networks.
 
 ## Key Commands
 
-- **Start the application**: `npm start` or `node index.js`
+- **Start the application**: `pnpm start` or `node dist/index.js` after building
 - **Install globally**: `npm install -g hodl-wallet` then run `hodl`
-- **No test suite configured**: The project uses `echo "Error: no test specified" && exit 1` for tests
+- **Build**: `pnpm run build` (TypeScript sources emit to `dist/`)
+- **Typecheck**: `pnpm run typecheck`
+- **Focused checks**: `pnpm run test:agent`, `pnpm run test:persist`, `pnpm run test:transfer`, `pnpm run test:swap`
+- **Release checks**: `pnpm run prepublishOnly`
+
+## Swap Module
+
+- `swap/service.ts` coordinates encrypted quotes, idempotent funding and progress;
+  both the interactive menu and JSON CLI use it under the profile lock.
+- `swap/routes.ts` defines USDT on BSC ↔ native Bitcoin. `swap/providers.ts`
+  adapts Chainflip deposit channels and THORChain deposits to each route.
+  THORChain uses automatic streaming; Chainflip uses a single execution. No DCA
+  or boosts. Quotes bind the original source sender as refund destination. Partial streaming results require verified
+  BTC and USDT payouts before `partial_completed`; never report them as a full swap.
+- `swap/chain.ts` handles BSC funding and payment verification; `swap/bitcoin.ts`
+  handles Bitcoin funding, confirmed inputs, fees and extended THORChain memos.
+  Both implement `SwapChain`; the coordinator shares persistence and settlement.
+  `swap/storage.ts` reads existing forward-route operations without migration.
+  `swap/config.ts` is the centralized source for swap endpoints, timeouts, gas
+  budgets, price tolerance and confirmation counts; do not duplicate defaults.
+- `swap/test/` uses Node's test runner, temporary encrypted wallets and
+  mocked providers/RPCs. Never use a real wallet or send funds for verification.
+- Quote availability is checked at runtime; documentation alone is not proof
+  that a provider currently supports the BSC USDT route.
 
 ## Architecture Overview
 
 ### Core Components
 
-- **index.js**: Main application entry point containing the `Wallet` class and `UIManager` class
-- **persist.js**: Encrypted data persistence layer using Deepbase with AES encryption
+- **index.ts**: Main application entry point containing the `Wallet` class and `UIManager` class
+- **persist.ts**: Encrypted data persistence layer using Deepbase with AES encryption
+- **transfer-service.ts**: Shared durable transfer journal and recovery used by the menu and JSON CLI; callers hold the profile lock
 - **network/**: Network implementations following a plugin architecture
 
 ### Network Plugin System
 
 The application uses a modular network plugin system:
 
-- **BaseNetwork.js**: Abstract base class defining the interface all networks must implement
-- **Web3Network.js**: EVM-compatible network implementation extending BaseNetwork
-- **BitcoinNetwork.js**: Bitcoin-specific network implementation
-- **TONNetwork.js**: TON network implementation
+- **BaseNetwork.ts**: Abstract base class defining the interface all networks must implement
+- **Web3Network.ts**: EVM-compatible network implementation extending BaseNetwork
+- **BitcoinNetwork.ts**: Bitcoin-specific network implementation
 
 Each network plugin exports:
 - `NetworkClass`: The implementation class
@@ -62,29 +85,8 @@ Each network plugin exports:
 
 ## Common Development Patterns
 
-- Network implementations extend either `Web3Network`, `BitcoinNetwork`, or `BaseNetwork` (for TON)
+- Network implementations extend `Web3Network` or `BitcoinNetwork`
 - All user interactions use the `inquirer` library for CLI prompts
 - Tables displayed using `cli-table3` for consistent formatting
 - Async/await pattern used throughout
 - ES6 modules with `.js` extensions
-
-## TON Network Integration
-
-The TON network has been integrated with the following features:
-- Native TON balance checking
-- TON transfers using WalletContractV4
-- Mnemonic phrase support (TON uses 24-word mnemonics)
-- Integration with @ton/ton, @ton/crypto, and @ton/core libraries
-- Fallback RPC endpoint if @orbs-network/ton-access is unavailable
-
-**TON Features:**
-- Native TON balance checking and transfers ✅
-- Jetton (token) balance checking ✅
-- Jetton transfers ✅
-- Uses standard jetton master contract methods
-- Supports TEP-74 jetton standard
-
-**TON Limitations:**
-- Private key import not supported (use mnemonic instead)
-- Gas estimation uses fixed approximation
-- Jetton decimals assumed to be 9 (standard for most tokens)

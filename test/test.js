@@ -216,7 +216,7 @@ class NetworkTester {
         });
 
         // Test 6: Private key to account
-        if (network.name.includes('ERC-20') || network.name.includes('BEP-20')) {
+        if (network.family === 'evm') {
             tests.push({
                 name: 'Private Key To Account',
                 test: async () => {

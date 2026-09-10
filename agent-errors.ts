@@ -11,6 +11,8 @@ export type AgentErrorCode =
     | 'NETWORK_ERROR'
     | 'TRANSFER_FAILED'
     | 'BROADCAST_UNKNOWN'
+    | 'SWAP_IN_PROGRESS'
+    | 'SWAP_QUOTE_EXPIRED'
     | 'INTERNAL_ERROR';
 
 export class AgentError extends Error {

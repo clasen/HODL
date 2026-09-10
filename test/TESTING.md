@@ -87,7 +87,7 @@ For each network found in `/network/`, these tests are executed:
 - Compares addresses between Ethereum, BSC, Arbitrum, etc.
 
 #### ✅ Network Type Grouping
-- Categorizes networks by type: Web3, Bitcoin, TON
+- Categorizes networks by type: Web3, Bitcoin
 - Verifies all networks are correctly categorized
 
 #### ✅ Token Consistency
@@ -112,9 +112,9 @@ For each network found in `/network/`, these tests are executed:
 ┌──────────────────────────────┬───────────────┬────────┬────────┬──────────┐
 │ Network                      │ File          │ Passed │ Failed │ Status   │
 ├──────────────────────────────┼───────────────┼────────┼────────┼──────────┤
-│ [ERC-20] Ethereum            │ eth.js        │ 10     │ 0      │ ✅ PASS  │
-│ [BEP-20] Binance Smart Chain │ bsc.js        │ 10     │ 0      │ ✅ PASS  │
-│ [ERC-20] Hyperliquid         │ hyperliquid.… │ 10     │ 0      │ ✅ PASS  │
+│ [ETH] Ethereum               │ eth.js        │ 10     │ 0      │ ✅ PASS  │
+│ [BSC] BNB Smart Chain        │ bsc.js        │ 10     │ 0      │ ✅ PASS  │
+│ [HYPE] Hyperliquid           │ hyperliquid.… │ 10     │ 0      │ ✅ PASS  │
 │ [BTC] Bitcoin                │ btc.js        │ 9      │ 0      │ ✅ PASS  │
 └──────────────────────────────┴───────────────┴────────┴────────┴──────────┘
 

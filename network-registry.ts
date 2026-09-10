@@ -21,6 +21,10 @@ export const ACTIVE_NETWORKS: readonly NetworkPlugin[] = Object.freeze([
     hyperliquid
 ]);
 
+export function networkStorageName(network: NetworkPlugin): string {
+    return network.storageName ?? network.name;
+}
+
 export class NetworkRegistry {
     private readonly byId: Map<string, NetworkPlugin>;
 

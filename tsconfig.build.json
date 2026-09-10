@@ -9,8 +9,6 @@
     },
     "exclude": [
         "dist",
-        "export",
-        "network/disabled",
-        "network/lib/TONNetwork.js"
+        "export"
     ]
 }

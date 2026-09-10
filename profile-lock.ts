@@ -14,6 +14,13 @@ function defaultIsProcessAlive(pid: number): boolean {
     }
 }
 
+export class ProfileLockedError extends Error {
+    constructor(public readonly owner: number | null) {
+        super(`Profile is locked by process ${owner}.`);
+        this.name = 'ProfileLockedError';
+    }
+}
+
 export class ProfileLock {
     private readonly lockPath: string;
     private readonly isProcessAlive: (pid: number) => boolean;
@@ -44,7 +51,7 @@ export class ProfileLock {
 
                 const owner = this.readOwner();
                 if (owner === null || this.isProcessAlive(owner)) {
-                    throw new Error(`Profile is locked by process ${owner}.`);
+                    throw new ProfileLockedError(owner);
                 }
 
                 try {

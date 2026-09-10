@@ -17,7 +17,7 @@ Let's face it, Trust Wallet's sluggishness and annoying ads are so last season. 
 - 🚫 Zero ads, zero BS
 - 🔒 Create wallets offline (because paranoia is just good sense in crypto)
 - 🔍 Fully transparent, open-source code
-- 🌐 Support for Bitcoin and Ethereum. Binance Smart Chain, Polygon, Avalanche, Optimism, Arbitrum, Fantom, and Hyperliquid.
+- 🌐 Support for Bitcoin and Ethereum. BNB Smart Chain (BSC), Polygon, Avalanche, Optimism, Arbitrum, Fantom, and Hyperliquid.
 
 That's it! Follow the prompts and you're in crypto heaven.
 
@@ -46,7 +46,7 @@ Seamlessly manage your assets on multiple networks. HODL Wallet supports the fol
 - Bitcoin
 - EVM
   - Ethereum
-  - Binance Smart Chain
+  - BNB Smart Chain (BSC)
   - Polygon
   - Optimism
   - Arbitrum One
@@ -105,6 +105,83 @@ Named profiles live under `~/.HODL/profiles/`. The special profile `default`
 continues to use the existing `~/.HODL/persist.json` vault. A real transfer
 requires both `--yes` and a unique `--request-id`; retries reuse the previously
 prepared signed transaction instead of creating a second payment.
+
+### Swap between USDT on BSC and native Bitcoin
+
+The Swap menu appears on BSC and Bitcoin and shows the direction explicitly:
+**USDT (BSC) → BTC (Bitcoin)** or **BTC (Bitcoin) → USDT (BSC)**.
+**Track Swaps** is inside that menu and follows both directions regardless of the
+selected network. Tracking only reads status and never signs or submits a
+transaction. The destination account is offered by default; you can also type
+an external address for the destination network. Importing only an EVM private
+key does not create a Bitcoin account.
+
+HODL compares single-execution Chainflip with automatic THORChain streaming,
+which divides the exchange into smaller swaps to reduce price impact. Unavailable,
+paused, or unsupported routes are shown separately. DCA, boosts and HODL affiliate
+commissions are not enabled. Streaming and its estimated duration are shown
+before confirmation. The best available quote is ranked by estimated destination value after accounting for the separate source-network fee: BNB for BSC, or BTC for Bitcoin.
+Total cost includes fees and price impact against a recent CoinGecko reference;
+it is an estimate, not a guaranteed execution price. There is no fixed cost cap:
+review and accept the displayed cost before executing.
+
+```bash
+hodl swap destination --wallet treasury < "$WALLET_SECRET_INPUT"
+hodl swap quote --wallet treasury --amount 100 < "$WALLET_SECRET_INPUT"
+hodl swap quote --wallet treasury --amount 100 --to "$BTC_ADDRESS" < "$WALLET_SECRET_INPUT"
+hodl swap destination --wallet treasury --network btc < "$WALLET_SECRET_INPUT"
+hodl swap quote --wallet treasury --network btc --amount 0.01 --to "$BSC_ADDRESS" < "$WALLET_SECRET_INPUT"
+hodl swap execute --wallet treasury --quote-id "$QUOTE_ID" \
+  --request-id swap-001 --yes --watch < "$WALLET_SECRET_INPUT"
+hodl swap status --wallet treasury --request-id swap-001 --watch < "$WALLET_SECRET_INPUT"
+hodl swap list --wallet treasury < "$WALLET_SECRET_INPUT"
+hodl swap resume --wallet treasury --request-id swap-001 --yes --watch < "$WALLET_SECRET_INPUT"
+```
+
+`WALLET_SECRET_INPUT` identifies your existing protected JSON stdin source;
+passwords remain off command-line arguments. `quote` saves a short-lived quote
+but does not sign, open a deposit channel or send funds. `execute --yes` accepts
+that exact quote, including its destination, minimum output and maximum source-network fee
+budget. `--watch` emits JSONL progress envelopes followed by the final result.
+Without `--watch`, execution returns after publishing the next funding step;
+use `resume --yes` to continue after an approval confirms. `status` only observes
+and never submits a transaction. Only one unfinished swap per profile is
+allowed, and it blocks other HODL BSC and Bitcoin transfers until resolved.
+
+The minimum destination amount for a full swap limits deterioration from the accepted quote to 0.5%.
+This is separate from total fees. Source approvals grant only the required
+amount to the configured THORChain router. Signed transactions and provider
+identifiers are saved in the encrypted wallet before broadcasting; a retry uses
+the same signed transaction and request ID. Expired quotes or channels cannot
+start a new deposit. Closing HODL stops local monitoring and any remaining
+funding steps; it does not cancel a deposit already sent to the protocol.
+
+Bitcoin funding spends confirmed inputs selected when quoting and reserves the
+accepted fee budget plus change to the original Bitcoin address. Changed inputs
+or a higher fee rate require a new quote. THORChain deposits include its extended
+memo outputs; their cost is included in the displayed source-network fee.
+
+Progress distinguishes source funding, provider processing, payout and
+confirmations. Completion requires the exact destination payment with **3 Bitcoin
+confirmations** or **15 BSC confirmations**, according to the route. Read failures
+retain the last known state and report an update error.
+
+Refunds return the source asset to the original sender: USDT on BSC for the
+forward route, BTC for the reverse route. Refund and network fees may be deducted.
+Streaming can finish partially, with a destination payment and a source refund.
+The payment can be below the full-swap minimum in that case. HODL reports
+`partial_completed` only after the provider reports every outbound and both
+payments are verified; `partial_pending` means verification is still in progress.
+A completed exchange with a delayed payout cannot automatically reverse into the
+source asset. Protocol failures can require provider support.
+
+The JSON CLI defaults to BSC when `--network` is omitted. Execute, resume and
+status use the route stored with the quote or operation; they do not take a new
+network selection. Existing BSC-to-Bitcoin operations remain readable.
+
+Swap endpoints, timeouts, gas budgets and confirmation policy are centralized
+in `swap/config.ts`. Tests use temporary wallets and simulated networks:
+`pnpm run test:swap`. These tests do not transfer real funds.
 
 ## 🔒 Security
 

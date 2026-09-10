@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "2.0.4",
+    "version": "2.0.5",
     "description": "🧊 HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -17,6 +17,9 @@
         "dist/*.d.ts",
         "dist/*.js.map",
         "dist/network",
+        "dist/swap/*.js",
+        "dist/swap/*.d.ts",
+        "dist/swap/*.js.map",
         "README.md"
     ],
     "main": "dist/index.js",
@@ -32,8 +35,10 @@
         "test:integration": "pnpm run build && node ./dist/test/test-integration.js",
         "test:persist": "pnpm run build && node ./dist/test/test-persist.js",
         "test:agent": "pnpm run build && node ./dist/test/test-agent-cli.js",
+        "test:transfer": "pnpm run build && node --test ./dist/test/test-transfer.js",
+        "test:swap": "pnpm run build && node --test ./dist/swap/test/swap.js ./dist/swap/test/reverse.js",
         "test:quick": "pnpm run build && node ./dist/test/test.js --quick",
-        "prepublishOnly": "pnpm run build && pnpm run test:agent && pnpm run test:persist && pnpm run test:quick && pnpm run test:integration"
+        "prepublishOnly": "pnpm run build && pnpm run test:agent && pnpm run test:persist && pnpm run test:transfer && pnpm run test:swap && pnpm run test:quick && pnpm run test:integration"
     },
     "keywords": [
         "hodl",

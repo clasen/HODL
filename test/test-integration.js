@@ -26,18 +26,19 @@ class IntegrationTester extends NetworkTester {
     }
 
     async testWalletIntegration() {
+        this.crossNetworkResults = [];
         console.log('🔗 Running Integration Tests...\n');
 
         const networks = await this.loadNetworkPlugins();
+        if (!networks.length) throw new Error('No network plugins found.');
         const web3Networks = networks.filter(n => n.NetworkClass.name === 'Web3Network');
         const bitcoinNetworks = networks.filter(n => n.NetworkClass.name === 'BitcoinNetwork');
-        const tonNetworks = networks.filter(n => n.NetworkClass.name === 'TONNetwork');
 
         // Test 1: Cross-network mnemonic consistency
         await this.testMnemonicConsistency(web3Networks);
         
         // Test 2: Network type grouping
-        await this.testNetworkTypeGrouping(web3Networks, bitcoinNetworks, tonNetworks);
+        await this.testNetworkTypeGrouping(web3Networks, bitcoinNetworks);
         
         // Test 3: Token configuration consistency
         await this.testTokenConsistency(networks);
@@ -46,6 +47,8 @@ class IntegrationTester extends NetworkTester {
         await this.testExplorerUrls(networks);
 
         this.displayIntegrationResults();
+        const failures = this.crossNetworkResults.filter(result => result.status === 'FAIL');
+        if (failures.length) throw new Error(`${failures.length} integration checks failed.`);
     }
 
     /**
@@ -68,7 +71,7 @@ class IntegrationTester extends NetworkTester {
             
             // Check if EVM-compatible networks produce the same address
             const evmNetworks = web3Networks.filter(n => 
-                n.name.includes('ERC-20') || n.name.includes('BEP-20')
+                n.family === 'evm'
             );
             
             if (evmNetworks.length > 1) {
@@ -99,34 +102,31 @@ class IntegrationTester extends NetworkTester {
     /**
      * @param {any[]} web3Networks
      * @param {any[]} bitcoinNetworks
-     * @param {any[]} tonNetworks
      * @returns {Promise<void>}
      */
-    async testNetworkTypeGrouping(web3Networks, bitcoinNetworks, tonNetworks) {
+    async testNetworkTypeGrouping(web3Networks, bitcoinNetworks) {
         const spinner = ora('Testing network type grouping...').start();
         
         try {
             const results = {
                 'Web3 Networks': web3Networks.length,
-                'Bitcoin Networks': bitcoinNetworks.length,
-                'TON Networks': tonNetworks.length
+                'Bitcoin Networks': bitcoinNetworks.length
             };
             
-            const totalNetworks = web3Networks.length + bitcoinNetworks.length + tonNetworks.length;
+            const totalNetworks = web3Networks.length + bitcoinNetworks.length;
             const allNetworks = await this.loadNetworkPlugins();
             
             this.crossNetworkResults.push({
                 test: 'Network Type Distribution',
                 status: totalNetworks === allNetworks.length ? 'PASS' : 'FAIL',
-                message: tonNetworks.length === 0 ? 
-                    `Found ${totalNetworks} categorized networks out of ${allNetworks.length} total (TON network disabled)` :
-                    `Found ${totalNetworks} categorized networks out of ${allNetworks.length} total`,
+                message: `Found ${totalNetworks} categorized networks out of ${allNetworks.length} total`,
                 details: results
             });
             
             spinner.succeed('Network type grouping completed');
         } catch (error) {
             spinner.fail(`Network type grouping failed: ${errorMessage(error)}`);
+            throw error;
         }
     }
 
@@ -174,6 +174,7 @@ class IntegrationTester extends NetworkTester {
             spinner.succeed('Token consistency test completed');
         } catch (error) {
             spinner.fail(`Token consistency test failed: ${errorMessage(error)}`);
+            throw error;
         }
     }
 
@@ -211,6 +212,7 @@ class IntegrationTester extends NetworkTester {
             spinner.succeed('Explorer URL test completed');
         } catch (error) {
             spinner.fail(`Explorer URL test failed: ${errorMessage(error)}`);
+            throw error;
         }
     }
 

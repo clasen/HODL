@@ -252,6 +252,25 @@ function testCliEntrypoint() {
             assert.equal(result.stdout, '');
             assert.equal(result.stderr, '');
         }
+
+        const profileDir = path.join(directory, '.HODL');
+        fs.mkdirSync(profileDir);
+        const lockPath = path.join(profileDir, '.default.lock');
+        const owner = `${process.pid}\n`;
+        fs.writeFileSync(lockPath, owner, { mode: 0o600 });
+        const locked = spawnSync(process.execPath, [entrypoint], {
+            encoding: 'utf8',
+            env: { ...process.env, HOME: directory },
+            timeout: 10000
+        });
+        assert.ifError(locked.error);
+        assert.equal(locked.status, 0);
+        const output = locked.stdout + locked.stderr;
+        assert.match(output, /HODL is already open in another terminal/);
+        assert.match(output, new RegExp(`PID ${process.pid}`));
+        assert.doesNotMatch(output, /Password:|Good bye!|Unexpected error/);
+        assert.equal(fs.readFileSync(lockPath, 'utf8'), owner);
+        assert.equal(fs.existsSync(path.join(profileDir, 'persist.json')), false);
     } finally {
         fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -456,11 +475,11 @@ async function testSendAndIdempotency() {
         result = await execute(service, [...baseArgs, '--yes', '--request-id', 'payment-unknown'], stdin);
         assertFailure(result, 5, 'TRANSFER_FAILED');
         assert.equal(FakeEvmNetwork.prepareCalls, 3);
-        assert.equal(FakeEvmNetwork.broadcastCalls, 4);
+        assert.equal(FakeEvmNetwork.broadcastCalls, 3);
 
         result = await execute(service, [...baseArgs, '--yes', '--request-id', 'payment-unknown'], stdin);
         assertFailure(result, 5, 'TRANSFER_FAILED');
-        assert.equal(FakeEvmNetwork.broadcastCalls, 4);
+        assert.equal(FakeEvmNetwork.broadcastCalls, 3);
 
         const encrypted = fs.readFileSync(path.join(rootDir, 'profiles', 'bot', 'persist.json'), 'utf8');
         assert.equal(encrypted.includes('0xsigned-secret'), false);

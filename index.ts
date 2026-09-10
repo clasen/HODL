@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 
 import fs from 'fs';
+import crypto from 'node:crypto';
+import { AgentError } from './agent-errors.js';
+import { TransferService } from './transfer-service.js';
+import type { TransferResult } from './transfer-service.js';
 import path from 'path';
 import inquirer from 'inquirer';
 import Persist from './persist.js';
 import { normalizeDecimal } from './amounts.js';
-import { NetworkRegistry } from './network-registry.js';
-import { ProfileLock } from './profile-lock.js';
+import { NetworkRegistry, networkStorageName } from './network-registry.js';
+import { ProfileLock, ProfileLockedError } from './profile-lock.js';
+import { SwapService } from './swap/service.js';
+import { routeForNetwork } from './swap/routes.js';
+import { startSwapMenu } from './swap/ui.js';
 import { fileURLToPath } from 'url';
 import Table from 'cli-table3';
 import os from 'os';
@@ -16,15 +23,10 @@ import type {
     NetworkPlugin,
     NetworkUsage,
     NetworkUsageEntry,
-    SignedTransaction,
     WalletAccount
 } from './network/types.js';
 
 type PromptSourceChoice = { name: string; value: string };
-type TransactionReceipt = {
-    transactionHash?: string;
-    hash?: string;
-};
 type StoredContact = {
     name: string;
 };
@@ -35,6 +37,7 @@ type StoredTransaction = {
     amount: string | number;
     hash: string;
     balance?: string | number;
+    status?: string;
 };
 
 const AnyTable: any = Table;
@@ -78,7 +81,7 @@ class Wallet {
     private readonly profileLock: ProfileLock;
     private readonly hodlDir: string;
 
-    constructor(encryptionKey: string) {
+    constructor(encryptionKey: string, profileLock: ProfileLock) {
         const hodlDir = path.join(os.homedir(), '.HODL');
         this.hodlDir = hodlDir;
 
@@ -88,8 +91,7 @@ class Wallet {
         fs.chmodSync(hodlDir, 0o700);
 
         this.databaseExisted = fs.existsSync(path.join(hodlDir, 'persist.json'));
-        this.profileLock = new ProfileLock(path.join(hodlDir, '.default.lock'));
-        this.profileLock.acquire();
+        this.profileLock = profileLock;
         try {
             this.db = new Persist({ path: hodlDir, encryptionKey });
         } catch (error) {
@@ -244,8 +246,8 @@ class Wallet {
     ): Promise<void> {
         // Sort networks by last used timestamp (most recent first)
         const sortedNetworks = networkPlugins.sort((a, b) => {
-            const aUsage = this.networkUsage[a.name];
-            const bUsage = this.networkUsage[b.name];
+            const aUsage = this.networkUsage[networkStorageName(a)];
+            const bUsage = this.networkUsage[networkStorageName(b)];
 
             // Handle old format (number) vs new format (object)
             const aLastUsed = typeof aUsage === 'object' ? aUsage.lastUsed || 0 : 0;
@@ -283,11 +285,11 @@ class Wallet {
 
         // Update usage info for the selected network
         // Handle migration from old format (number) to new format (object)
-        const currentUsage = this.networkUsage[selectedNetwork.name];
+        const currentUsage = this.networkUsage[networkStorageName(selectedNetwork)];
 
         if (!currentUsage || typeof currentUsage === 'number' || typeof currentUsage !== 'object' || currentUsage === null || Array.isArray(currentUsage)) {
             // Old format (number), doesn't exist, or corrupted data - create new object
-            this.networkUsage[selectedNetwork.name] = {
+            this.networkUsage[networkStorageName(selectedNetwork)] = {
                 count: typeof currentUsage === 'number' ? currentUsage + 1 : 1,
                 lastUsed: Date.now()
             };
@@ -296,7 +298,7 @@ class Wallet {
             currentUsage.count = (currentUsage.count || 0) + 1;
             currentUsage.lastUsed = Date.now();
         } else {
-            this.networkUsage[selectedNetwork.name] = {
+            this.networkUsage[networkStorageName(selectedNetwork)] = {
                 count: 1,
                 lastUsed: Date.now()
             };
@@ -501,14 +503,35 @@ class Wallet {
         });
 
         balances.forEach(([token, balance]) => {
-            table.push([token, this.formatAmount(balance)]);
+            table.push([token, token === 'USDT' ? Number(balance).toFixed(2) : this.formatAmount(balance)]);
         });
 
         console.log(table.toString());
     }
 
     async transferFunds(): Promise<void> {
-        const contacts = await this.db.entries('contact', this.network.name ?? '') || [];
+        const service = new TransferService(this.db, this.selectedNetwork, this.network);
+        const pending = (await service.list()).filter(transfer => !['confirmed', 'failed'].includes(transfer.status));
+        if (pending.length) {
+            const { requestId } = await inquirer.prompt({
+                type: 'list', name: 'requestId', message: 'A previous transfer is still pending:',
+                choices: [
+                    ...pending.map(transfer => ({
+                        name: `Check / resume ${transfer.amount} ${transfer.asset} to ${transfer.to} (${transfer.status})`,
+                        value: transfer.requestId
+                    })),
+                    { name: 'New transfer', value: 'new' },
+                    { name: 'Go back', value: 'back' }
+                ]
+            });
+            if (requestId === 'back') return;
+            if (requestId !== 'new') {
+                const transfer = pending.find(item => item.requestId === requestId)!;
+                await this.submitTransfer(service, transfer.to, transfer.asset, transfer.amount, requestId);
+                return;
+            }
+        }
+        const contacts = await this.db.entries('contact', this.storageNetworkName) || [];
         const addressBook = contacts.map(([address, data]: [string, StoredContact]) => ({
             address,
             name: data.name
@@ -584,70 +607,40 @@ class Wallet {
             return;
         }
 
-        const spinner = ora({
-            text: 'Sending transaction...',
-            spinner: 'dots'
-        }).start();
+        await this.submitTransfer(service, address, token, transferAmount, crypto.randomUUID());
+    }
 
+    private async submitTransfer(
+        service: TransferService, address: string, token: string, amount: string, requestId: string
+    ): Promise<void> {
+        const spinner = ora({ text: 'Checking / sending transaction...', spinner: 'dots' }).start();
+        let result: TransferResult;
         try {
-            let signedTx: SignedTransaction | string | unknown;
-            const account = await this.getAccount();
-            if (!account) {
-                throw new Error('Account not initialized.');
-            }
-
-            try {
-                if (token === this.selectedNetwork.nativeToken) {
-                    if (!this.network.handleNativeTransfer) {
-                        throw new Error('Selected network does not support native transfers.');
-                    }
-                    signedTx = await this.network.handleNativeTransfer(account, address, transferAmount);
-                } else {
-                    if (!this.network.handleERC20Transfer) {
-                        throw new Error('Selected network does not support token transfers.');
-                    }
-                    signedTx = await this.network.handleERC20Transfer(account, token, address, transferAmount);
-                }
-            } finally {
-                Persist.clearSensitiveData(account);
-            }
-
-            const receipt = await this.network.sendSignedTransaction(signedTx as SignedTransaction | string) as TransactionReceipt;
-
-            spinner.succeed('Transaction confirmed!');
-
-            const transactionHash = receipt?.transactionHash || receipt?.hash || 'UNKNOWN_HASH';
-
-            // Calculate the post-transaction balance
-            let currentBalance = '0';
-            try {
-                const walletAddress = await this.getAddress();
-
-                // Get the balance AFTER transaction (not before)
-                if (token === this.selectedNetwork.nativeToken) {
-                    currentBalance = await this.network.getBalance(walletAddress);
-                } else {
-                    currentBalance = await this.network.getTokenBalance(walletAddress, token);
-                }
-
-            } catch (error) {
-                console.error('Error getting post-transaction balance:', errorMessage(error));
-            }
-
-            await this.displayTransactionResult(address, token, transferAmount, transactionHash, currentBalance);
-
-            // Add transaction to history
-            await this.addToTransactions(address, token, transferAmount, transactionHash, currentBalance);
-
-            // Check if the address is already in contacts before asking to add it
-            const existingContact = await this.db.get('contact', this.network.name ?? '', address);
-            if (!existingContact) {
-                await this.addToAddressBook(address);
-            }
-
+            result = await service.send({ wallet: 'default', to: address, asset: token, amount, requestId, dryRun: false });
         } catch (error) {
-            spinner.fail('Transaction failed');
+            spinner.fail('Could not complete the transfer request.');
             this.displayTransactionError(error);
+            if (error instanceof AgentError && error.details?.transactionHash) {
+                console.log(`Saved transfer: ${error.details.requestId}`);
+                console.log(this.selectedNetwork.explorer + error.details.transactionHash);
+            } else {
+                console.log(`Request ID: ${requestId}`);
+            }
+            console.log('Open Transfer Funds to check or resume any saved request before creating another payment.');
+            return;
+        }
+
+        spinner.succeed(result.status === 'confirmed' ? 'Transaction confirmed!' : 'Transaction submitted; awaiting confirmation.');
+        console.log(`Request ID: ${requestId}`);
+        console.log(this.selectedNetwork.explorer + result.transactionHash);
+        try {
+            const currentBalance = (await this.network.getAssetBalance(result.from, token)).amount;
+            await this.addToTransactions(address, token, amount, result.transactionHash, currentBalance);
+            await this.displayTransactionResult(address, token, amount, result.transactionHash, currentBalance);
+            const existingContact = await this.db.get('contact', this.storageNetworkName, address);
+            if (!existingContact) await this.addToAddressBook(address);
+        } catch (error) {
+            Wallet.displayError('Transfer recorded; could not update balance, history or contact.', errorMessage(error));
         }
     }
 
@@ -722,7 +715,10 @@ class Wallet {
             balance
         };
         const address = await this.getAddress();
-        await this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
+        const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) as StoredTransaction[] || [];
+        if (!history.some(entry => entry.hash === hash)) {
+            await this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
+        }
     }
 
     async showTransactions(): Promise<void> {
@@ -747,23 +743,34 @@ class Wallet {
             history.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
         }
 
+        const transfers = await new TransferService(this.db, this.selectedNetwork, this.network).list();
+        for (const transfer of transfers.filter(item => item.from === address)) {
+            const existing = history.find(item => item.hash === transfer.transactionHash);
+            if (existing) existing.status = transfer.status;
+            else history.push({
+                timestamp: transfer.createdAt, recipient: transfer.to, token: transfer.asset,
+                amount: transfer.amount, hash: transfer.transactionHash, status: transfer.status
+            });
+        }
+        history.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
         const table = new AnyTable({
-            head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance'],
+            head: ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance', 'Status'],
             style: { head: ['blue'] },
         });
 
         if (history.length === 0) {
-            table.push([{ colSpan: 6, content: 'No transaction history available.' }]);
+            table.push([{ colSpan: 7, content: 'No transaction history available.' }]);
         }
 
         for (const tx of history) {
             const date = this.formatDate(tx.timestamp);
-            const contact = await this.db.get('contact', this.network.name, tx.recipient) as StoredContact | undefined;
+            const contact = await this.db.get('contact', this.storageNetworkName, tx.recipient) as StoredContact | undefined;
             const contactName = contact ? contact.name : '-';
             const amount = this.formatAmount(tx.amount);
             const balance = tx.balance !== undefined ? this.formatAmount(tx.balance) : '-';
-            table.push([date, tx.recipient, contactName, tx.token, amount, balance]);
-            table.push([{ colSpan: 6, content: this.selectedNetwork.explorer + tx.hash }]);
+            table.push([date, tx.recipient, contactName, tx.token, amount, balance, tx.status || '-']);
+            table.push([{ colSpan: 7, content: this.selectedNetwork.explorer + tx.hash }]);
         }
 
         console.log(table.toString());
@@ -781,7 +788,7 @@ class Wallet {
         });
 
         if (name.trim() !== '') {
-            await this.db.set('contact', this.network.name, address, 'name', name);
+            await this.db.set('contact', this.storageNetworkName, address, 'name', name);
 
             const table = new AnyTable({
                 head: [{ colSpan: 2, content: "Recipient saved to the address book." }],
@@ -794,7 +801,7 @@ class Wallet {
     }
 
     async deleteFromAddressBook(): Promise<void> {
-        const contacts = await this.db.get('contact', this.network.name) as Record<string, StoredContact> || {};
+        const contacts = await this.db.get('contact', this.storageNetworkName) as Record<string, StoredContact> || {};
         const addressBook = Object.entries(contacts).map(([address, data]) => ({
             address,
             name: data.name
@@ -832,7 +839,7 @@ class Wallet {
         });
 
         if (confirmDelete) {
-            await this.db.del('contact', this.network.name, addressToDelete);
+            await this.db.del('contact', this.storageNetworkName, addressToDelete);
             const table = new AnyTable({
                 head: ['Address Book'],
                 style: { head: ['green'] },
@@ -864,7 +871,7 @@ class Wallet {
 
         const date = this.formatDate(new Date());
 
-        const contact = await this.db.get('contact', this.network.name, address) as StoredContact | undefined;
+        const contact = await this.db.get('contact', this.storageNetworkName, address) as StoredContact | undefined;
         const contactName = contact ? contact.name : '-';
 
         table.push([date, address, contactName, token, this.formatAmount(amount), this.formatAmount(balance)]);
@@ -880,6 +887,16 @@ class Wallet {
             this.securePersistFile();
             this.profileLock.release();
         }
+    }
+
+    private get storageNetworkName(): string { return networkStorageName(this.selectedNetwork); }
+
+    getSwapRoute() { return routeForNetwork(this.selectedNetwork.id); }
+
+    async swapFunds(): Promise<void> {
+        const route = this.getSwapRoute();
+        if (!route) throw new Error('No swap route for the selected network.');
+        await startSwapMenu(new SwapService(this.db, { routeId: route.id }));
     }
 
     private securePersistFile(): void {
@@ -1106,7 +1123,7 @@ class Wallet {
         }
 
         // Check if there are addresses in the address book
-        const addressBook = await this.db.entries('contact', this.network.name) || [];
+        const addressBook = await this.db.entries('contact', this.storageNetworkName) || [];
 
         if (addressBook.length > 0) {
             const { deleteAddresses } = await inquirer.prompt({
@@ -1222,6 +1239,7 @@ class UIManager {
 }
 
 async function mainMenu(wallet: Wallet): Promise<void> {
+    const route = wallet.getSwapRoute();
     const { action } = await inquirer.prompt({
         type: 'list',
         name: 'action',
@@ -1231,11 +1249,15 @@ async function mainMenu(wallet: Wallet): Promise<void> {
             { name: 'Show Balance', value: 'balance' },
             { name: 'Show Sent Transfers', value: 'showTransactions' },
             { name: 'Account Settings', value: 'account' },
+            ...(route ? [{ name: 'Swap', value: 'swapFunds' }] : []),
             { name: 'Exit', value: 'exit' }
         ],
     });
 
     switch (action) {
+        case 'swapFunds':
+            await wallet.swapFunds();
+            return mainMenu(wallet);
         case 'transferFunds':
             await wallet.transferFunds();
             return mainMenu(wallet);
@@ -1272,10 +1294,25 @@ async function shutdown(): Promise<void> {
 
 async function run(): Promise<void> {
     UIManager.displayWelcome();
-    let encryptionKey: string | null = await UIManager.getEncryptionKey();
+    const hodlDir = path.join(os.homedir(), '.HODL');
+    fs.mkdirSync(hodlDir, { recursive: true, mode: 0o700 });
+    const profileLock = new ProfileLock(path.join(hodlDir, '.default.lock'));
+    try {
+        profileLock.acquire();
+    } catch (error) {
+        if (!(error instanceof ProfileLockedError)) {
+            throw error;
+        }
+        Wallet.displayError(error.owner === null
+            ? 'The HODL profile is locked. Close the other instance and try again.'
+            : `HODL is already open in another terminal (PID ${error.owner}). Close that instance and try again.`);
+        return;
+    }
+    let encryptionKey: string | null = null;
 
     try {
-        const wallet = new Wallet(encryptionKey);
+        encryptionKey = await UIManager.getEncryptionKey();
+        const wallet = new Wallet(encryptionKey, profileLock);
         activeWallet = wallet;
         const databaseExisted = wallet.hasStoredDatabase();
 
@@ -1309,7 +1346,11 @@ async function run(): Promise<void> {
         }
     } finally {
         encryptionKey = null;
-        await shutdown();
+        try {
+            await shutdown();
+        } finally {
+            profileLock.release();
+        }
     }
 }
 

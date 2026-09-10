@@ -7,6 +7,7 @@ export type NetworkConfig = {
     id: string;
     family: 'evm' | 'bitcoin';
     name: string;
+    storageName?: string;
     url: string;
     nativeToken: string;
     explorer: string;

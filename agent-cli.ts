@@ -1,6 +1,11 @@
 import { parseArgs } from 'node:util';
 import { AgentError } from './agent-errors.js';
 import { WalletService } from './wallet-service.js';
+import type { SwapCommand } from './wallet-service.js';
+import { swapConfig } from './swap/config.js';
+import { terminalSwapStates } from './swap/types.js';
+import type { SwapState } from './swap/types.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 type SecretInput = Record<string, string>;
 
@@ -90,6 +95,10 @@ async function execute(
         return executeWallet(argv.slice(1), service, io, setCommand);
     }
 
+    if (argv[0] === 'swap') {
+        return executeSwap(argv.slice(1), service, io, setCommand);
+    }
+
     if (argv[0] === 'balance') {
         setCommand('balance');
         const values = parseOptions(argv.slice(1), {
@@ -173,6 +182,53 @@ async function execute(
     }
 
     throw new AgentError('INVALID_ARGUMENT', `Unknown command: ${argv[0] || ''}.`, 2);
+}
+
+async function executeSwap(
+    argv: string[], service: WalletService, io: AgentCliIO, setCommand: (command: string) => void
+): Promise<unknown> {
+    const action = argv[0];
+    setCommand(`swap.${action || ''}`);
+    const options: OptionDefinition = { wallet: { type: 'string' } };
+    switch (action) {
+        case 'quote': Object.assign(options, { amount: { type: 'string' }, to: { type: 'string' }, network: { type: 'string' } }); break;
+        case 'execute': Object.assign(options, { 'quote-id': { type: 'string' }, 'request-id': { type: 'string' }, yes: { type: 'boolean' }, watch: { type: 'boolean' } }); break;
+        case 'resume': Object.assign(options, { 'request-id': { type: 'string' }, yes: { type: 'boolean' }, watch: { type: 'boolean' } }); break;
+        case 'status': Object.assign(options, { 'request-id': { type: 'string' }, watch: { type: 'boolean' } }); break;
+        case 'destination': Object.assign(options, { network: { type: 'string' } }); break;
+        case 'list': break;
+        default: throw new AgentError('INVALID_ARGUMENT', 'Use swap quote, execute, resume, status, list or destination.', 2);
+    }
+    const values = parseOptions(argv.slice(1), options);
+    const wallet = requiredString(values, 'wallet');
+    let command: SwapCommand;
+    switch (action) {
+        case 'quote': command = { action, amount: requiredString(values, 'amount'), to: optionalString(values, 'to'), network: optionalString(values, 'network') }; break;
+        case 'execute':
+            if (values.yes !== true) throw new AgentError('INVALID_ARGUMENT', 'Executing a swap requires --yes and an accepted --quote-id.', 2);
+            command = { action, quoteId: requiredString(values, 'quote-id'), requestId: requiredString(values, 'request-id') }; break;
+        case 'resume':
+            if (values.yes !== true) throw new AgentError('INVALID_ARGUMENT', 'Resuming swap funding requires --yes.', 2);
+            command = { action, requestId: requiredString(values, 'request-id') }; break;
+        case 'status': command = { action, requestId: requiredString(values, 'request-id') }; break;
+        case 'destination': command = { action, network: optionalString(values, 'network') }; break;
+        default: command = { action };
+    }
+    let input: SecretInput | undefined;
+    try {
+        input = await readSecretInput(io, ['password'], ['password']);
+        let result = await service.swap(wallet, input.password, command);
+        if (values.watch !== true) return result;
+        const requestId = requiredString(values, 'request-id');
+        const watchAction = action === 'status' ? 'status' : 'resume';
+        while (true) {
+            const state = (result as { state: SwapState }).state;
+            if (terminalSwapStates.includes(state) || state === 'needs_attention') return result;
+            io.writeStdout(`${JSON.stringify({ version: 1, ok: true, command: 'swap.progress', data: result })}\n`);
+            await delay(swapConfig.pollIntervalMs);
+            result = await service.swap(wallet, input.password, { action: watchAction, requestId });
+        }
+    } finally { clearSecrets(input); }
 }
 
 async function executeWallet(

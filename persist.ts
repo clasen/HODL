@@ -1,5 +1,7 @@
 import Deepbase from 'deepbase';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
@@ -26,6 +28,7 @@ class Persist extends Deepbase {
     private readonly encryptionKey: Buffer;
     private readonly memoryKey: Buffer;
     private disposed = false;
+    private readonly storagePath: string;
 
     constructor(opts: PersistOptions) {
         const encryptionKey = Buffer.from(opts.encryptionKey, 'utf8');
@@ -45,6 +48,18 @@ class Persist extends Deepbase {
 
         this.encryptionKey = encryptionKey;
         this.memoryKey = memoryKey;
+        this.storagePath = opts.path;
+    }
+
+    async flush(): Promise<void> {
+        const descriptor = fs.openSync(path.join(this.storagePath, 'persist.json'), 'r');
+        try {
+            fs.fchmodSync(descriptor, 0o600);
+            fs.fsyncSync(descriptor);
+        } finally { fs.closeSync(descriptor); }
+        const directory = fs.openSync(this.storagePath, 'r');
+        try { fs.fsyncSync(directory); }
+        finally { fs.closeSync(directory); }
     }
 
     async dispose(): Promise<void> {

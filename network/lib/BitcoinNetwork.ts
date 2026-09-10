@@ -168,20 +168,7 @@ export default class BitcoinNetwork extends BaseNetwork {
                 returnedChange = changeValue;
             }
 
-            const keyPair = ECPair.fromWIF(from.privateKey, this.network);
-            for (let i = 0; i < psbt.inputCount; i++) {
-                psbt.signInput(i, keyPair);
-
-                const valid = psbt.validateSignaturesOfInput(i, (pubkey, msghash, signature) => {
-                    return ECPair.fromPublicKey(pubkey).verify(msghash, signature);
-                });
-
-                if (!valid) {
-                    throw new Error(`Signature validation failed for input ${i}`);
-                }
-            }
-
-            psbt.finalizeAllInputs();
+            signBitcoinTransaction(psbt, from.privateKey, this.network);
             return {
                 rawTransaction: psbt.extractTransaction().toHex(),
                 feeBaseUnits: BigInt(totalInputValue - satoshis - returnedChange),
@@ -429,3 +416,15 @@ export default class BitcoinNetwork extends BaseNetwork {
         throw new Error('Gas price is not supported on Bitcoin network');
     }
 } 
+
+export function signBitcoinTransaction(psbt: bitcoin.Psbt, privateKey: string, network: bitcoin.Network): void {
+    const keyPair = ECPair.fromWIF(privateKey, network);
+    for (let i = 0; i < psbt.inputCount; i++) {
+        psbt.signInput(i, keyPair);
+        if (!psbt.validateSignaturesOfInput(i, (pubkey, hash, signature) =>
+            ECPair.fromPublicKey(pubkey).verify(hash, signature))) {
+            throw new Error(`Signature validation failed for input ${i}`);
+        }
+    }
+    psbt.finalizeAllInputs();
+}
