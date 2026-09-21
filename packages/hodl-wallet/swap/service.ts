@@ -1,7 +1,8 @@
-import crypto from 'node:crypto';
 import { AgentError } from '../agent-errors.js';
+import { randomUUID } from '#environment';
 import { formatUnits, normalizeDecimal, parseDecimalToUnits } from '../amounts.js';
-import Persist from '../persist.js';
+import { clearSensitiveData } from '../sensitive-data.js';
+import type { WalletStore } from '../wallet-store.js';
 import { BitcoinSwapChain } from './bitcoin.js';
 import { assetAddress, sameAssetAddress, swapRoute } from './routes.js';
 import type { SwapRoute } from './routes.js';
@@ -36,19 +37,19 @@ async function loadPrices(): Promise<SwapPrices> {
     return { btc: prices.btc, bnb: prices.bnb, usdt: prices.usdt, updatedAt };
 }
 
-export async function assertNoActiveSwap(db: Persist): Promise<void> {
+export async function assertNoActiveSwap(db: WalletStore): Promise<void> {
     const operations = await db.entries('swapOperation') as Array<[string, SwapOperation]> || [];
     try {
         const active = operations.find(([, operation]) => !terminalSwapStates.includes(operation.state));
         if (active) throw new AgentError('SWAP_IN_PROGRESS', 'Finish or inspect the existing swap before another transfer.', 3, { requestId: active[0] });
-    } finally { operations.forEach(([, operation]) => Persist.clearSensitiveData(operation)); }
+    } finally { operations.forEach(([, operation]) => clearSensitiveData(operation)); }
 }
 
 export class SwapService {
     readonly route: SwapRoute;
     private readonly prices: () => Promise<SwapPrices>;
 
-    constructor(private readonly db: Persist, private readonly options: SwapServiceOptions = {}) {
+    constructor(private readonly db: WalletStore, private readonly options: SwapServiceOptions = {}) {
         this.route = swapRoute(options.routeId || 'bsc-btc');
         this.prices = options.prices || loadPrices;
     }
@@ -65,13 +66,13 @@ export class SwapService {
     async destination(): Promise<string | null> {
         const account = await this.db.get('account', this.route.destination.network.NetworkClass.name) as WalletAccount | undefined;
         try { return account?.address || null; }
-        finally { Persist.clearSensitiveData(account); }
+        finally { clearSensitiveData(account); }
     }
 
     async availableBalance(): Promise<bigint> {
         const account = await this.source(this.route);
         const address = account.address;
-        Persist.clearSensitiveData(account);
+        clearSensitiveData(account);
         return this.chain(this.route.id).availableBalance(address);
     }
 
@@ -82,7 +83,7 @@ export class SwapService {
     }> {
         const account = await this.source(this.route);
         const from = account.address;
-        Persist.clearSensitiveData(account);
+        clearSensitiveData(account);
         const to = destination || await this.destination();
         if (!to) throw new AgentError('ACCOUNT_NOT_FOUND', `No ${this.route.destination.label} account configured; provide a ${this.route.destination.network.id === 'btc' ? 'Bitcoin' : 'BSC'} destination address.`, 3);
         try { assetAddress(this.route.destination, to); }
@@ -116,7 +117,7 @@ export class SwapService {
                 if (inputUsd === 0n) throw new Error('Swap amount is below reference-price precision.');
                 const cost = inputUsd + feeUsd - outputUsd;
                 const quote: SwapQuote = {
-                    ...input, ...offer, id: crypto.randomUUID(), createdAt: Date.now(), funding,
+                    ...input, ...offer, id: randomUUID(), createdAt: Date.now(), funding,
                     netOutputBaseUnits: (BigInt(offer.expectedBaseUnits) - feeOutput).toString(),
                     costBps: Number(cost * 10_000n / inputUsd), costUsd: formatUnits(cost, 8), reference
                 };
@@ -143,7 +144,7 @@ export class SwapService {
         const previous = await this.db.get('swapOperation', requestId) as SwapOperation | undefined;
         if (previous) {
             const previousQuoteId = previous.quote.id;
-            Persist.clearSensitiveData(previous);
+            clearSensitiveData(previous);
             if (previousQuoteId !== quoteId) throw new AgentError('IDEMPOTENCY_CONFLICT', 'Request ID is bound to another swap quote.', 3);
             return this.resume(requestId);
         }
@@ -156,7 +157,7 @@ export class SwapService {
         this.assertFresh(quote);
         const operations = await this.db.entries('swapOperation') as Array<[string, SwapOperation]> || [];
         const used = operations.some(([, operation]) => operation.quote.id === quoteId);
-        operations.forEach(([, operation]) => Persist.clearSensitiveData(operation));
+        operations.forEach(([, operation]) => clearSensitiveData(operation));
         if (used) {
             throw new AgentError('IDEMPOTENCY_CONFLICT', 'This quote was already used. Resume its existing request ID.', 3);
         }
@@ -164,7 +165,7 @@ export class SwapService {
         const account = await this.source(route);
         try {
             if (!sameAssetAddress(route.source, account.address, quote.from)) throw new Error('Source wallet changed since quotation.');
-        } finally { Persist.clearSensitiveData(account); }
+        } finally { clearSensitiveData(account); }
         await chain.checkFunding(quote, []);
         await chain.assertAvailable(quote.from);
         const now = Date.now();
@@ -224,7 +225,7 @@ export class SwapService {
             const account = await this.source(route);
             let step: SwapStep;
             try { step = await chain.sign(operation.quote, operation.plan, kind, account); }
-            finally { Persist.clearSensitiveData(account); }
+            finally { clearSensitiveData(account); }
             operation.steps.push(step);
             await this.save(operation);
             await this.broadcast(operation, step);
@@ -236,7 +237,7 @@ export class SwapService {
             }
             await this.save(operation);
             return this.view(operation);
-        } finally { Persist.clearSensitiveData(operation); }
+        } finally { clearSensitiveData(operation); }
     }
 
     async status(requestId: string): Promise<ReturnType<SwapService['view']>> {
@@ -244,13 +245,13 @@ export class SwapService {
         try {
             if (operation.state !== 'failed') await this.refresh(operation);
             return this.view(operation);
-        } finally { Persist.clearSensitiveData(operation); }
+        } finally { clearSensitiveData(operation); }
     }
 
     async list(): Promise<ReturnType<SwapService['view']>[]> {
         const entries = await this.db.entries('swapOperation') as Array<[string, SwapOperation]> || [];
         try { return entries.map(([, operation]) => this.view(readSwapOperation(operation))).sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
-        finally { entries.forEach(([, operation]) => Persist.clearSensitiveData(operation)); }
+        finally { entries.forEach(([, operation]) => clearSensitiveData(operation)); }
     }
 
     private async refresh(operation: SwapOperation): Promise<void> {

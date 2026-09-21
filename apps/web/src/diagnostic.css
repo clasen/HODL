@@ -1,0 +1,13 @@
+:root { color-scheme: dark; font-family: ui-monospace, monospace; background: #13191d; color: #f3f5f7; }
+body { margin: 0; }
+main { max-width: 76rem; margin: auto; padding: 2rem; }
+h1 { font-size: 1.6rem; color: #f269ba; }
+h2 { font-size: 1.1rem; margin-top: 2rem; }
+p, li { line-height: 1.6; }
+ul { padding-left: 1.2rem; }
+li { margin-block: 1rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+li[data-state="blocked"], li[data-state="unavailable"], li[data-state="failed"] { color: #f4c889; }
+li[data-state="passed"], li[data-state="reachable"] { color: #a3e7bd; }
+button { font: inherit; padding: .75rem 1rem; color: #08171b; background: #0eb5ce; border: 1px solid #59d9eb; cursor: pointer; }
+button:disabled { opacity: .55; cursor: wait; }
+:focus-visible { outline: 3px solid #f269ba; outline-offset: 4px; }

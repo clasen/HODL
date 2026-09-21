@@ -2,13 +2,14 @@ import Deepbase from 'deepbase';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { clearSensitiveData, isSensitiveField } from './sensitive-data.js';
+import type { WalletStore } from './wallet-store.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 const SEALED_SECRET_VERSION = 1;
-const SENSITIVE_FIELDS = new Set(['privateKey', 'mnemonic', 'rawTransaction']);
 
 type PersistOptions = {
     path: string;
@@ -24,7 +25,7 @@ type SealedSecret = {
     ciphertext: string;
 };
 
-class Persist extends Deepbase {
+class Persist extends Deepbase implements WalletStore {
     private readonly encryptionKey: Buffer;
     private readonly memoryKey: Buffer;
     private disposed = false;
@@ -77,22 +78,7 @@ class Persist extends Deepbase {
     }
 
     static clearSensitiveData(value: unknown): void {
-        if (Array.isArray(value)) {
-            value.forEach(item => Persist.clearSensitiveData(item));
-            return;
-        }
-
-        if (!Persist.isRecord(value)) {
-            return;
-        }
-
-        for (const [key, item] of Object.entries(value)) {
-            if (SENSITIVE_FIELDS.has(key)) {
-                value[key] = '';
-            } else {
-                Persist.clearSensitiveData(item);
-            }
-        }
+        clearSensitiveData(value);
     }
 
     static encrypt(obj: unknown, encryptionKey: EncryptionKey): string {
@@ -235,7 +221,7 @@ class Persist extends Deepbase {
 
     private static isSensitivePath(path: string[]): boolean {
         const field = path.at(-1);
-        return field !== undefined && SENSITIVE_FIELDS.has(field);
+        return field !== undefined && isSensitiveField(field);
     }
 
     private static isRecord(value: unknown): value is Record<string, unknown> {

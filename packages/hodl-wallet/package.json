@@ -1,6 +1,6 @@
 {
     "name": "hodl-wallet",
-    "version": "2.0.8",
+    "version": "2.1.0",
     "description": "\ud83e\uddca HODL Wallet - Fast CLI crypto wallet!",
     "author": "Martin Clasen",
     "repository": {
@@ -13,6 +13,7 @@
     },
     "homepage": "https://hodl-wallet.com",
     "files": [
+        "browser",
         "dist/*.js",
         "dist/*.d.ts",
         "dist/*.js.map",
@@ -23,6 +24,13 @@
         "README.md"
     ],
     "main": "dist/index.js",
+    "imports": {
+        "#environment": {
+            "types": "./dist/environment.d.ts",
+            "browser": "./dist/environment.js",
+            "default": "./dist/environment-node.js"
+        }
+    },
     "bin": {
         "hodl": "dist/index.js"
     },

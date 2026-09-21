@@ -15,6 +15,11 @@
         "test:transfer": "pnpm --filter hodl-wallet run test:transfer",
         "test:swap": "pnpm --filter hodl-wallet run test:swap",
         "test:quick": "pnpm --filter hodl-wallet run test:quick",
-        "prepublishOnly": "pnpm --filter hodl-wallet run prepublishOnly"
+        "prepublishOnly": "pnpm --filter hodl-wallet run prepublishOnly",
+        "build:web": "pnpm run build && pnpm --filter @hodl/web run build",
+        "preview:web": "pnpm --filter @hodl/web run preview",
+        "typecheck:web": "pnpm --filter hodl-wallet exec tsc --project ../../apps/web/tsconfig.json",
+        "test:web": "pnpm run build:web && pnpm --filter @hodl/web run test",
+        "test:web:connectivity": "pnpm run build:web && pnpm --filter @hodl/web run test:connectivity"
     }
 }

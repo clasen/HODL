@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HODL · Browser feasibility</title>
+</head>
+<body>
+    <main>
+        <h1>HODL / Browser feasibility</h1>
+        <p>Technical checks using public vectors. Does not create a wallet or broadcast transactions.</p>
+        <h2>Shared core</h2>
+        <p id="status" role="status">Checking…</p>
+        <ul id="core"></ul>
+        <h2>Connectivity from this origin</h2>
+        <p>Queries public data. HTTP access does not guarantee operational availability or access from hodl-wallet.com.</p>
+        <button id="connectivity" tabindex="0" disabled>Check providers</button>
+        <ul id="providers" aria-live="polite"></ul>
+    </main>
+    <script type="module" src="/src/diagnostic.ts"></script>
+</body>
+</html>

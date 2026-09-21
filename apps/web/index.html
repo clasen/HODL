@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+    <title>HODL Wallet</title>
+</head>
+<body>
+    <a class="skip-link" href="#view">Skip to content</a>
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="HODL Wallet, home"><span class="brand-mark" aria-hidden="true">&gt;_</span><span>HODL<span class="brand-suffix"> / terminal</span></span></a>
+        <div class="session-controls">
+            <span id="session-state" class="session-state">Locked</span>
+            <button id="palette-open" class="quiet-button" tabindex="0">Actions <kbd>/</kbd></button>
+            <button id="lock" class="quiet-button" tabindex="0" hidden>Lock</button>
+        </div>
+    </header>
+    <div class="workspace">
+        <aside class="sidebar">
+            <nav aria-label="Wallet">
+                <button data-page="home" tabindex="0"><span class="nav-symbol">01</span> Wallet</button>
+                <button data-page="addresses" tabindex="0" disabled><span class="nav-symbol">02</span> Addresses</button>
+                <button data-page="backup" tabindex="0" disabled><span class="nav-symbol">03</span> Backup</button>
+            </nav>
+            <div class="sidebar-bottom">
+                <div class="key-help"><kbd>Tab</kbd> navigate <kbd>Enter</kbd> select <kbd>Esc</kbd> back</div>
+            </div>
+        </aside>
+        <main id="view" tabindex="-1"><p class="muted" role="status">Opening local vault…</p></main>
+    </div>
+    <p id="notice" class="notice" role="status" aria-live="polite"></p>
+    <dialog id="palette" aria-labelledby="palette-title">
+        <div class="dialog-heading"><h2 id="palette-title">Actions</h2><button id="palette-close" class="quiet-button" tabindex="0" aria-label="Close actions">Esc</button></div>
+        <label for="action-search" class="sr-only">Search actions</label>
+        <input id="action-search" type="search" placeholder="Search actions…" autocomplete="off">
+        <ul id="action-results"></ul>
+    </dialog>
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

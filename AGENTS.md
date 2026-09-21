@@ -7,7 +7,7 @@ This file provides guidance to Agents when working with code in this repository.
 HODL Wallet is a CLI-based multi-network cryptocurrency wallet written in TypeScript for Node.js. It supports Bitcoin and EVM-compatible networks.
 
 This repository is a pnpm workspace. The published package and CLI live in
-`packages/hodl-wallet/`; `apps/*` is reserved for future applications. Source paths
+`packages/hodl-wallet/`; the browser feasibility harness lives in `apps/web/`. Source paths
 below are relative to `packages/hodl-wallet/`. Run the commands below from the
 repository root. Workspace dependency policy and the shared lockfile stay at the root.
 
@@ -20,6 +20,30 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 - **Focused checks**: `pnpm run test:agent`, `pnpm run test:persist`, `pnpm run test:transfer`, `pnpm run test:swap`
 - **Release checks**: `pnpm run prepublishOnly`
 - **Package tarball**: `pnpm --filter hodl-wallet pack` after building; publish only the package, never the private workspace root
+
+## Web Feasibility Harness
+
+- `hodl-wallet/browser` exposes the shared networks, amounts, transfer/swap
+  services and `WalletStore` contract without importing the CLI or persistence.
+  Node keeps native crypto through `#environment`; the browser uses Web Crypto.
+  Existing package entry points remain available without an exports map.
+- `Persist` implements `WalletStore`. Reads must be detached; callers hold the
+  wallet lock and `flush()` must finish durable writes before any broadcast.
+- Browser compatibility adapters and the WASM loader live in
+  `apps/web/vite.config.js`. Keep constructor names intact because account keys
+  use them. Browser probes compare addresses, signatures and recovery with Node.
+- `pnpm run build:web` builds the existing package and the static diagnostic in
+  `apps/web/dist/`. This is not yet an operational browser wallet.
+- `pnpm run preview:web` serves the built diagnostic locally.
+- `pnpm run typecheck:web` checks browser TypeScript using the existing compiler.
+- `pnpm run test:web` builds and runs offline Playwright checks in Chromium,
+  Firefox and WebKit. Install browsers with `pnpm --filter @hodl/web exec playwright install`.
+- `pnpm run test:web:connectivity` explicitly probes configured public endpoints
+  from Chromium. It does not broadcast; reachable HTTP does not prove swap availability.
+- Web tool dependencies belong to `apps/web/package.json`. Browser test policy
+  is in `apps/web/config.mjs`; endpoints and HTTP timeouts come from `swap/config.ts`.
+- `apps/web/.probe-build/`, `dist/` and `test-results/` are generated. The build
+  rejects Node-only modules and the browser reports actual import/vector failures.
 
 ## Swap Module
 

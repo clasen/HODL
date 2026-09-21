@@ -1,5 +1,5 @@
 import BaseNetwork from './BaseNetwork.js';
-import { Web3 } from 'web3';
+import { Web3, TransactionNotFound } from 'web3';
 import { ERC20_ABI } from '../abis/erc20.js';
 import bip39 from 'bip39';
 import hdkey from 'hdkey';
@@ -11,6 +11,7 @@ import type {
     SignedTransaction,
     TransactionStatus,
     TransferOptions,
+    TransferEstimate,
     WalletAccount
 } from '../types.js';
 
@@ -147,14 +148,14 @@ export default class Web3Network extends BaseNetwork {
         };
     }
 
-    async prepareTransfer(
-        from: WalletAccount,
+    private async buildTransfer(
+        from: string,
         to: string,
         amount: string,
         asset: string,
         options: TransferOptions = {}
-    ): Promise<PreparedTransfer> {
-        if (!this.validateAddress(from.address) || !this.validateAddress(to)) {
+    ): Promise<{ estimate: TransferEstimate; transaction: Record<string, unknown> }> {
+        if (!this.validateAddress(from) || !this.validateAddress(to)) {
             throw new Error('Invalid EVM address.');
         }
 
@@ -171,7 +172,7 @@ export default class Web3Network extends BaseNetwork {
         }
 
         const symbol = asset.toUpperCase();
-        const balance = await this.getAssetBalance(from.address, symbol);
+        const balance = await this.getAssetBalance(from, symbol);
         const maximum = amount.trim().toLowerCase() === 'max';
         let amountBaseUnits = maximum ? BigInt(balance.baseUnits) : parseDecimalToUnits(amount, balance.decimals);
         if (amountBaseUnits <= 0n) throw new Error(`Insufficient ${symbol} balance.`);
@@ -182,12 +183,12 @@ export default class Web3Network extends BaseNetwork {
         const gasPrice = options.gasPrice !== undefined
             ? BigInt(options.gasPrice)
             : await this.getGasPrice();
-        const nonce = await this.web3.eth.getTransactionCount(from.address, 'pending');
+        const nonce = await this.web3.eth.getTransactionCount(from, 'pending');
         let transaction: Record<string, unknown>;
 
         if (symbol === this.config.nativeToken) {
             transaction = {
-                from: from.address,
+                from: from,
                 to,
                 value: maximum ? '0' : amountBaseUnits.toString()
             };
@@ -198,7 +199,7 @@ export default class Web3Network extends BaseNetwork {
             }
             const contract = new this.web3.eth.Contract(ERC20_ABI, tokenConfig.address);
             transaction = {
-                from: from.address,
+                from: from,
                 to: tokenConfig.address,
                 data: contract.methods.transfer(to, amountBaseUnits.toString()).encodeABI(),
                 value: '0'
@@ -209,7 +210,7 @@ export default class Web3Network extends BaseNetwork {
             ? BigInt(options.gasLimit)
             : await this.web3.eth.estimateGas(transaction);
         const feeBaseUnits = gas * gasPrice;
-        const nativeBalance = await this.getAssetBalance(from.address, this.config.nativeToken);
+        const nativeBalance = await this.getAssetBalance(from, this.config.nativeToken);
         if (maximum && symbol === this.config.nativeToken) {
             amountBaseUnits = BigInt(nativeBalance.baseUnits) - feeBaseUnits;
             if (amountBaseUnits <= 0n) throw new Error(`Insufficient ${symbol} balance for fee.`);
@@ -225,42 +226,38 @@ export default class Web3Network extends BaseNetwork {
             throw new Error(`Insufficient ${this.config.nativeToken} balance for amount and fee.`);
         }
 
-        const signed = await this.web3.eth.accounts.signTransaction({
-            ...transaction,
-            nonce,
-            gas,
-            gasPrice,
-            chainId: configuredChainId
-        }, from.privateKey);
+        return {
+            transaction: { ...transaction, nonce, gas, gasPrice, chainId: configuredChainId, networkId: configuredChainId },
+            estimate: {
+                from, to, asset: symbol,
+                amount: formatUnits(amountBaseUnits, balance.decimals),
+                amountBaseUnits: amountBaseUnits.toString(),
+                fee: { asset: this.config.nativeToken, amount: formatUnits(feeBaseUnits, 18),
+                    baseUnits: feeBaseUnits.toString(), decimals: 18, estimated: true }
+            }
+        };
+    }
+
+    async estimateTransfer(from: string, to: string, amount: string, asset: string, options: TransferOptions = {}): Promise<TransferEstimate> {
+        return (await this.buildTransfer(from, to, amount, asset, options)).estimate;
+    }
+
+    async prepareTransfer(from: WalletAccount, to: string, amount: string, asset: string, options: TransferOptions = {}): Promise<PreparedTransfer> {
+        const { estimate, transaction } = await this.buildTransfer(from.address, to, amount, asset, options);
+        this.checkFeeLimit(BigInt(estimate.fee.baseUnits), options.maxFeeBaseUnits);
+        const signed = await this.web3.eth.accounts.signTransaction(transaction, from.privateKey);
         if (!signed.rawTransaction) {
             throw new Error('Failed to create a signed transaction.');
         }
-
         const transactionHash = signed.transactionHash || this.web3.utils.keccak256(signed.rawTransaction);
         if (!transactionHash) {
             throw new Error('Failed to calculate transaction hash.');
         }
-
-        return {
-            from: from.address,
-            to,
-            asset: symbol,
-            amount: formatUnits(amountBaseUnits, balance.decimals),
-            amountBaseUnits: amountBaseUnits.toString(),
-            fee: {
-                asset: this.config.nativeToken,
-                amount: formatUnits(feeBaseUnits, 18),
-                baseUnits: feeBaseUnits.toString(),
-                decimals: 18,
-                estimated: true
-            },
-            transactionHash,
-            rawTransaction: signed.rawTransaction
-        };
+        return { ...estimate, transactionHash, rawTransaction: signed.rawTransaction };
     }
 
     async getTransactionStatus(transactionHash: string): Promise<TransactionStatus> {
-        const receipt = await this.web3.eth.getTransactionReceipt(transactionHash);
+        const receipt = await this.web3.eth.getTransactionReceipt(transactionHash).catch(missingTransaction);
         if (receipt) {
             return {
                 state: isFailedReceiptStatus(receipt.status) ? 'failed' : 'confirmed',
@@ -268,7 +265,7 @@ export default class Web3Network extends BaseNetwork {
             };
         }
 
-        const transaction = await this.web3.eth.getTransaction(transactionHash);
+        const transaction = await this.web3.eth.getTransaction(transactionHash).catch(missingTransaction);
         return {
             state: transaction ? 'submitted' : 'not_found',
             transactionHash
@@ -349,4 +346,9 @@ export default class Web3Network extends BaseNetwork {
 
 function isFailedReceiptStatus(status: unknown): boolean {
     return status === false || status === 0 || status === 0n || status === '0x0';
+}
+
+function missingTransaction(error: unknown): undefined {
+    if (error instanceof TransactionNotFound) return undefined;
+    throw error;
 }

@@ -1,7 +1,8 @@
-import crypto from 'node:crypto';
+import { sha256 } from '#environment';
 import { normalizeDecimal } from './amounts.js';
 import { AgentError } from './agent-errors.js';
-import Persist from './persist.js';
+import { clearSensitiveData } from './sensitive-data.js';
+import type { WalletStore } from './wallet-store.js';
 import { assertNoActiveSwap } from './swap/service.js';
 import type { BaseNetworkContract, NetworkPlugin, PreparedTransfer, TransactionStatus, WalletAccount } from './network/types.js';
 
@@ -33,7 +34,7 @@ export type TransferResult = Omit<PreparedTransfer, 'rawTransaction'> & {
 // The caller owns the connected database and holds its profile lock.
 export class TransferService {
     constructor(
-        private readonly db: Persist,
+        private readonly db: WalletStore,
         private readonly plugin: NetworkPlugin,
         private readonly network: BaseNetworkContract
     ) {}
@@ -44,8 +45,30 @@ export class TransferService {
             return entries.filter(([, stored]) => stored.network === this.plugin.id)
                 .map(([id, stored]) => ({ ...this.publicTransfer(stored, stored.state, id), createdAt: stored.createdAt }));
         } finally {
-            Persist.clearSensitiveData(entries);
+            clearSensitiveData(entries);
         }
+    }
+
+    async track(requestId: string): Promise<TransferResult> {
+        if (!REQUEST_ID_PATTERN.test(requestId)) throw new AgentError('INVALID_ARGUMENT', 'A valid request ID is required.', 2);
+        const stored = await this.db.get('sendRequest', requestId) as StoredSendRequest | undefined;
+        if (!stored || stored.network !== this.plugin.id) {
+            clearSensitiveData(stored);
+            throw new AgentError('INVALID_ARGUMENT', 'Transfer not found on this network.', 2);
+        }
+        try {
+            if (stored.state !== 'confirmed' && stored.state !== 'failed') {
+                const observed = await this.transactionStatus(stored, requestId);
+                const state = observed.state === 'not_found'
+                    ? stored.state === 'prepared' ? 'prepared' : 'broadcast_unknown'
+                    : observed.state;
+                if (state !== stored.state) {
+                    stored.state = state;
+                    await this.save(stored, requestId);
+                }
+            }
+            return this.publicTransfer(stored, stored.state, requestId);
+        } finally { clearSensitiveData(stored); }
     }
 
     async send(request: TransferRequest): Promise<TransferResult> {
@@ -69,12 +92,12 @@ export class TransferService {
             if (request.dryRun) {
                 const prepared = await this.prepare(account, request.to, amount, asset);
                 try { return this.publicTransfer(prepared, 'dry-run'); }
-                finally { Persist.clearSensitiveData(prepared); }
+                finally { clearSensitiveData(prepared); }
             }
             const requestId = request.requestId!;
-            stored = await this.db.get('sendRequest', requestId) ?? undefined;
+            stored = (await this.db.get('sendRequest', requestId) ?? undefined) as StoredSendRequest | undefined;
             if (amount === 'max' && stored) amount = stored.amount;
-            const fingerprint = () => crypto.createHash('sha256').update(JSON.stringify({
+            const fingerprint = () => sha256(JSON.stringify({
                 wallet: request.wallet,
                 network: this.plugin.id,
                 chainId: this.plugin.chainId ?? null,
@@ -82,8 +105,8 @@ export class TransferService {
                 to: this.plugin.family === 'evm' ? request.to.toLowerCase() : request.to,
                 asset,
                 amount
-            })).digest('hex');
-            if (stored && stored.fingerprint !== fingerprint()) {
+            }));
+            if (stored && stored.fingerprint !== await fingerprint()) {
                 throw new AgentError('IDEMPOTENCY_CONFLICT', 'Request ID was already used with different transfer parameters.', 3);
             }
             if (stored) {
@@ -113,8 +136,8 @@ export class TransferService {
                 const prepared = await this.prepare(account, request.to, amount, asset);
                 const now = new Date().toISOString();
                 if (amount === 'max') amount = prepared.amount;
-                stored = { ...prepared, fingerprint: fingerprint(), state: 'prepared', network: this.plugin.id, createdAt: now, updatedAt: now };
-                Persist.clearSensitiveData(prepared);
+                stored = { ...prepared, fingerprint: await fingerprint(), state: 'prepared', network: this.plugin.id, createdAt: now, updatedAt: now };
+                clearSensitiveData(prepared);
                 await this.save(stored, requestId);
             }
 
@@ -139,8 +162,8 @@ export class TransferService {
             }
             return this.publicTransfer(stored, status, requestId);
         } finally {
-            Persist.clearSensitiveData(account);
-            Persist.clearSensitiveData(stored);
+            clearSensitiveData(account);
+            clearSensitiveData(stored);
         }
     }
 

@@ -35,6 +35,7 @@ export type TransferOptions = {
     gasLimit?: number | bigint;
     gasPrice?: string | bigint;
     feeRate?: number;
+    maxFeeBaseUnits?: string;
 };
 
 export type SignedTransaction = {
@@ -53,13 +54,16 @@ export type FeeEstimate = AssetBalance & {
     estimated: true;
 };
 
-export type PreparedTransfer = {
+export type TransferEstimate = {
     from: string;
     to: string;
     asset: string;
     amount: string;
     amountBaseUnits: string;
     fee: FeeEstimate;
+};
+
+export type PreparedTransfer = TransferEstimate & {
     transactionHash: string;
     rawTransaction: string;
 };
@@ -106,6 +110,13 @@ export interface BaseNetworkContract {
     getTokenBalances(address: string): Promise<Array<[string, string]>>;
     getAssetBalance(address: string, asset: string): Promise<AssetBalance>;
     validateAddress(address: string): boolean;
+    estimateTransfer(
+        from: string,
+        to: string,
+        amount: string,
+        asset: string,
+        options?: TransferOptions
+    ): Promise<TransferEstimate>;
     prepareTransfer(
         from: WalletAccount,
         to: string,

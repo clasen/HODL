@@ -12,6 +12,7 @@ import type {
     SignedTransaction,
     TransactionStatus,
     TransferOptions,
+    TransferEstimate,
     WalletAccount
 } from '../types.js';
 
@@ -102,18 +103,18 @@ export default class BitcoinNetwork extends BaseNetwork {
         return (await this.buildTransaction(from, to, amount.toString(), options)).rawTransaction;
     }
 
-    private async buildTransaction(
-        from: WalletAccount,
+    private async buildUnsignedTransaction(
+        from: string,
         to: string,
         amount: string,
         options: TransferOptions
-    ): Promise<{ rawTransaction: string; feeBaseUnits: bigint; amountBaseUnits: bigint }> {
-        if (!this.validateAddress(from.address) || !this.validateAddress(to)) {
+    ): Promise<{ psbt: bitcoin.Psbt; feeBaseUnits: bigint; amountBaseUnits: bigint }> {
+        if (!this.validateAddress(from) || !this.validateAddress(to)) {
             throw new Error('Invalid Bitcoin address.');
         }
 
         try {
-            const utxos = await this.getUTXOs(from.address);
+            const utxos = await this.getUTXOs(from);
             const maximum = amount.trim().toLowerCase() === 'max';
             let amountBaseUnits = maximum ? 0n : parseDecimalToUnits(amount, 8);
             if (amountBaseUnits > BigInt(Number.MAX_SAFE_INTEGER)) {
@@ -170,15 +171,14 @@ export default class BitcoinNetwork extends BaseNetwork {
             let returnedChange = 0;
             if (changeValue > 546) {
                 psbt.addOutput({
-                    address: from.address,
+                    address: from,
                     value: changeValue
                 });
                 returnedChange = changeValue;
             }
 
-            signBitcoinTransaction(psbt, from.privateKey, this.network);
             return {
-                rawTransaction: psbt.extractTransaction().toHex(),
+                psbt,
                 feeBaseUnits: BigInt(totalInputValue - satoshis - returnedChange),
                 amountBaseUnits
             };
@@ -187,6 +187,32 @@ export default class BitcoinNetwork extends BaseNetwork {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Failed to create transaction: ${message}`);
         }
+    }
+
+    private async buildTransaction(from: WalletAccount, to: string, amount: string, options: TransferOptions) {
+        const built = await this.buildUnsignedTransaction(from.address, to, amount, options);
+        this.checkFeeLimit(built.feeBaseUnits, options.maxFeeBaseUnits);
+        try {
+            signBitcoinTransaction(built.psbt, from.privateKey, this.network);
+            return { rawTransaction: built.psbt.extractTransaction().toHex(),
+                feeBaseUnits: built.feeBaseUnits, amountBaseUnits: built.amountBaseUnits };
+        } catch (error) {
+            throw new Error(`Failed to create transaction: ${(error as Error).message}`);
+        }
+    }
+
+    private describeTransfer(from: string, to: string, built: { feeBaseUnits: bigint; amountBaseUnits: bigint }): TransferEstimate {
+        return {
+            from, to, asset: this.config.nativeToken,
+            amount: formatUnits(built.amountBaseUnits, 8), amountBaseUnits: built.amountBaseUnits.toString(),
+            fee: { asset: this.config.nativeToken, amount: formatUnits(built.feeBaseUnits, 8),
+                baseUnits: built.feeBaseUnits.toString(), decimals: 8, estimated: true }
+        };
+    }
+
+    async estimateTransfer(from: string, to: string, amount: string, asset: string, options: TransferOptions = {}): Promise<TransferEstimate> {
+        if (asset.toUpperCase() !== this.config.nativeToken) throw new Error(`Token ${asset} not supported on Bitcoin network`);
+        return this.describeTransfer(from, to, await this.buildUnsignedTransaction(from, to, amount, options));
     }
 
     async prepareTransfer(
@@ -203,22 +229,8 @@ export default class BitcoinNetwork extends BaseNetwork {
         const built = await this.buildTransaction(from, to, amount, options);
         const transaction = bitcoin.Transaction.fromHex(built.rawTransaction);
 
-        return {
-            from: from.address,
-            to,
-            asset: this.config.nativeToken,
-            amount: formatUnits(built.amountBaseUnits, 8),
-            amountBaseUnits: built.amountBaseUnits.toString(),
-            fee: {
-                asset: this.config.nativeToken,
-                amount: formatUnits(built.feeBaseUnits, 8),
-                baseUnits: built.feeBaseUnits.toString(),
-                decimals: 8,
-                estimated: true
-            },
-            transactionHash: transaction.getId(),
-            rawTransaction: built.rawTransaction
-        };
+        return { ...this.describeTransfer(from.address, to, built),
+            transactionHash: transaction.getId(), rawTransaction: built.rawTransaction };
     }
 
     async getTransaction(txid: string): Promise<string> {

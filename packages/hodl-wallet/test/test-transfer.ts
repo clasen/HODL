@@ -402,3 +402,101 @@ test('Bitcoin max spends all inputs with one output and subtracts the fee', asyn
     network.getUTXOs = async () => [];
     await assert.rejects(network.prepareTransfer(from, FROM, 'max', 'BTC'), /Insufficient/);
 });
+
+test('read-only tracking reconciles every pending state without another signature or broadcast', async () => {
+    const f = await fixture();
+    try {
+        await f.service().send(request);
+        for (const state of ['prepared', 'broadcasting', 'submitted', 'broadcast_unknown']) {
+            const stored = await f.db.get('sendRequest', request.requestId);
+            await f.db.set('sendRequest', request.requestId, { ...stored, state });
+            await f.db.flush();
+            f.state.status = 'not_found';
+            const result = await f.service().track(request.requestId);
+            assert.equal(result.status, state === 'prepared' ? 'prepared' : 'broadcast_unknown');
+            assert.equal('rawTransaction' in result, false);
+            f.state.status = 'confirmed';
+            assert.equal((await f.service().track(request.requestId)).status, 'confirmed');
+        }
+        assert.equal(f.state.signs, 1);
+        assert.equal(f.state.broadcasts.length, 1);
+        await assert.rejects(f.service().track('missing'), { code: 'INVALID_ARGUMENT' });
+        await assert.rejects(f.service().track('__proto__'), { code: 'INVALID_ARGUMENT' });
+    } finally { await f.close(); }
+});
+
+test('read-only tracking retains the saved state when the provider cannot be reached', async () => {
+    const f = await fixture();
+    try {
+        await f.service().send(request);
+        f.state.failStatus = true;
+        await assert.rejects(f.service().track(request.requestId), { code: 'NETWORK_ERROR' });
+        assert.equal((await f.service().list())[0].status, 'submitted');
+        assert.equal(f.state.broadcasts.length, 1);
+    } finally { await f.close(); }
+});
+
+test('EVM estimation uses no signing key and a higher fee stops signing at the confirmed limit', async () => {
+    const { default: Web3Network } = await import('../network/lib/Web3Network.js');
+    const { default: bsc } = await import('../network/bsc.js');
+    const network = new Web3Network(bsc);
+    const address = '0x1111111111111111111111111111111111111111';
+    let gasPrice = 2n;
+    let signs = 0;
+    const web3 = (network as any).web3;
+    web3.eth.getChainId = async () => 56n;
+    web3.eth.getTransactionCount = async () => 0n;
+    web3.eth.estimateGas = async () => 21000n;
+    web3.eth.accounts.signTransaction = async () => { signs++; return { rawTransaction: '0x01', transactionHash: '0xabc' }; };
+    network.getGasPrice = async () => gasPrice;
+    network.getAssetBalance = async (_address, asset) => ({ asset, decimals: 18, baseUnits: '1000000000000000000', amount: '1' });
+    for (const asset of ['BNB', 'USDT']) {
+        const quote = await network.estimateTransfer(address, address, '0.1', asset);
+        assert.equal('rawTransaction' in quote, false);
+        const previousSigns = signs;
+        gasPrice *= 2n;
+        const account = { address, get privateKey(): string { throw new Error('Signing key was accessed'); } };
+        await assert.rejects(network.prepareTransfer(account, address, '0.1', asset, { maxFeeBaseUnits: quote.fee.baseUnits }), /confirmed limit/);
+        assert.equal(signs, previousSigns);
+        gasPrice /= 2n;
+        const prepared = await network.prepareTransfer({ address, privateKey: 'fixture' }, address, '0.1', asset, { maxFeeBaseUnits: quote.fee.baseUnits });
+        const { rawTransaction, transactionHash, ...actual } = prepared;
+        assert.deepEqual(actual, quote);
+        assert.equal(signs, previousSigns + 1);
+    }
+});
+
+test('Bitcoin estimation matches the signed transfer and enforces the fee cap before reading the key', async () => {
+    const bitcoin = await import('bitcoinjs-lib');
+    const network = new BitcoinNetwork(btc);
+    const from = await network.createAccount();
+    const previous = new bitcoin.Transaction();
+    previous.addInput(Buffer.alloc(32, 1), 0);
+    previous.addOutput(bitcoin.address.toOutputScript(from.address), 100000);
+    network.getUTXOs = async () => [{ txid: previous.getId(), vout: 0, value: 100000 }];
+    network.getTransaction = async () => previous.toHex();
+    const quote = await network.estimateTransfer(from.address, FROM, '0.0001', 'BTC', { feeRate: 2 });
+    assert.equal('rawTransaction' in quote, false);
+    const guarded = { address: from.address, get privateKey(): string { throw new Error('Signing key was accessed'); } };
+    await assert.rejects(network.prepareTransfer(guarded, FROM, '0.0001', 'BTC', { feeRate: 3, maxFeeBaseUnits: quote.fee.baseUnits }), /confirmed limit/);
+    const { rawTransaction, transactionHash, ...actual } = await network.prepareTransfer(from, FROM, '0.0001', 'BTC', { feeRate: 2, maxFeeBaseUnits: quote.fee.baseUnits });
+    assert.deepEqual(actual, quote);
+    assert.equal(bitcoin.Transaction.fromHex(rawTransaction).getId(), transactionHash);
+});
+
+test('EVM status maps Web3 missing receipts and transactions without swallowing RPC failures', async () => {
+    const { TransactionNotFound } = await import('web3');
+    const { default: Web3Network } = await import('../network/lib/Web3Network.js');
+    const { default: bsc } = await import('../network/bsc.js');
+    const network = new Web3Network(bsc);
+    const eth = (network as any).web3.eth;
+    const hash = '0x' + '1'.repeat(64);
+    eth.getTransactionReceipt = async () => { throw new TransactionNotFound(); };
+    eth.getTransaction = async () => { throw new TransactionNotFound(); };
+    assert.equal((await network.getTransactionStatus(hash)).state, 'not_found');
+    eth.getTransaction = async () => ({ hash });
+    assert.equal((await network.getTransactionStatus(hash)).state, 'submitted');
+    const failure = new Error('RPC unavailable');
+    eth.getTransactionReceipt = async () => { throw failure; };
+    await assert.rejects(network.getTransactionStatus(hash), error => error === failure);
+});
