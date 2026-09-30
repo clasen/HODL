@@ -24,7 +24,7 @@ function describe(error: unknown): string {
 
 function validNewPassword(input: string): true | string {
     if (input.length < vault.passwordMinChars || input.length > vault.passwordMaxChars) {
-        return `Use ${vault.passwordMinChars} to ${vault.passwordMaxChars} characters. You will need it to unlock your wallet and restore your backup.`;
+        return `Use ${vault.passwordMinChars} to ${vault.passwordMaxChars} characters. You will need it to unlock your wallet.`;
     }
     return true;
 }
@@ -72,9 +72,17 @@ async function retrying(terminal: DomTerminal, step: () => Promise<void>): Promi
     }
 }
 
-/** The web host: a locked terminal that asks for the password, runs the shared wallet flows, and locks again. */
+/**
+ * The web host: a locked terminal that asks for the password, runs the shared wallet flows, and locks again.
+ * Leaving by Exit or Ctrl+C returns to the first screen; any other lock says so.
+ */
 export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, display: Display, status: Status): Promise<never> {
     let notice: string | undefined;
+    let interrupted = false;
+    terminal.onInterrupt = () => {
+        interrupted = true;
+        wallet.lock();
+    };
     for (;;) {
         terminal.reset();
         terminal.clear();
@@ -83,6 +91,7 @@ export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, disp
         welcome(terminal);
         if (notice) terminal.print(notice);
         notice = undefined;
+        interrupted = false;
         try {
             const session = await openSession(terminal, wallet, display, status);
             if (session.isNew) status.setSession('setup');
@@ -90,9 +99,9 @@ export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, disp
             status.setSession('unlocked');
             await retrying(terminal, () => mainMenu(terminal, session));
             farewell(terminal);
-            notice = lockedNotice;
         } catch (error) {
-            notice = terminal.isAborted || isPromptAborted(error) ? lockedNotice : describe(error);
+            if (!terminal.isAborted && !isPromptAborted(error)) notice = describe(error);
+            else if (!interrupted) notice = lockedNotice;
         } finally {
             wallet.lock();
         }

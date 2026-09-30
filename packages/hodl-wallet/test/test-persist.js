@@ -107,6 +107,10 @@ async function testMemorySealingAndRoundTrip() {
     try {
         await reopened.connect();
         assert.equal(await reopened.get('mnemonic'), MNEMONIC);
+        assert.equal(reopened.matchesPassword(PASSWORD), true);
+        for (const other of ['', 'wrong-password', `${PASSWORD}x`, PASSWORD.slice(0, -1)]) {
+            assert.equal(reopened.matchesPassword(other), false);
+        }
     } finally {
         await reopened.dispose();
     }

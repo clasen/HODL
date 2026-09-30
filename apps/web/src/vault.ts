@@ -83,7 +83,6 @@ export class BrowserVault implements WalletStore {
 
     async open(password: string, options: {
         create?: () => Promise<VaultData>;
-        backup?: VaultEnvelope;
         validate: (data: VaultData) => Promise<void>;
     }): Promise<void> {
         if (this.busy || this.unlocked) throw new VaultError('A wallet operation is already in progress.');
@@ -96,8 +95,8 @@ export class BrowserVault implements WalletStore {
             this.assertCurrent(generation);
             const existing = await readEnvelope();
             this.assertCurrent(generation);
-            if ((options.create || options.backup) && existing) throw new VaultError('A wallet already exists in this browser. It was not replaced.');
-            let envelope = options.backup ?? existing;
+            if (options.create && existing) throw new VaultError('A wallet already exists in this browser. It was not replaced.');
+            let envelope = existing;
             if (!options.create && !envelope) throw new VaultError('No wallet is saved in this browser.');
             const salt = options.create ? newSalt() : envelope!.kdf.salt;
             const key = await deriveKey(password, salt);
@@ -108,9 +107,11 @@ export class BrowserVault implements WalletStore {
             validateJson(data);
             await options.validate(data);
             this.assertCurrent(generation);
-            if (options.create) envelope = await encrypt(data, key, salt);
-            this.assertCurrent(generation);
-            if (options.create || options.backup) await writeEnvelope(envelope!);
+            if (options.create) {
+                envelope = await encrypt(data, key, salt);
+                this.assertCurrent(generation);
+                await writeEnvelope(envelope);
+            }
             this.assertCurrent(generation);
             this.session = { data, key, envelope: envelope! };
             data = undefined;
@@ -121,37 +122,36 @@ export class BrowserVault implements WalletStore {
         }
     }
 
-    /** Replaces the open wallet. New data keeps the current password; a backup brings its own. */
-    async replace(
-        next: { create: () => Promise<VaultData> } | { backup: VaultEnvelope; password: string },
-        validate: (data: VaultData) => Promise<void>
-    ): Promise<void> {
+    /** Rejects any password other than the open wallet's. */
+    async verifyPassword(password: string): Promise<void> {
+        const { envelope } = this.current();
+        const generation = this.generation;
+        validatePassword(password, false);
+        try { clearSensitiveData(await decrypt(envelope, await deriveKey(password, envelope.kdf.salt))); }
+        catch { throw new VaultError('The password is incorrect.'); }
+        this.assertCurrent(generation);
+    }
+
+    /** Replaces the open wallet, keeping its password. */
+    async replace(create: () => Promise<VaultData>, validate: (data: VaultData) => Promise<void>): Promise<void> {
         if (this.busy) throw new VaultError('The vault is saving another operation.');
         const session = this.current();
         const generation = this.generation;
         this.busy = true;
         let data: VaultData | undefined;
         try {
-            let key = session.key;
-            let decoded: unknown;
-            if ('backup' in next) {
-                validatePassword(next.password, false);
-                key = await deriveKey(next.password, next.backup.kdf.salt);
-                decoded = await decrypt(next.backup, key);
-            } else {
-                decoded = await next.create();
-            }
+            const decoded = await create();
             this.assertCurrent(generation);
             if (!record(decoded)) throw new VaultError('Invalid vault data.');
             data = decoded;
             validateJson(data);
             await validate(data);
             this.assertCurrent(generation);
-            const envelope = 'backup' in next ? next.backup : await encrypt(data, key, session.envelope.kdf.salt);
+            const envelope = await encrypt(data, session.key, session.envelope.kdf.salt);
             await writeEnvelope(envelope, session.envelope);
             this.assertCurrent(generation);
             clearSensitiveData(session.data);
-            this.session = { data, key, envelope };
+            this.session = { data, key: session.key, envelope };
             data = undefined;
         } finally {
             clearSensitiveData(data);
@@ -225,10 +225,5 @@ export class BrowserVault implements WalletStore {
             this.busy = false;
             if (!this.session) this.releaseLock();
         }
-    }
-
-    async exportBackup(): Promise<string> {
-        await this.flush();
-        return JSON.stringify(this.current().envelope);
     }
 }

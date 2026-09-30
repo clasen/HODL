@@ -425,18 +425,29 @@ export class DomTerminal implements Ui {
         });
     }
 
-    /** Shows a file chooser inside the transcript so opening it is always a direct user action. */
+    /**
+     * Opens the file picker at once, riding the keypress that chose this action. The browser refuses a picker
+     * without a recent user action; Enter then opens it. Dismissing the picker cancels the prompt.
+     */
     chooseFile(message: string, accept: string): Promise<File | undefined> {
         return this.ask<File | undefined>('file', message, (finish, block) => {
             block.append(this.heading(message, '(Enter to browse, Esc to cancel)'));
             const field = promptField('file-input', message, 'file');
             field.accept = accept;
+            field.hidden = true;
             block.append(field);
             field.addEventListener('change', () => { const file = field.files?.[0]; finish(file, file?.name ?? ''); });
+            field.addEventListener('cancel', () => finish(undefined, ''));
+            field.click();
             return {
-                focus: () => field.focus({ preventScroll: true }),
+                focus: () => {},
                 dispose: () => { field.value = ''; },
-                onKey: event => { if (event.key === 'Escape') { event.preventDefault(); finish(undefined, ''); } }
+                onKey: event => {
+                    if (event.key === 'Enter' && !event.repeat) field.click();
+                    else if (event.key === 'Escape') finish(undefined, '');
+                    else return;
+                    event.preventDefault();
+                }
             };
         });
     }

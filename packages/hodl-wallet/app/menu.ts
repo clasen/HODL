@@ -22,13 +22,12 @@ export async function showBalance(ui: Ui, session: WalletSession): Promise<void>
     }
 
     const balances = await session.tokenBalances();
-    const exact = session.capabilities.exactAmounts;
     ui.table({
         head: ['Token', 'Balance'],
         tone: 'blue',
         colWidths: [21, 22],
         rows: balances.map(([token, balance]) => [token,
-            exact ? balance : token === 'USDT' ? Number(balance).toFixed(2) : formatAmount(balance)])
+            token === 'USDT' ? Number(balance).toFixed(2) : formatAmount(balance)])
     });
 }
 

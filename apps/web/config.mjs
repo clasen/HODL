@@ -13,7 +13,8 @@ export const webConfig = {
         spinnerMs: 80,
         presets: ['p1', 'p3', 'ice'],
         sweeps: ['full', 'soft', 'off'],
-        defaults: { preset: 'p1', sweep: 'off', scanlines: true, curvature: true, sound: false }
+        textScales: [0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8],
+        defaults: { preset: 'p1', sweep: 'off', textScale: 1.1, scanlines: true, curvature: true, sound: false }
     },
     vault: {
         format: 'hodl-web-vault',

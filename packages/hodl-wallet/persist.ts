@@ -63,6 +63,16 @@ class Persist extends Deepbase implements WalletStore {
         finally { fs.closeSync(directory); }
     }
 
+    /** Whether the password is the one this profile is encrypted with. */
+    matchesPassword(password: string): boolean {
+        const candidate = Buffer.from(password, 'utf8');
+        try {
+            return candidate.length === this.encryptionKey.length && crypto.timingSafeEqual(candidate, this.encryptionKey);
+        } finally {
+            candidate.fill(0);
+        }
+    }
+
     async dispose(): Promise<void> {
         if (this.disposed) {
             return;

@@ -52,7 +52,7 @@ async function askEncryptionKey(ui: Ui): Promise<string> {
 
 /** The encrypted profile in ~/.HODL as a wallet session. Prompts only through the Ui it is given. */
 export class NodeSession implements WalletSession {
-    readonly capabilities: SessionCapabilities = { replaceAccount: true, balanceHistory: true, switchNetworkFirst: false, exactAmounts: false };
+    readonly capabilities: SessionCapabilities = { replaceAccount: true, balanceHistory: true, switchNetworkFirst: false };
     readonly transfers: TransferPort;
     readonly contacts: ContactsPort;
 
@@ -415,9 +415,13 @@ export class NodeSession implements WalletSession {
 
         fileName += '.HODL';
 
-        const data = await this.db.get();
         const encryptionKey = await askEncryptionKey(ui);
+        if (!this.db.matchesPassword(encryptionKey)) {
+            showError(ui, 'Failed to export HODL file.', 'The password is incorrect.');
+            return;
+        }
 
+        const data = await this.db.get();
         try {
             const encryptedData = Persist.encrypt(data, encryptionKey);
             fs.writeFileSync(fileName, encryptedData);

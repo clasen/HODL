@@ -11,7 +11,6 @@ const sound = new Sound();
 const display = new Display(document.documentElement, sound);
 const terminal = new DomTerminal(element('out'), sound);
 const wallet = new BrowserWallet(() => terminal.abort());
-terminal.onInterrupt = () => wallet.lock();
 
 const status: Status = {
     setSession: state => {
@@ -22,6 +21,8 @@ const status: Status = {
 };
 
 const dials: Array<[string, () => void]> = [
+    ['text-smaller', () => display.stepText(-1)],
+    ['text-larger', () => display.stepText(1)],
     ['preset', () => display.cyclePreset()],
     ['scanlines', () => display.toggle('scanlines')],
     ['curvature', () => display.toggle('curvature')],

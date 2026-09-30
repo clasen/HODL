@@ -31,9 +31,9 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   print, spinner) and a `WalletSession` (`app/session.ts`). `ui-inquirer.ts` renders `Ui`
   with inquirer, cli-table3 and ora; `apps/web/src/terminal/` renders it in the DOM.
 - Whatever only one host can do goes through the session, never into a flow: `capabilities`,
-  the optional `contacts` port and `transfers.review`, and `HostAction` menu entries (Swap and
-  HODL file export in the TUI; backup files and display settings in the web; HODL file import
-  in both). Sessions never prompt
+  the optional `contacts` port and `transfers.review`, and `HostAction` menu entries (Swap in the
+  TUI; display settings in the web; HODL file export and import in both, each host with its own
+  file access). Sessions never prompt
   except through the `Ui` they are given. New prompts belong in a flow.
 - Prompt text, choice names and their order are the TUI's behavior. `test/test-app.ts`
   (scripted `Ui`, fake session) and `test/test-transfer.ts` (drives `runCli` with mocked
@@ -66,9 +66,11 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   `apps/web/vite.config.js`. Keep constructor names intact because account keys
   use them. Browser probes compare addresses, signatures and recovery with Node.
 - `pnpm run build:web` builds the existing package, the terminal wallet and the static
-  diagnostic in `apps/web/dist/`. The web wallet covers the flows above; swaps, the address
-  book and `.HODL` export are TUI-only. The web imports v2 `.HODL` files (`src/hodl-file.ts`)
-  as one recovery phrase or one private key, and replacing an open wallet keeps its password.
+  diagnostic in `apps/web/dist/`. The web wallet covers the flows above; swaps and the address
+  book are TUI-only. The web has no backup format of its own: it exports and imports the CLI's
+  v2 `.HODL` files (`src/hodl-file.ts`). Exports hold `account` and `mnemonic` and, in both
+  hosts, accept only the wallet password; imports keep one recovery phrase or one private key,
+  and replacing an open wallet keeps its password.
   Neither side imports legacy-format `.HODL` files; only `~/.HODL` profiles still migrate.
 - `pnpm run preview:web` serves the built wallet and diagnostic locally.
 - `pnpm run typecheck:web` checks browser TypeScript using the existing compiler.

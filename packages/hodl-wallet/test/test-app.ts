@@ -69,8 +69,8 @@ const plugin = {
 } as unknown as NetworkPlugin;
 const bitcoin = { ...plugin, id: 'btc', family: 'bitcoin', name: '[BTC] Bitcoin', nativeToken: 'BTC', tokens: {} } as unknown as NetworkPlugin;
 
-const terminalCapabilities: SessionCapabilities = { replaceAccount: true, balanceHistory: true, switchNetworkFirst: false, exactAmounts: false };
-const browserCapabilities: SessionCapabilities = { replaceAccount: false, balanceHistory: false, switchNetworkFirst: true, exactAmounts: true };
+const terminalCapabilities: SessionCapabilities = { replaceAccount: true, balanceHistory: true, switchNetworkFirst: false };
+const browserCapabilities: SessionCapabilities = { replaceAccount: false, balanceHistory: false, switchNetworkFirst: true };
 
 function result(overrides: Partial<TransferResult> = {}): TransferResult {
     return {
@@ -205,24 +205,6 @@ test('balance uses two decimals for USDT and the shared amount format elsewhere'
     const ui = new ScriptedUi([]);
     await showBalance(ui, fakeSession());
     assert.deepEqual(ui.tables[0].rows, [['ETH', '1.50'], ['USDT', '20.00']]);
-});
-
-test('hosts that show exact amounts never round a balance or a sent transfer', async () => {
-    const dust = fakeSession({
-        capabilities: browserCapabilities,
-        tokenBalances: async () => [['BTC', '0.00012345'], ['USDT', '20.123456']],
-        sentTransfers: async () => [{ timestamp: new Date(2026, 0, 2, 3, 4), recipient: 'to', token: 'BTC', amount: '0.00001234', url: 'https://x/1' }]
-    });
-    const balance = new ScriptedUi([]);
-    await showBalance(balance, dust);
-    assert.deepEqual(balance.tables[0].rows, [['BTC', '0.00012345'], ['USDT', '20.123456']]);
-    const sent = new ScriptedUi([]);
-    await showTransactions(sent, dust);
-    assert.equal((sent.tables[0].rows![0] as string[])[3], '0.00001234');
-
-    const rounded = new ScriptedUi([]);
-    await showBalance(rounded, fakeSession({ tokenBalances: async () => [['BTC', '0.00012345']] }));
-    assert.deepEqual(rounded.tables[0].rows, [['BTC', '0.00']]);
 });
 
 test('sent transfers show only the columns the host records', async () => {

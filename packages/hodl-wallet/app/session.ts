@@ -76,8 +76,6 @@ export interface SessionCapabilities {
     balanceHistory: boolean;
     /** The first-run account menu offers Switch Network. */
     switchNetworkFirst: boolean;
-    /** Amounts are shown as the network reports them instead of rounded for reading. */
-    exactAmounts: boolean;
 }
 
 export type NewAccount = 'existing-mnemonic' | 'random' | 12 | 24;

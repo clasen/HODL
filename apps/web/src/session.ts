@@ -4,7 +4,7 @@ import {
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
-import type { Display, Preset, Sweep, Toggle } from './terminal/display.js';
+import { textSizeName, type Display, type Preset, type Sweep, type Toggle } from './terminal/display.js';
 import { parseHodlFile, type HodlFile } from './hodl-file.js';
 import type { DomTerminal } from './terminal/terminal.js';
 import { VaultError, userMessage } from './vault-error.js';
@@ -14,11 +14,11 @@ import type { TransferReview } from './transfers.js';
 const vault = webConfig.vault;
 const broadcastNotice = 'Broadcast started. Locking or closing this page will not cancel the transfer.';
 
-function download(text: string): void {
-    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+function download(text: string, fileName: string): void {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/octet-stream' }));
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `hodl-backup-${new Date().toISOString().slice(0, 10)}.hodl-web.json`;
+    anchor.download = fileName;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -30,7 +30,7 @@ function download(text: string): void {
  * the user chose, until the first account is created or imported; only then is the vault written.
  */
 export class BrowserSession implements WalletSession {
-    readonly capabilities: SessionCapabilities = { replaceAccount: false, balanceHistory: false, switchNetworkFirst: true, exactAmounts: true };
+    readonly capabilities: SessionCapabilities = { replaceAccount: false, balanceHistory: false, switchNetworkFirst: true };
     readonly transfers: TransferPort;
 
     private readonly registry = new NetworkRegistry();
@@ -163,36 +163,15 @@ export class BrowserSession implements WalletSession {
     }
 
     importActions(): HostAction[] {
-        return [
-            { name: 'Import Backup File', run: () => this.restoreBackup() },
-            { name: 'Import HODL File', run: () => this.importHodlFile() }
-        ];
+        return [{ name: 'Import HODL File', run: () => this.importHodlFile() }];
     }
 
     exportActions(): HostAction[] {
-        return [{ name: 'Export Backup File', run: () => this.exportBackup() }];
+        return [{ name: 'Export HODL File', run: ui => this.exportHodlFile(ui) }];
     }
 
     menuActions(): HostAction[] {
         return [{ name: 'Display Settings', run: ui => this.settings(ui) }];
-    }
-
-    private async restoreBackup(): Promise<boolean> {
-        const file = await this.terminal.chooseFile('Backup file:', '.json,application/json');
-        if (!file) return false;
-        if (file.size > vault.maxBytes) {
-            showError(this.terminal, 'The backup exceeds the size limit.');
-            return false;
-        }
-        const text = await file.text();
-        const password = await this.terminal.password({ message: 'Backup password (becomes your wallet password):' });
-        try {
-            await this.opened(await this.protect('Opening the backup…', () => this.wallet.restore(text, password)));
-            return true;
-        } catch (error) {
-            showError(this.terminal, userMessage(error));
-            return false;
-        }
     }
 
     private async importHodlFile(): Promise<boolean> {
@@ -209,7 +188,7 @@ export class BrowserSession implements WalletSession {
             showError(this.terminal, userMessage(error));
             return false;
         }
-        const password = await this.terminal.password({ message: 'HODL file password:' });
+        const password = await this.terminal.password({ message: 'Password:' });
         const pending = this.password;
         try {
             await this.opened(await this.protect('Opening the HODL file…',
@@ -221,24 +200,36 @@ export class BrowserSession implements WalletSession {
         }
     }
 
-    private async exportBackup(): Promise<void> {
-        const text = await this.protect('Preparing the encrypted backup…', () => this.wallet.exportBackup());
-        download(text);
-        this.terminal.table({
-            head: ['Backup File Exported'],
-            tone: 'green',
-            rows: [['Your encrypted backup download has started. Keep it somewhere safe; there is no remote recovery.']]
+    /** The CLI's export, sealed with the wallet password. Downloaded instead of written. */
+    private async exportHodlFile(ui: Ui): Promise<void> {
+        const address = await this.address();
+        const name = await ui.input({
+            message: 'Enter the name for the HODL file:',
+            default: address.slice(-6).toUpperCase(),
+            validate: input => input.trim() !== '' || 'Enter a file name.'
         });
+        const password = await ui.password({ message: 'Password:' });
+        const fileName = `${name.trim()}.HODL`;
+        let text: string;
+        try {
+            text = await this.protect('Protecting the HODL file…', () => this.wallet.exportHodlFile(password));
+        } catch (error) {
+            showError(ui, 'Failed to export HODL file.', userMessage(error));
+            return;
+        }
+        download(text, fileName);
+        ui.table({ head: ['HODL File Exported'], tone: 'green', rows: [[`Download started: ${fileName}`]] });
     }
 
     private async settings(ui: Ui): Promise<void> {
         for (;;) {
             const state = this.display.state;
             const on = (value: boolean): string => value ? 'ON' : 'OFF';
-            const choice = await ui.select<Toggle | 'preset' | 'sweep' | 'back'>({
+            const choice = await ui.select<Toggle | 'preset' | 'sweep' | 'text' | 'back'>({
                 message: 'Display settings:',
                 choices: [
                     { name: `Phosphor: ${this.display.presets.find(preset => preset.id === state.preset)!.name}`, value: 'preset' },
+                    { name: `Text size: ${textSizeName(state.textScale)}`, value: 'text' },
                     { name: `Scanlines and glow: ${on(state.scanlines)}`, value: 'scanlines' },
                     { name: `Rolling sweep bar: ${this.display.sweeps.find(sweep => sweep.id === state.sweep)!.name}`, value: 'sweep' },
                     { name: `Screen curvature, bezel and flicker: ${on(state.curvature)}`, value: 'curvature' },
@@ -261,6 +252,13 @@ export class BrowserSession implements WalletSession {
                     default: state.sweep
                 });
                 this.display.setSweep(sweep);
+            } else if (choice === 'text') {
+                const textScale = await ui.select<number>({
+                    message: 'Text size:',
+                    choices: this.display.textScales.map(scale => ({ name: textSizeName(scale), value: scale })),
+                    default: state.textScale
+                });
+                this.display.setTextScale(textScale);
             } else {
                 this.display.toggle(choice);
             }

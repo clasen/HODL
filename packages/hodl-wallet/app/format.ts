@@ -20,11 +20,6 @@ export function formatAmount(num: number | string): string {
     return formatted;
 }
 
-/** An amount as the host wants it shown: rounded for a terminal table, or exactly as reported. */
-export function amountText(exact: boolean, amount: number | string): string {
-    return exact ? String(amount) : formatAmount(amount);
-}
-
 export function formatDate(date: string | number | Date): string {
     return new Date(date).toLocaleString('en-GB', {
         year: 'numeric',

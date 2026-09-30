@@ -17,7 +17,7 @@ export function record(value: unknown): value is Record<string, unknown> {
 
 function exactKeys(value: Record<string, unknown>, keys: string[]): void {
     if (Object.keys(value).length !== keys.length || keys.some(key => !Object.hasOwn(value, key))) {
-        throw new VaultError('Invalid backup format.');
+        throw new VaultError('Invalid vault format.');
     }
 }
 
@@ -30,30 +30,30 @@ function base64(bytes: Uint8Array): string {
 function decode(value: unknown, length?: number): Uint8Array<ArrayBuffer> {
     if (typeof value !== 'string' || value.length > Math.ceil(config.maxBytes / 3) * 4 ||
         !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
-        throw new VaultError('Invalid backup format.');
+        throw new VaultError('Invalid vault format.');
     }
     const bytes = Uint8Array.from(atob(value), character => character.charCodeAt(0));
     if ((length !== undefined && bytes.length !== length) || base64(bytes) !== value) {
-        throw new VaultError('Invalid backup format.');
+        throw new VaultError('Invalid vault format.');
     }
     return bytes;
 }
 
 export function parseEnvelope(value: unknown): VaultEnvelope {
     if (!record(value) || value.format !== config.format || value.version !== config.version) {
-        throw new VaultError('Unsupported backup. Use a HODL Web v1 backup; import CLI .HODL files with Import HODL File.');
+        throw new VaultError('Unsupported vault format.');
     }
     exactKeys(value, ['format', 'version', 'kdf', 'cipher', 'ciphertext']);
-    if (!record(value.kdf) || !record(value.cipher)) throw new VaultError('Invalid backup format.');
+    if (!record(value.kdf) || !record(value.cipher)) throw new VaultError('Invalid vault format.');
     exactKeys(value.kdf, ['name', 'hash', 'iterations', 'salt']);
     exactKeys(value.cipher, ['name', 'iv', 'tagLength']);
     if (value.kdf.name !== 'PBKDF2' || value.kdf.hash !== 'SHA-256' || value.kdf.iterations !== config.iterations ||
         value.cipher.name !== 'AES-GCM' || value.cipher.tagLength !== config.tagBits) {
-        throw new VaultError('Unsupported backup parameters.');
+        throw new VaultError('Unsupported vault parameters.');
     }
     decode(value.kdf.salt, config.saltBytes);
     decode(value.cipher.iv, config.ivBytes);
-    if (decode(value.ciphertext).length < config.tagBits / 8) throw new VaultError('The backup is incomplete.');
+    if (decode(value.ciphertext).length < config.tagBits / 8) throw new VaultError('The vault is incomplete.');
     return {
         format: config.format,
         version: config.version,
@@ -61,14 +61,6 @@ export function parseEnvelope(value: unknown): VaultEnvelope {
         cipher: { name: 'AES-GCM', iv: value.cipher.iv as string, tagLength: config.tagBits },
         ciphertext: value.ciphertext as string
     };
-}
-
-export function parseBackup(text: string): VaultEnvelope {
-    if (new TextEncoder().encode(text).byteLength > config.maxBytes) throw new VaultError('The backup exceeds the size limit.');
-    let value: unknown;
-    try { value = JSON.parse(text); }
-    catch { throw new VaultError('The backup is not a valid JSON file.'); }
-    return parseEnvelope(value);
 }
 
 export function validatePassword(password: string, creating: boolean): void {

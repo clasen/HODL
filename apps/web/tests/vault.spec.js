@@ -15,15 +15,27 @@ async function raw(page) {
         };
     }), webConfig.vault);
 }
-async function backup(page) {
+/** Opens Export HODL File and accepts the suggested name; returns the name. */
+async function startExport(page) {
     await ready(page);
     await choose(page, MAIN, 'Account Settings');
     await choose(page, 'Select an account option:', 'Export Options');
+    await choose(page, 'Select an export option:', 'Export HODL File');
+    const name = await prompt(page, 'Enter the name for the HODL file:').locator('input').inputValue();
+    await page.keyboard.press('Enter');
+    return name;
+}
+/** Exports a .HODL file under its suggested name, sealed like the CLI with the wallet password; returns the name and the file's text. */
+async function exportHodl(page) {
+    const name = await startExport(page);
     const downloaded = page.waitForEvent('download');
-    await choose(page, 'Select an export option:', 'Export Backup File');
-    const text = await readFile(await (await downloaded).path(), 'utf8');
+    await answer(page, 'Password:', PASSWORD);
+    const download = await downloaded;
+    const text = await readFile(await download.path(), 'utf8');
+    await shown(page, `Download started: ${name}.HODL`);
+    expect(download.suggestedFilename()).toBe(`${name}.HODL`);
     await ready(page);
-    return text;
+    return { name, text };
 }
 /** A .HODL file as the CLI writes it, from a profile shaped like ~/.HODL. */
 async function hodlFile(profile, password = HODL_PASSWORD) {
@@ -34,9 +46,15 @@ async function networks() {
     const [evm, btc] = await Promise.all(['eth', 'btc'].map(async id => (await import(`hodl-wallet/dist/network/${id}.js`)).default));
     return { evm: new evm.NetworkClass(evm), btc: new btc.NetworkClass(btc), evmKey: evm.NetworkClass.name, btcKey: btc.NetworkClass.name };
 }
-async function importHodl(page, text, pass = HODL_PASSWORD) {
-    await prompt(page, 'HODL file:').locator('input[type=file]').setInputFiles({ name: 'wallet.HODL', mimeType: 'application/octet-stream', buffer: Buffer.from(text) });
-    if (pass !== null) await answer(page, 'HODL file password:', pass);
+/** The file prompt opens the picker by itself, straight from the action that asks for the file. */
+async function pickFile(page, open, file) {
+    const chooser = page.waitForEvent('filechooser');
+    await open();
+    await (await chooser).setFiles(file);
+}
+async function importHodl(page, open, text, pass = HODL_PASSWORD) {
+    await pickFile(page, open, { name: 'wallet.HODL', mimeType: 'application/octet-stream', buffer: Buffer.from(text) });
+    if (pass !== null) await answer(page, 'Password:', pass);
 }
 async function replaceWith(page, label) {
     await ready(page);
@@ -45,12 +63,6 @@ async function replaceWith(page, label) {
     await choose(page, 'Select an import option:', label);
     await confirm(page, 'overwrite the existing account');
 }
-async function restore(page, text, pass = PASSWORD) {
-    await choose(page, 'Select an account option:', 'Import Backup File');
-    await prompt(page, 'Backup file:').locator('input[type=file]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(text) });
-    await answer(page, 'Backup password', pass);
-}
-
 const HODL_PASSWORD = 'cli-pass';
 
 test.beforeEach(async ({ page }) => {
@@ -62,11 +74,30 @@ test('encrypted roundtrip, authentication, reload and fresh IVs', async ({ page,
     page.on('pageerror', error => errors.push(error.message));
     await importPhrase(page);
     await shown(page, BTC_FROM);
-    const first = await backup(page);
-    const second = await backup(page);
-    expect(JSON.parse(first).cipher.iv).not.toBe(JSON.parse(second).cipher.iv);
-    expect(await raw(page)).toEqual(JSON.parse(second));
-    for (const secret of [PHRASE, PASSWORD, EVM_FROM, BTC_FROM]) expect(second.includes(secret)).toBe(false);
+    const stored = await raw(page);
+    let downloads = 0;
+    page.on('download', () => downloads++);
+    await startExport(page);
+    await answer(page, 'Password:', HODL_PASSWORD);
+    await shown(page, 'The password is incorrect');
+    const first = await exportHodl(page);
+    const { name, text: second } = await exportHodl(page);
+    expect(name).toBe(BTC_FROM.slice(-6).toUpperCase());
+    const [, firstSalt, firstIv] = first.text.split(':');
+    const [, secondSalt, secondIv] = second.split(':');
+    expect([secondSalt, secondIv]).not.toEqual([firstSalt, firstIv]);
+    for (const secret of [PHRASE, PASSWORD, HODL_PASSWORD, EVM_FROM, BTC_FROM]) {
+        expect(second.includes(secret)).toBe(false);
+        expect(JSON.stringify(stored).includes(secret)).toBe(false);
+    }
+    const { default: Persist } = await import('hodl-wallet/dist/persist.js');
+    const { evmKey, btcKey } = await networks();
+    expect(downloads).toBe(2);
+    const profile = Persist.decrypt(second, PASSWORD);
+    expect(profile.mnemonic).toBe(PHRASE);
+    expect(Object.keys(profile.account).sort()).toEqual([evmKey, btcKey].sort());
+    expect(profile.account[evmKey].address).toBe(EVM_FROM);
+    expect(profile.account[btcKey].address).toBe(BTC_FROM);
     const visible = await page.locator('body').innerText();
     expect(visible).not.toContain(PHRASE);
     expect(visible).not.toContain(PASSWORD);
@@ -74,7 +105,7 @@ test('encrypted roundtrip, authentication, reload and fresh IVs', async ({ page,
     await page.reload();
     await answer(page, 'Password:', 'incorrect-password');
     await shown(page, 'Incorrect password');
-    expect(await raw(page)).toEqual(JSON.parse(second));
+    expect(await raw(page)).toEqual(stored);
     await unlock(page);
     await shown(page, BTC_FROM);
     const clean = await browser.newContext();
@@ -82,15 +113,12 @@ test('encrypted roundtrip, authentication, reload and fresh IVs', async ({ page,
         const other = await clean.newPage();
         await other.goto(page.url());
         await firstRun(other, 'another-password-123');
-        const altered = JSON.parse(second);
-        altered.ciphertext = (altered.ciphertext[0] === 'A' ? 'B' : 'A') + altered.ciphertext.slice(1);
-        await restore(other, JSON.stringify(altered));
-        await shown(other, 'Incorrect password');
+        const openHodl = () => choose(other, 'Select an account option:', 'Import HODL File');
+        const altered = second.slice(0, -1) + (second.endsWith('0') ? '1' : '0');
+        await importHodl(other, openHodl, altered, PASSWORD);
+        await shown(other, 'Incorrect password or damaged HODL file');
         expect(await raw(other)).toBeUndefined();
-        altered.kdf.iterations++;
-        await restore(other, JSON.stringify(altered));
-        await shown(other, 'parameters');
-        await restore(other, second);
+        await importHodl(other, openHodl, second, PASSWORD);
         await ready(other);
         await shown(other, BTC_FROM);
         await switchNetwork(other, 'eth');
@@ -116,6 +144,7 @@ test('exclusive tab ownership and inactivity lock', async ({ page, context }) =>
     await expect(prompt(other, 'Password:')).toBeVisible();
     await expect(other.locator('#session-state')).toHaveText('LOCKED');
     await expect(other.locator('#out')).not.toContainText(BTC_FROM);
+    await shown(other, 'Wallet locked.');
 });
 
 test('create with the keyboard only and lock without retaining inputs', async ({ page }) => {
@@ -141,6 +170,16 @@ test('create with the keyboard only and lock without retaining inputs', async ({
     await expect(prompt(page, 'Password:').locator('input')).toHaveValue('');
     await expect(page.locator('#session-state')).toHaveText('LOCKED');
     await expect(page.locator('#out .tbl')).toHaveCount(0);
+    await expect(out(page)).not.toContainText('Wallet locked.');
+});
+
+test('exit returns to the first screen without a lock notice', async ({ page }) => {
+    await importPhrase(page);
+    await choose(page, MAIN, 'Exit');
+    await expect(prompt(page, 'Password:').locator('input')).toHaveValue('');
+    await expect(page.locator('#session-state')).toHaveText('LOCKED');
+    await expect(out(page)).not.toContainText('Wallet locked.');
+    await expect(out(page)).not.toContainText(BTC_FROM);
 });
 
 test('failed durable write never reports an opened wallet', async ({ page }) => {
@@ -236,24 +275,21 @@ test('CLI .HODL files import on first run and replace an open wallet keeping its
     const mixedFile = await hodlFile({ account: { ...fromPhrase, [btcKey]: await btc.createAccount() }, mnemonic: PHRASE });
 
     await firstRun(page);
-    await choose(page, 'Select an account option:', 'Import HODL File');
-    await importHodl(page, 'U2FsdGVkX1:' + Buffer.from('Salted__legacy').toString('base64'), null);
+    const openHodl = () => choose(page, 'Select an account option:', 'Import HODL File');
+    await importHodl(page, openHodl, 'U2FsdGVkX1:' + Buffer.from('Salted__legacy').toString('base64'), null);
     await shown(page, 'legacy format can no longer be imported');
-    await choose(page, 'Select an account option:', 'Import HODL File');
-    await importHodl(page, phraseFile, 'wrong-password');
+    await importHodl(page, openHodl, phraseFile, 'wrong-password');
     await shown(page, 'Incorrect password or damaged HODL file');
     expect(await raw(page)).toBeUndefined();
-    await choose(page, 'Select an account option:', 'Import HODL File');
-    await importHodl(page, phraseFile);
+    await importHodl(page, openHodl, phraseFile);
     await ready(page);
     await switchNetwork(page, 'eth');
     await shown(page, EVM_FROM);
 
-    await replaceWith(page, 'Import HODL File');
-    await importHodl(page, mixedFile);
+    const replaceHodl = () => replaceWith(page, 'Import HODL File');
+    await importHodl(page, replaceHodl, mixedFile);
     await shown(page, 'separate keys per network');
-    await replaceWith(page, 'Import HODL File');
-    await importHodl(page, keyFile);
+    await importHodl(page, replaceHodl, keyFile);
     await shown(page, key.address);
     await ready(page);
     for (const secret of [key.privateKey, PHRASE]) expect(JSON.stringify(await raw(page)).includes(secret)).toBe(false);

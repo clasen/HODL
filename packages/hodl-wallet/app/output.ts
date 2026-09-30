@@ -1,4 +1,4 @@
-import { amountText, errorMessage, formatDate } from './format.js';
+import { errorMessage, formatAmount, formatDate } from './format.js';
 import type { SentTransfer, WalletSession } from './session.js';
 import type { Cell, TableSpec, Tone, Ui } from './ui.js';
 
@@ -76,7 +76,6 @@ export function sentTransfersTable(
 ): TableSpec {
     const withContact = Boolean(session.contacts);
     const withBalance = session.capabilities.balanceHistory;
-    const exact = session.capabilities.exactAmounts;
     const head = ['Date', 'Recipient', ...(withContact ? ['Contact'] : []), 'Token', 'Amount',
         ...(withBalance ? ['Balance'] : []), ...(options.status ? ['Status'] : [])];
     const rows: Cell[][] = [];
@@ -85,8 +84,8 @@ export function sentTransfersTable(
         rows.push([
             formatDate(tx.timestamp), tx.recipient,
             ...(withContact ? [tx.contact ?? '-'] : []),
-            tx.token, amountText(exact, tx.amount),
-            ...(withBalance ? [tx.balance !== undefined ? amountText(exact, tx.balance) : '-'] : []),
+            tx.token, formatAmount(tx.amount),
+            ...(withBalance ? [tx.balance !== undefined ? formatAmount(tx.balance) : '-'] : []),
             ...(options.status ? [tx.status || '-'] : [])
         ]);
         rows.push([{ colSpan: head.length, content: tx.url }]);

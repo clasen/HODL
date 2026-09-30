@@ -108,6 +108,32 @@ test('the phosphor, glass effects and sound are chosen from the keyboard or the 
     expect(await tones(page)).toBeGreaterThan(before);
 });
 
+test('the bezel resizes the text within its limits and remembers the size', async ({ page }) => {
+    await page.goto('/');
+    await expect(prompt(page, 'Password:')).toBeVisible();
+    const size = () => page.locator('#term').evaluate(term => parseFloat(getComputedStyle(term).fontSize));
+    const start = await size();
+    await page.locator('#text-larger').click();
+    const larger = await size();
+    expect(larger).toBeGreaterThan(start);
+    for (let i = 0; i < 12; i++) {
+        if (await page.locator('#text-larger').isDisabled()) break;
+        await page.locator('#text-larger').click();
+    }
+    await expect(page.locator('#text-larger')).toBeDisabled();
+    const largest = await size();
+    await page.reload();
+    await expect(prompt(page, 'Password:')).toBeVisible();
+    expect(await size()).toBe(largest);
+    for (let i = 0; i < 12; i++) {
+        if (await page.locator('#text-smaller').isDisabled()) break;
+        await page.locator('#text-smaller').click();
+    }
+    await expect(page.locator('#text-smaller')).toBeDisabled();
+    await expect(page.locator('#text-larger')).toBeEnabled();
+    expect(await size()).toBeLessThan(start);
+});
+
 test('the terminal stays silent until sound is switched on', async ({ page }) => {
     await page.goto('/');
     await expect(prompt(page, 'Password:')).toBeVisible();
@@ -118,8 +144,8 @@ test('the terminal stays silent until sound is switched on', async ({ page }) =>
 test('Display Settings in the main menu change the look and keep the wallet unlocked', async ({ page }) => {
     await importPhrase(page);
     await choose(page, MAIN, 'Display Settings');
-    await choose(page, 'Display settings:', 'Phosphor: P1 green phosphor');
-    await choose(page, 'Phosphor:', 'P3 amber phosphor');
+    await choose(page, 'Display settings:', 'Phosphor: Green phosphor');
+    await choose(page, 'Phosphor:', 'Amber phosphor');
     await expect(page.locator('html')).toHaveAttribute('data-preset', 'p3');
     await choose(page, 'Display settings:', 'Rolling sweep bar: Off');
     await choose(page, 'Rolling sweep bar:', 'Subtle');
@@ -130,6 +156,9 @@ test('Display Settings in the main menu change the look and keep the wallet unlo
     await expect(page.locator('html')).toHaveAttribute('data-sweep', 'off');
     await expect(page.locator('.roll')).toBeHidden();
     await expect(page.locator('#sweep')).toHaveText('SWP:OFF');
+    await choose(page, 'Display settings:', 'Text size: 110%');
+    await choose(page, 'Text size:', '150%');
+    await expect(page.locator('html')).toHaveCSS('--text-scale', '1.5');
     await choose(page, 'Display settings:', 'Sound: OFF');
     await expect(page.locator('html')).toHaveAttribute('data-sound', 'on');
     await expect(page.locator('#sound')).toHaveAttribute('aria-pressed', 'true');
@@ -147,6 +176,7 @@ test('choices saved before the sweep option existed keep their values', async ({
     await expect(html).toHaveAttribute('data-preset', 'ice');
     await expect(html).toHaveAttribute('data-scanlines', 'off');
     await expect(html).toHaveAttribute('data-sweep', 'off');
+    await expect(html).toHaveCSS('--text-scale', '1.1');
 });
 
 test('reduced motion turns off the rolling bar and flicker', async ({ page }) => {
