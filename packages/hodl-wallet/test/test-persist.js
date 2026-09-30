@@ -124,6 +124,7 @@ async function testLegacyCompatibility() {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-legacy-'));
     const filePath = path.join(directory, 'persist.json');
     fs.writeFileSync(filePath, encryptLegacy({ mnemonic: MNEMONIC }, PASSWORD));
+    assert.throws(() => Persist.decrypt(encryptLegacy({ mnemonic: MNEMONIC }, PASSWORD), PASSWORD), /Unsupported encrypted payload format/);
 
     const db = new Persist({ path: directory, encryptionKey: PASSWORD });
     try {

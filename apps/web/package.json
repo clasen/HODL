@@ -9,6 +9,7 @@
     "test:connectivity": "HODL_LIVE_PROBES=1 playwright test tests/connectivity.spec.js --project=chromium"
   },
   "dependencies": {
+    "@noble/hashes": "1.4.0",
     "hodl-wallet": "workspace:*"
   },
   "devDependencies": {

@@ -70,7 +70,7 @@ export interface HostAction {
 }
 
 export interface SessionCapabilities {
-    /** Create or import over the current account from Account Settings. */
+    /** Create a new account over the current one from Account Settings. Importing over it is always offered. */
     replaceAccount: boolean;
     /** Sent-transfer rows carry the balance after sending. */
     balanceHistory: boolean;

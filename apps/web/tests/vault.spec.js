@@ -25,11 +25,33 @@ async function backup(page) {
     await ready(page);
     return text;
 }
+/** A .HODL file as the CLI writes it, from a profile shaped like ~/.HODL. */
+async function hodlFile(profile, password = HODL_PASSWORD) {
+    const { default: Persist } = await import('hodl-wallet/dist/persist.js');
+    return Persist.encrypt(profile, password);
+}
+async function networks() {
+    const [evm, btc] = await Promise.all(['eth', 'btc'].map(async id => (await import(`hodl-wallet/dist/network/${id}.js`)).default));
+    return { evm: new evm.NetworkClass(evm), btc: new btc.NetworkClass(btc), evmKey: evm.NetworkClass.name, btcKey: btc.NetworkClass.name };
+}
+async function importHodl(page, text, pass = HODL_PASSWORD) {
+    await prompt(page, 'HODL file:').locator('input[type=file]').setInputFiles({ name: 'wallet.HODL', mimeType: 'application/octet-stream', buffer: Buffer.from(text) });
+    if (pass !== null) await answer(page, 'HODL file password:', pass);
+}
+async function replaceWith(page, label) {
+    await ready(page);
+    await choose(page, MAIN, 'Account Settings');
+    await choose(page, 'Select an account option:', 'Import Options');
+    await choose(page, 'Select an import option:', label);
+    await confirm(page, 'overwrite the existing account');
+}
 async function restore(page, text, pass = PASSWORD) {
     await choose(page, 'Select an account option:', 'Import Backup File');
     await prompt(page, 'Backup file:').locator('input[type=file]').setInputFiles({ name: 'backup.json', mimeType: 'application/json', buffer: Buffer.from(text) });
     await answer(page, 'Backup password', pass);
 }
+
+const HODL_PASSWORD = 'cli-pass';
 
 test.beforeEach(async ({ page }) => {
     await page.route('**/*', route => new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort());
@@ -203,4 +225,43 @@ test('secret output disappears on the next key and after its time', async ({ pag
         await shown(page, '[sensitive output cleared]');
         await ready(page);
     }
+});
+
+test('CLI .HODL files import on first run and replace an open wallet keeping its password', async ({ page }) => {
+    const { evm, btc, evmKey, btcKey } = await networks();
+    const fromPhrase = { [evmKey]: await evm.accountFromMnemonic(PHRASE), [btcKey]: await btc.accountFromMnemonic(PHRASE) };
+    const phraseFile = await hodlFile({ account: fromPhrase, mnemonic: PHRASE, networkUsage: { '[ETH] Ethereum': { count: 1, lastUsed: 1 } } });
+    const key = await evm.createAccount();
+    const keyFile = await hodlFile({ account: { [evmKey]: key } });
+    const mixedFile = await hodlFile({ account: { ...fromPhrase, [btcKey]: await btc.createAccount() }, mnemonic: PHRASE });
+
+    await firstRun(page);
+    await choose(page, 'Select an account option:', 'Import HODL File');
+    await importHodl(page, 'U2FsdGVkX1:' + Buffer.from('Salted__legacy').toString('base64'), null);
+    await shown(page, 'legacy format can no longer be imported');
+    await choose(page, 'Select an account option:', 'Import HODL File');
+    await importHodl(page, phraseFile, 'wrong-password');
+    await shown(page, 'Incorrect password or damaged HODL file');
+    expect(await raw(page)).toBeUndefined();
+    await choose(page, 'Select an account option:', 'Import HODL File');
+    await importHodl(page, phraseFile);
+    await ready(page);
+    await switchNetwork(page, 'eth');
+    await shown(page, EVM_FROM);
+
+    await replaceWith(page, 'Import HODL File');
+    await importHodl(page, mixedFile);
+    await shown(page, 'separate keys per network');
+    await replaceWith(page, 'Import HODL File');
+    await importHodl(page, keyFile);
+    await shown(page, key.address);
+    await ready(page);
+    for (const secret of [key.privateKey, PHRASE]) expect(JSON.stringify(await raw(page)).includes(secret)).toBe(false);
+
+    await page.reload();
+    await unlock(page);
+    await shown(page, key.address);
+    await choose(page, MAIN, 'Account Settings');
+    await choose(page, 'Select an account option:', 'Switch Network');
+    await expect(prompt(page, 'Select the network:').locator('li.choice', { hasText: 'Bitcoin' })).toHaveCount(0);
 });

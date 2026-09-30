@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { webConfig } from '../config.mjs';
-import { mockNetworks, importFixture, unlockFixture, reviewTransfer, sendTransfer, fillTransfer, storedTransfers, EVM_TO } from './transfer-fixture.js';
+import { mockNetworks, importFixture, unlockFixture, reviewTransfer, sendTransfer, fillTransfer, storedTransfers, EVM_TO, PHRASE } from './transfer-fixture.js';
 import { MAIN, PASSWORD, answer, choose, confirm, lock, prompt, ready, shown, switchNetwork } from './terminal.js';
 
 const PENDING = 'A previous transfer is still pending:';
@@ -183,4 +183,22 @@ test('closing after broadcast recovers from the durable journal without retransm
     await expect(reopened.locator('#out .tbl tbody').last()).toContainText('confirmed');
     expect(state.hashes).toHaveLength(1);
     expect((await storedTransfers(reopened))[0].state).toBe('confirmed');
+});
+
+test('an unresolved transfer blocks replacing the wallet', async ({ page, context }) => {
+    const state = await mockNetworks(context, page);
+    state.mode = 'lost';
+    state.status = 'not_found';
+    await importFixture(page);
+    await reviewTransfer(page);
+    await sendTransfer(page);
+    await shown(page, 'broadcast outcome is unknown');
+    await ready(page);
+    await choose(page, MAIN, 'Account Settings');
+    await choose(page, 'Select an account option:', 'Import Options');
+    await choose(page, 'Select an import option:', 'Import Mnemonic (12 or 24 words)');
+    await confirm(page, 'overwrite the existing account');
+    await answer(page, 'Enter your mnemonic phrase', PHRASE);
+    await shown(page, 'Resolve the saved transfers in local activity before replacing this wallet.');
+    expect(await storedTransfers(page)).toHaveLength(1);
 });

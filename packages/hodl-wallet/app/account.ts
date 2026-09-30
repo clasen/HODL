@@ -10,7 +10,7 @@ type AccountAction =
 async function confirmOverwrite(ui: Ui, session: WalletSession): Promise<boolean> {
     if (!await session.hasAccount()) return true;
     return ui.confirm({
-        message: 'This action will overwrite the existing account. Are you sure you want to continue?',
+        message: 'This action will overwrite the existing account; without a backup it cannot be recovered. Are you sure you want to continue?',
         default: false
     });
 }
@@ -189,9 +189,8 @@ export async function loadAccount(ui: Ui, session: WalletSession, loggedIn = fal
         choices.push({ name: 'Create New Account', value: 'create' }, ...importChoices(session));
         if (session.capabilities.switchNetworkFirst) choices.push({ name: 'Switch Network', value: 'switch' });
     } else {
-        if (session.capabilities.replaceAccount) {
-            choices.push({ name: 'Create New Account', value: 'create' }, { name: 'Import Options', value: 'import' });
-        }
+        if (session.capabilities.replaceAccount) choices.push({ name: 'Create New Account', value: 'create' });
+        choices.push({ name: 'Import Options', value: 'import' });
         choices.push({ name: 'Export Options', value: 'export' }, { name: 'Switch Network', value: 'switch' });
         if (session.contacts) choices.push({ name: 'Manage Address Book', value: 'addressBook' });
         choices.push({ name: 'Go Back', value: 'back', back: true });

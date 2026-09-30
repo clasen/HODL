@@ -72,7 +72,7 @@ HODL Wallet now supports exporting and importing encrypted .HODL files, which se
 - **Export HODL File**: Save your wallet data (including private keys and addresses) to an encrypted .HODL file.
 - **Import HODL File**: Restore your wallet from a previously exported .HODL file.
 
-These files are encrypted using your wallet password, providing an additional layer of security for storing and transferring your wallet information.
+These files are encrypted using your wallet password, providing an additional layer of security for storing and transferring your wallet information. Files saved in the legacy format by older releases can no longer be imported.
 
 The main advantage of exporting a HODL file is that to access the private key, you need BOTH the file AND the password. This two-factor approach significantly enhances security. However, keep in mind that this solution is only compatible with HODL Wallet.
 

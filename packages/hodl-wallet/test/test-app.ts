@@ -143,9 +143,12 @@ test('account menus follow the host capabilities', async () => {
     await loadAccount(firstRun, session);
     assert.deepEqual(firstRun.prompts[0].choices, ['Create New Account', 'Import Backup File', 'Import Mnemonic (12 or 24 words)', 'Import Private-key', 'Switch Network']);
 
-    const loggedIn = new ScriptedUi(['Go Back']);
-    await loadAccount(loggedIn, fakeSession({ capabilities: browserCapabilities }), true);
-    assert.deepEqual(loggedIn.prompts[0].choices, ['Export Options', 'Switch Network', 'Go Back']);
+    const loggedIn = new ScriptedUi(['Import Options', 'Import Backup File', true]);
+    await loadAccount(loggedIn, fakeSession({ capabilities: browserCapabilities, importActions: () => [backup] }), true);
+    assert.deepEqual(loggedIn.prompts[0].choices, ['Import Options', 'Export Options', 'Switch Network', 'Go Back']);
+    assert.match(loggedIn.prompts[2].message, /without a backup it cannot be recovered/);
+    assert.equal(loggedIn.tables.at(-1)!.head[0], '[ETH] Ethereum Address');
+    loggedIn.done();
 
     const terminal = new ScriptedUi(['Go Back']);
     await loadAccount(terminal, fakeSession({ contacts: { list: async () => [], get: async () => undefined, set: async () => {}, delete: async () => {}, clear: async () => {} } }), true);

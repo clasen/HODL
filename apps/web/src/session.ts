@@ -5,6 +5,7 @@ import {
 } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import type { Display, Preset, Sweep, Toggle } from './terminal/display.js';
+import { parseHodlFile, type HodlFile } from './hodl-file.js';
 import type { DomTerminal } from './terminal/terminal.js';
 import { VaultError, userMessage } from './vault-error.js';
 import type { BrowserWallet, PublicWallet } from './wallet.js';
@@ -124,13 +125,14 @@ export class BrowserSession implements WalletSession {
         }
     }
 
+    /** Imports write the pending wallet, or replace the open one keeping its password. */
     async importMnemonic(mnemonic: string): Promise<void> {
-        const password = this.pendingPassword();
+        const password = this.password;
         await this.opened(await this.protect('Protecting your wallet on this device…', () => this.wallet.importMnemonic(vault.defaultName, password, mnemonic)));
     }
 
     async importPrivateKey(privateKey: string): Promise<void> {
-        const password = this.pendingPassword();
+        const password = this.password;
         await this.opened(await this.protect('Protecting your wallet on this device…',
             () => this.wallet.importPrivateKey(vault.defaultName, password, this.selected.family, privateKey)));
     }
@@ -161,7 +163,10 @@ export class BrowserSession implements WalletSession {
     }
 
     importActions(): HostAction[] {
-        return this.snapshot ? [] : [{ name: 'Import Backup File', run: () => this.restoreBackup() }];
+        return [
+            { name: 'Import Backup File', run: () => this.restoreBackup() },
+            { name: 'Import HODL File', run: () => this.importHodlFile() }
+        ];
     }
 
     exportActions(): HostAction[] {
@@ -183,6 +188,32 @@ export class BrowserSession implements WalletSession {
         const password = await this.terminal.password({ message: 'Backup password (becomes your wallet password):' });
         try {
             await this.opened(await this.protect('Opening the backup…', () => this.wallet.restore(text, password)));
+            return true;
+        } catch (error) {
+            showError(this.terminal, userMessage(error));
+            return false;
+        }
+    }
+
+    private async importHodlFile(): Promise<boolean> {
+        const chosen = await this.terminal.chooseFile('HODL file:', '.hodl');
+        if (!chosen) return false;
+        if (chosen.size > vault.maxBytes) {
+            showError(this.terminal, 'The HODL file exceeds the size limit.');
+            return false;
+        }
+        let file: HodlFile;
+        try {
+            file = parseHodlFile(await chosen.text());
+        } catch (error) {
+            showError(this.terminal, userMessage(error));
+            return false;
+        }
+        const password = await this.terminal.password({ message: 'HODL file password:' });
+        const pending = this.password;
+        try {
+            await this.opened(await this.protect('Opening the HODL file…',
+                () => this.wallet.importHodlFile(vault.defaultName, pending, file, password)));
             return true;
         } catch (error) {
             showError(this.terminal, userMessage(error));

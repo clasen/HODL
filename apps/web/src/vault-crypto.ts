@@ -41,7 +41,7 @@ function decode(value: unknown, length?: number): Uint8Array<ArrayBuffer> {
 
 export function parseEnvelope(value: unknown): VaultEnvelope {
     if (!record(value) || value.format !== config.format || value.version !== config.version) {
-        throw new VaultError('Unsupported backup. Use a HODL Web v1 backup; CLI .HODL files use a different format.');
+        throw new VaultError('Unsupported backup. Use a HODL Web v1 backup; import CLI .HODL files with Import HODL File.');
     }
     exactKeys(value, ['format', 'version', 'kdf', 'cipher', 'ciphertext']);
     if (!record(value.kdf) || !record(value.cipher)) throw new VaultError('Invalid backup format.');

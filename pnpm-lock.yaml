@@ -134,6 +134,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@noble/hashes':
+        specifier: 1.4.0
+        version: 1.4.0
       hodl-wallet:
         specifier: workspace:*
         version: link:../../packages/hodl-wallet

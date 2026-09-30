@@ -479,6 +479,10 @@ export class NodeSession implements WalletSession {
         }
 
         const encryptedData = fs.readFileSync(filePath, 'utf8');
+        if (!Persist.isCurrentFormat(encryptedData)) {
+            showError(ui, 'Unsupported HODL file.', 'Files saved in the legacy format can no longer be imported.');
+            return false;
+        }
         const encryptionKey = await askEncryptionKey(ui);
 
         let importedData: unknown;

@@ -1,5 +1,6 @@
 import { NetworkRegistry, clearSensitiveData, type AccountDetails, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
+import { openHodlFile, type HodlFile } from './hodl-file.js';
 import { BrowserVault, type VaultData } from './vault.js';
 import { parseBackup, record } from './vault-crypto.js';
 import { VaultError } from './vault-error.js';
@@ -22,6 +23,10 @@ function walletName(name: string): string {
     const normalized = name.trim();
     if (!normalized || normalized.length > webConfig.vault.nameMaxChars) throw new VaultError('Enter a valid wallet name.');
     return normalized;
+}
+
+function sameAddress(family: Family, a: string, b: string): boolean {
+    return family === 'evm' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 function storedAccount(account: WalletAccount): WalletAccount {
@@ -90,6 +95,69 @@ export class BrowserWallet {
         } finally { clearSensitiveData(evmAccount); clearSensitiveData(bitcoinAccount); }
     }
 
+    private async fromPrivateKey(name: string, family: Family, privateKey: string): Promise<WalletData> {
+        if (family !== 'evm' && family !== 'bitcoin') throw new VaultError('Choose a valid network family.');
+        const { network, plugin } = this.network(family);
+        if (!network.validatePrivateKey(privateKey.trim())) throw new VaultError('The private key is invalid for the selected network.');
+        const account = await network.privateKeyToAccount(privateKey.trim());
+        try {
+            return { metadata: { name: walletName(name), kind: 'private-key', createdAt: new Date().toISOString() },
+                account: { [plugin.NetworkClass.name]: storedAccount(account) } };
+        } finally { clearSensitiveData(account); }
+    }
+
+    /**
+     * A CLI profile as a web wallet, which holds one recovery phrase for every network or one private key:
+     * its phrase when every account derives from it, else its only account.
+     */
+    private async fromProfile(name: string, profile: unknown): Promise<WalletData> {
+        if (!record(profile) || !record(profile.account)) throw new VaultError('The HODL file has no accounts.');
+        const stored = profile.account;
+        const accounts = (['evm', 'bitcoin'] as const).flatMap(family => {
+            const account = stored[this.network(family).plugin.NetworkClass.name];
+            return record(account) && typeof account.address === 'string' && typeof account.privateKey === 'string'
+                ? [{ family, address: account.address, privateKey: account.privateKey }] : [];
+        });
+        if (!accounts.length) throw new VaultError('The HODL file has no accounts.');
+        const mnemonic = profile.mnemonic;
+        if (typeof mnemonic === 'string' && this.network('evm').network.validateMnemonic(mnemonic)) {
+            const data = await this.fromMnemonic(name, mnemonic);
+            if (accounts.every(({ family, address }) =>
+                sameAddress(family, data.account[this.network(family).plugin.NetworkClass.name].address, address))) return data;
+            clearSensitiveData(data);
+        }
+        if (accounts.length === 1) return this.fromPrivateKey(name, accounts[0].family, accounts[0].privateKey);
+        throw new VaultError('The HODL file has separate keys per network. Import its recovery phrase or one private key instead.');
+    }
+
+    /** Saved transfers still waiting for the user's decision belong to the open wallet; replacing it would drop them. */
+    private async assertReplaceable(): Promise<void> {
+        for (const network of (await this.snapshot()).networks) {
+            if ((await this.transfers.unresolved(network.id)).length) {
+                throw new VaultError('Resolve the saved transfers in local activity before replacing this wallet.');
+            }
+        }
+    }
+
+    /** Creates the wallet with a new password, or replaces the open one keeping its password. */
+    private async store(password: string | undefined, create: () => Promise<WalletData>): Promise<PublicWallet> {
+        if (!this.unlocked) {
+            if (password === undefined) throw new VaultError('Choose a password for the new wallet.');
+            await this.vault.open(password, { validate: this.validate, create });
+            return this.opened();
+        }
+        if (password !== undefined) throw new VaultError('A wallet is already open.');
+        await this.assertReplaceable();
+        await this.vault.replace({ create }, this.validate);
+        return this.replaced();
+    }
+
+    private replaced(): Promise<PublicWallet> {
+        this.transfers.reset();
+        this.balanceCache.clear();
+        return this.opened();
+    }
+
     private validate = async (value: VaultData): Promise<void> => {
         if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'sendRequest', 'swapQuote', 'swapOperation'].includes(key)) ||
             !record(value.metadata) || !record(value.account)) throw new VaultError('Invalid wallet data.');
@@ -118,8 +186,7 @@ export class BrowserWallet {
             let fromPhrase: WalletAccount | undefined;
             try {
                 derived = await family.network.privateKeyToAccount(account.privateKey);
-                const equalAddress = (address: string) => family.family === 'evm'
-                    ? address.toLowerCase() === (account.address as string).toLowerCase() : address === account.address;
+                const equalAddress = (address: string) => sameAddress(family.family, address, account.address as string);
                 if (!equalAddress(derived.address) || (account.publicKey !== undefined && account.publicKey !== derived.publicKey)) {
                     throw new VaultError('An address in the backup does not match its account.');
                 }
@@ -150,24 +217,22 @@ export class BrowserWallet {
         return this.opened();
     }
 
-    async importMnemonic(name: string, password: string, phrase: string): Promise<PublicWallet> {
+    /** Without a password it replaces the open wallet; the same holds for the other imports. */
+    importMnemonic(name: string, password: string | undefined, phrase: string): Promise<PublicWallet> {
         const mnemonic = phrase.trim().toLowerCase().split(/\s+/).join(' ');
-        await this.vault.open(password, { validate: this.validate, create: () => this.fromMnemonic(name, mnemonic) });
-        return this.opened();
+        return this.store(password, () => this.fromMnemonic(name, mnemonic));
     }
 
-    async importPrivateKey(name: string, password: string, family: Family, privateKey: string): Promise<PublicWallet> {
-        if (family !== 'evm' && family !== 'bitcoin') throw new VaultError('Choose a valid network family.');
-        await this.vault.open(password, { validate: this.validate, create: async () => {
-            const { network, plugin } = this.network(family);
-            if (!network.validatePrivateKey(privateKey.trim())) throw new VaultError('The private key is invalid for the selected network.');
-            const account = await network.privateKeyToAccount(privateKey.trim());
-            try {
-                return { metadata: { name: walletName(name), kind: 'private-key', createdAt: new Date().toISOString() },
-                    account: { [plugin.NetworkClass.name]: storedAccount(account) } };
-            } finally { clearSensitiveData(account); }
-        } });
-        return this.opened();
+    importPrivateKey(name: string, password: string | undefined, family: Family, privateKey: string): Promise<PublicWallet> {
+        return this.store(password, () => this.fromPrivateKey(name, family, privateKey));
+    }
+
+    importHodlFile(name: string, password: string | undefined, file: HodlFile, filePassword: string): Promise<PublicWallet> {
+        return this.store(password, async () => {
+            const profile = await openHodlFile(file, filePassword);
+            try { return await this.fromProfile(name, profile); }
+            finally { clearSensitiveData(profile); }
+        });
     }
 
     async unlock(password: string): Promise<PublicWallet> {
@@ -175,9 +240,16 @@ export class BrowserWallet {
         return this.opened();
     }
 
+    /** The backup's password becomes the wallet password, also when it replaces the open wallet. */
     async restore(text: string, password: string): Promise<PublicWallet> {
-        await this.vault.open(password, { backup: parseBackup(text), validate: this.validate });
-        return this.opened();
+        const backup = parseBackup(text);
+        if (!this.unlocked) {
+            await this.vault.open(password, { backup, validate: this.validate });
+            return this.opened();
+        }
+        await this.assertReplaceable();
+        await this.vault.replace({ backup, password }, this.validate);
+        return this.replaced();
     }
 
     exportBackup(): Promise<string> { return this.vault.exportBackup(); }

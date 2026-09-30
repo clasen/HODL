@@ -32,7 +32,8 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   with inquirer, cli-table3 and ora; `apps/web/src/terminal/` renders it in the DOM.
 - Whatever only one host can do goes through the session, never into a flow: `capabilities`,
   the optional `contacts` port and `transfers.review`, and `HostAction` menu entries (Swap and
-  HODL files in the TUI; backup files and display settings in the web). Sessions never prompt
+  HODL file export in the TUI; backup files and display settings in the web; HODL file import
+  in both). Sessions never prompt
   except through the `Ui` they are given. New prompts belong in a flow.
 - Prompt text, choice names and their order are the TUI's behavior. `test/test-app.ts`
   (scripted `Ui`, fake session) and `test/test-transfer.ts` (drives `runCli` with mocked
@@ -66,7 +67,9 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   use them. Browser probes compare addresses, signatures and recovery with Node.
 - `pnpm run build:web` builds the existing package, the terminal wallet and the static
   diagnostic in `apps/web/dist/`. The web wallet covers the flows above; swaps, the address
-  book and `.HODL` files are TUI-only.
+  book and `.HODL` export are TUI-only. The web imports v2 `.HODL` files (`src/hodl-file.ts`)
+  as one recovery phrase or one private key, and replacing an open wallet keeps its password.
+  Neither side imports legacy-format `.HODL` files; only `~/.HODL` profiles still migrate.
 - `pnpm run preview:web` serves the built wallet and diagnostic locally.
 - `pnpm run typecheck:web` checks browser TypeScript using the existing compiler.
 - `pnpm run test:web` builds and runs offline Playwright checks in Chromium,

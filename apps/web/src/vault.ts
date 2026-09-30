@@ -121,6 +121,45 @@ export class BrowserVault implements WalletStore {
         }
     }
 
+    /** Replaces the open wallet. New data keeps the current password; a backup brings its own. */
+    async replace(
+        next: { create: () => Promise<VaultData> } | { backup: VaultEnvelope; password: string },
+        validate: (data: VaultData) => Promise<void>
+    ): Promise<void> {
+        if (this.busy) throw new VaultError('The vault is saving another operation.');
+        const session = this.current();
+        const generation = this.generation;
+        this.busy = true;
+        let data: VaultData | undefined;
+        try {
+            let key = session.key;
+            let decoded: unknown;
+            if ('backup' in next) {
+                validatePassword(next.password, false);
+                key = await deriveKey(next.password, next.backup.kdf.salt);
+                decoded = await decrypt(next.backup, key);
+            } else {
+                decoded = await next.create();
+            }
+            this.assertCurrent(generation);
+            if (!record(decoded)) throw new VaultError('Invalid vault data.');
+            data = decoded;
+            validateJson(data);
+            await validate(data);
+            this.assertCurrent(generation);
+            const envelope = 'backup' in next ? next.backup : await encrypt(data, key, session.envelope.kdf.salt);
+            await writeEnvelope(envelope, session.envelope);
+            this.assertCurrent(generation);
+            clearSensitiveData(session.data);
+            this.session = { data, key, envelope };
+            data = undefined;
+        } finally {
+            clearSensitiveData(data);
+            this.busy = false;
+            if (!this.session) this.releaseLock();
+        }
+    }
+
     private path(path: unknown[]): asserts path is string[] {
         if (!path.length || path.length > webConfig.vault.maxJsonDepth || path.some(key => typeof key !== 'string' || !key || ['__proto__', 'prototype', 'constructor'].includes(key))) {
             throw new VaultError('Invalid storage path.');

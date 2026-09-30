@@ -40,7 +40,7 @@ class Persist extends Deepbase implements WalletStore {
             name: 'persist',
             path: opts.path,
             stringify: (obj: unknown) => Persist.encrypt(obj, encryptionKey),
-            parse: (encryptedData: string) => Persist.decrypt(encryptedData, encryptionKey),
+            parse: (encryptedData: string) => Persist.decryptProfile(encryptedData, encryptionKey),
             encodeForMemory: (value: unknown, path: string[]) =>
                 Persist.transformSecrets(value, path, secret => Persist.sealSecret(secret, memoryKey)),
             decodeFromMemory: (value: unknown, path: string[]) =>
@@ -103,35 +103,46 @@ class Persist extends Deepbase implements WalletStore {
         }
     }
 
-    static decrypt(encryptedData: string, encryptionKey: EncryptionKey): unknown {
+    static isCurrentFormat(encryptedData: string): boolean {
         const parts = encryptedData.split(':');
+        return parts[0] === 'v2' && parts.length === 5;
+    }
 
-        if (parts[0] === 'v2' && parts.length === 5) {
-            const [, saltHex, ivHex, authTagHex, encryptedHex] = parts;
-            const salt = Buffer.from(saltHex, 'hex');
-            const iv = Buffer.from(ivHex, 'hex');
-            const authTag = Buffer.from(authTagHex, 'hex');
-            const encrypted = Buffer.from(encryptedHex, 'hex');
-            const key = crypto.scryptSync(encryptionKey, salt, KEY_LENGTH);
-            let decrypted: Buffer | undefined;
-
-            try {
-                const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-                decipher.setAuthTag(authTag);
-
-                decrypted = Buffer.concat([
-                    decipher.update(encrypted),
-                    decipher.final()
-                ]);
-
-                return JSON.parse(decrypted.toString('utf8'));
-            } finally {
-                key.fill(0);
-                decrypted?.fill(0);
-            }
+    /** Only the current format. Profiles saved before it are read with decryptProfile. */
+    static decrypt(encryptedData: string, encryptionKey: EncryptionKey): unknown {
+        if (!Persist.isCurrentFormat(encryptedData)) {
+            throw new Error('Unsupported encrypted payload format');
         }
 
-        return Persist.decryptLegacy(encryptedData, encryptionKey);
+        const [, saltHex, ivHex, authTagHex, encryptedHex] = encryptedData.split(':');
+        const salt = Buffer.from(saltHex, 'hex');
+        const iv = Buffer.from(ivHex, 'hex');
+        const authTag = Buffer.from(authTagHex, 'hex');
+        const encrypted = Buffer.from(encryptedHex, 'hex');
+        const key = crypto.scryptSync(encryptionKey, salt, KEY_LENGTH);
+        let decrypted: Buffer | undefined;
+
+        try {
+            const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+            decipher.setAuthTag(authTag);
+
+            decrypted = Buffer.concat([
+                decipher.update(encrypted),
+                decipher.final()
+            ]);
+
+            return JSON.parse(decrypted.toString('utf8'));
+        } finally {
+            key.fill(0);
+            decrypted?.fill(0);
+        }
+    }
+
+    /** The stored profile, migrating one saved in the legacy format; it is rewritten as v2 on the next save. */
+    static decryptProfile(encryptedData: string, encryptionKey: EncryptionKey): unknown {
+        return Persist.isCurrentFormat(encryptedData)
+            ? Persist.decrypt(encryptedData, encryptionKey)
+            : Persist.decryptLegacy(encryptedData, encryptionKey);
     }
 
     static decryptLegacy(encryptedData: string, encryptionKey: EncryptionKey): unknown {
