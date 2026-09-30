@@ -7,9 +7,12 @@ test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
         window.__tones = 0;
         window.AudioContext = class {
-            state = 'running'; currentTime = 0; destination = {};
+            state = 'running'; currentTime = 0; sampleRate = 8000; destination = {};
             resume() { return Promise.resolve(); }
             createOscillator() { window.__tones++; return { type: '', frequency: {}, connect: node => node, start() {}, stop() {} }; }
+            createBufferSource() { window.__tones++; return { buffer: null, connect: node => node, start() {}, stop() {} }; }
+            createBuffer(channels, length) { return { getChannelData: () => new Float32Array(length) }; }
+            createBiquadFilter() { return { type: '', frequency: {}, Q: {}, connect: node => node }; }
             createGain() { return { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect: node => node }; }
         };
     });
@@ -93,7 +96,7 @@ test('the phosphor, glass effects and sound are chosen from the keyboard or the 
     await page.locator('#curvature').click();
     await page.locator('#sound').click();
     await expect(page.locator('#scanlines')).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator('#sound')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#sound')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator('.scan')).toBeHidden();
     await expect(page.locator('.roll')).toBeHidden();
     await page.reload();
@@ -101,11 +104,11 @@ test('the phosphor, glass effects and sound are chosen from the keyboard or the 
     await expect(html).toHaveAttribute('data-sweep', 'soft');
     await expect(html).toHaveAttribute('data-scanlines', 'off');
     await expect(html).toHaveAttribute('data-curvature', 'off');
-    await expect(html).toHaveAttribute('data-sound', 'on');
+    await expect(html).toHaveAttribute('data-sound', 'off');
     await expect(prompt(page, 'Password:')).toBeVisible();
     const before = await tones(page);
-    await page.keyboard.type('typing with sound on');
-    expect(await tones(page)).toBeGreaterThan(before);
+    await page.keyboard.type('typing with sound off');
+    expect(await tones(page)).toBe(before);
 });
 
 test('the bezel resizes the text within its limits and remembers the size', async ({ page }) => {
@@ -134,11 +137,11 @@ test('the bezel resizes the text within its limits and remembers the size', asyn
     expect(await size()).toBeLessThan(start);
 });
 
-test('the terminal stays silent until sound is switched on', async ({ page }) => {
+test('keys sound by default', async ({ page }) => {
     await page.goto('/');
     await expect(prompt(page, 'Password:')).toBeVisible();
-    await page.keyboard.type('quiet typing');
-    expect(await tones(page)).toBe(0);
+    await page.keyboard.type('clicky typing');
+    expect(await tones(page)).toBeGreaterThan(0);
 });
 
 test('Display Settings in the main menu change the look and keep the wallet unlocked', async ({ page }) => {
@@ -159,9 +162,9 @@ test('Display Settings in the main menu change the look and keep the wallet unlo
     await choose(page, 'Display settings:', 'Text size: 110%');
     await choose(page, 'Text size:', '150%');
     await expect(page.locator('html')).toHaveCSS('--text-scale', '1.5');
-    await choose(page, 'Display settings:', 'Sound: OFF');
-    await expect(page.locator('html')).toHaveAttribute('data-sound', 'on');
-    await expect(page.locator('#sound')).toHaveAttribute('aria-pressed', 'true');
+    await choose(page, 'Display settings:', 'Sound: ON');
+    await expect(page.locator('html')).toHaveAttribute('data-sound', 'off');
+    await expect(page.locator('#sound')).toHaveAttribute('aria-pressed', 'false');
     await choose(page, 'Display settings:', 'Go Back');
     await ready(page);
     await expect(page.locator('#session-state')).toHaveText('UNLOCKED');
