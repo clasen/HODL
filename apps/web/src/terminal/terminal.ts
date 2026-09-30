@@ -26,7 +26,10 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string,
     return element;
 }
 
-/** An input that is a field of a prompt: no browser help that would store or alter what is typed. */
+/**
+ * An input that is a field of a prompt: no browser help that would store or alter what is typed.
+ * Secrets are masked by style, not type=password, because password managers ignore data-bwignore there.
+ */
 function promptField(className: string, label: string, type = 'text'): HTMLInputElement {
     const input = node('input', className);
     input.type = type;
@@ -323,7 +326,8 @@ export class DomTerminal implements Ui {
         return this.ask<string>(kind, message, (finish, block) => {
             const row = this.heading(message, '');
             row.classList.add('field');
-            const field = promptField('field-input', message, kind === 'password' ? 'password' : 'text');
+            const field = promptField(kind === 'password' ? 'field-input masked' : 'field-input', message);
+            if (kind === 'password') for (const leak of ['copy', 'cut'] as const) field.addEventListener(leak, event => event.preventDefault());
             field.value = question.default ?? '';
             row.append(' ', field);
             const problem = node('div', 'l err');

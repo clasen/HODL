@@ -75,7 +75,7 @@ html[data-scanlines="on"] .term { text-shadow: var(--shadow); }
     caret-color: var(--hot); text-shadow: inherit;
 }
 .field-input.short { flex: 0 0 2ch; width: 2ch; }
-.field-input:focus-visible { outline: none; box-shadow: 0 1px 0 0 var(--fg); }
+.field-input.masked { -webkit-text-security: disc; }
 .choices { list-style: none; margin: 0; padding: 0; outline: none; }
 .choice { white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; padding-right: 1ch; }
 .choice .ptr { display: inline-block; white-space: pre; }

@@ -101,7 +101,7 @@ test('encrypted roundtrip, authentication, reload and fresh IVs', async ({ page,
     const visible = await page.locator('body').innerText();
     expect(visible).not.toContain(PHRASE);
     expect(visible).not.toContain(PASSWORD);
-    await expect(page.locator('input[type=password]')).toHaveCount(0);
+    await expect(page.locator('input.masked')).toHaveCount(0);
     await page.reload();
     await answer(page, 'Password:', 'incorrect-password');
     await shown(page, 'Incorrect password');
@@ -244,8 +244,8 @@ test('cancel during key derivation prevents persistence and releases ownership',
     await expect(prompt(page, 'Password:')).toBeVisible();
     expect(await raw(page)).toBeUndefined();
     await expect.poll(() => page.evaluate(() => navigator.locks.request('hodl-web:primary', { ifAvailable: true }, lock => Boolean(lock)))).toBe(true);
-    await expect(page.locator('input[type=password]')).toHaveCount(1);
-    await expect(page.locator('input[type=password]')).toHaveValue('');
+    await expect(page.locator('input.masked')).toHaveCount(1);
+    await expect(page.locator('input.masked')).toHaveValue('');
 });
 
 test('secret output disappears on the next key and after its time', async ({ page }) => {

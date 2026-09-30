@@ -72,6 +72,15 @@ test('Escape leaves a prompt empty only where empty is a valid answer', async ({
     await expect(field).toHaveValue('secret');
 });
 
+test('a secret prompt masks what is typed without a password field that password managers would take over', async ({ page }) => {
+    await page.goto('/');
+    const field = prompt(page, 'Password:').locator('input');
+    await field.fill('secret');
+    await expect(page.locator('input[type=password]')).toHaveCount(0);
+    expect(await field.evaluate(input => getComputedStyle(input).getPropertyValue('-webkit-text-security'))).toBe('disc');
+    expect(await field.evaluate(input => input.dispatchEvent(new ClipboardEvent('copy', { bubbles: true, cancelable: true })))).toBe(false);
+});
+
 test('the phosphor, glass effects and sound are chosen from the keyboard or the bezel and remembered', async ({ page }) => {
     await page.goto('/');
     const html = page.locator('html');
