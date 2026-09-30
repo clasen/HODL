@@ -14,6 +14,7 @@
         "test:agent": "pnpm --filter hodl-wallet run test:agent",
         "test:transfer": "pnpm --filter hodl-wallet run test:transfer",
         "test:swap": "pnpm --filter hodl-wallet run test:swap",
+        "test:app": "pnpm --filter hodl-wallet run test:app",
         "test:quick": "pnpm --filter hodl-wallet run test:quick",
         "prepublishOnly": "pnpm --filter hodl-wallet run prepublishOnly",
         "build:web": "pnpm run build && pnpm --filter @hodl/web run build",

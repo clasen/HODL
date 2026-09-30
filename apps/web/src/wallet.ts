@@ -1,4 +1,4 @@
-import { NetworkRegistry, clearSensitiveData, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
+import { NetworkRegistry, clearSensitiveData, type AccountDetails, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { BrowserVault, type VaultData } from './vault.js';
 import { parseBackup, record } from './vault-crypto.js';
@@ -182,10 +182,12 @@ export class BrowserWallet {
 
     exportBackup(): Promise<string> { return this.vault.exportBackup(); }
 
+    previewTransfer(network: string, to: string, asset: string) { return this.transfers.preview(network, to, asset); }
+    unresolvedTransfers(network: string) { return this.transfers.unresolved(network); }
     estimateTransfer(input: TransferInput): Promise<TransferReview> { return this.transfers.estimate(input); }
     reviewSavedTransfer(network: string, id: string): Promise<TransferReview> { return this.transfers.reviewSaved(network, id); }
     confirmTransfer(id: string, onBroadcast: () => void): Promise<TransferOutcome> { return this.transfers.confirm(id, onBroadcast); }
-    transferHistory(refresh: boolean): Promise<HistoryEntry[]> { return this.transfers.history(refresh); }
+    transferHistory(refresh: boolean, networkId?: string): Promise<HistoryEntry[]> { return this.transfers.history(refresh, networkId); }
     cancelTransferReview(): void { this.transfers.reset(); }
 
     async balances(networkId: string): Promise<BalanceRow[]> {
@@ -208,6 +210,23 @@ export class BrowserWallet {
         check();
         this.balanceCache.set(networkId, rows);
         return structuredClone(rows);
+    }
+
+    async address(networkId: string): Promise<string | undefined> {
+        const { store } = this.vault.scope();
+        const address = await store.get('account', this.registry.get(networkId).NetworkClass.name, 'address');
+        return typeof address === 'string' ? address : undefined;
+    }
+
+    /** A detached copy of the selected network's account. The caller clears it. */
+    async accountDetails(networkId: string): Promise<AccountDetails | null> {
+        const { store } = this.vault.scope();
+        const account = await store.get('account', this.registry.get(networkId).NetworkClass.name) as WalletAccount | undefined;
+        if (!account) return null;
+        const mnemonic = await store.get('mnemonic');
+        const details = { address: account.address, privateKey: account.privateKey, ...(typeof mnemonic === 'string' ? { mnemonic } : {}) };
+        clearSensitiveData(account);
+        return details;
     }
 
     async snapshot(): Promise<PublicWallet> {

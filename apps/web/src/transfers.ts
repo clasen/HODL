@@ -76,6 +76,32 @@ export class BrowserTransfers {
         finally { this.active = false; }
     }
 
+    /** What `max` would send and the fee it would pay. Signs nothing and stores nothing. */
+    async preview(networkId: string, to: string, asset: string): Promise<{ amount: string; fee: TransferEstimate['fee'] }> {
+        const scope = this.begin();
+        try {
+            const { plugin, network } = this.service(networkId, scope);
+            if (!network.validateAddress(to.trim())) throw new VaultError('Enter a valid recipient address for this network.');
+            const symbol = asset.toUpperCase();
+            if (symbol !== plugin.nativeToken && !plugin.tokens[symbol]) throw new VaultError('Choose an asset configured for this network.');
+            const address = await scope.store.get('account', plugin.NetworkClass.name, 'address');
+            if (typeof address !== 'string') throw new VaultError('This wallet has no account for the selected network.');
+            const { amount, fee } = await networkRequest(() => network.estimateTransfer(address, to.trim(), 'max', symbol), scope.check);
+            return { amount, fee };
+        } catch (error) { throw transferError(error); }
+        finally { this.active = false; }
+    }
+
+    /** Saved transfers on one network whose broadcast still needs the user's decision. */
+    async unresolved(networkId: string): Promise<TransferResult[]> {
+        const scope = this.begin();
+        try {
+            const saved = await this.service(networkId, scope).service.list();
+            scope.check();
+            return saved.filter(transfer => ['prepared', 'broadcasting', 'broadcast_unknown'].includes(transfer.status));
+        } finally { this.active = false; }
+    }
+
     async reviewSaved(networkId: string, requestId: string): Promise<TransferReview> {
         const scope = this.begin();
         this.review = undefined;
@@ -144,11 +170,11 @@ export class BrowserTransfers {
         } finally { this.active = false; }
     }
 
-    async history(refresh: boolean): Promise<HistoryEntry[]> {
+    async history(refresh: boolean, networkId?: string): Promise<HistoryEntry[]> {
         const scope = this.begin();
         try {
             const entries: HistoryEntry[] = [];
-            for (const plugin of this.registry.list()) {
+            for (const plugin of this.registry.list().filter(candidate => networkId === undefined || candidate.id === networkId)) {
                 const { service } = this.service(plugin.id, scope);
                 for (const saved of await service.list()) {
                     let current: TransferResult = saved;

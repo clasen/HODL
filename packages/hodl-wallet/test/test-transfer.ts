@@ -288,17 +288,22 @@ test('interactive transfers survive lost responses and do not report post-send e
                 };
                 const actions = ['transferFunds', ...(scenario === 'lost-response' ? ['transferFunds', 'transferFunds'] : []), 'showTransactions', 'exit'];
                 let resumes = 0;
+                const prompts = {
+                    'What would you like to do?': 'action', 'A previous transfer is still pending:': 'requestId',
+                    'Password:': 'key', 'Recipient address:': 'recipient', 'Amount to transfer (or max):': 'amount',
+                    'Name for the address book (leave empty to skip):': 'name'
+                };
                 inquirer.prompt = async question => {
-                    const name = question.name;
-                    if (name === 'action') { assert.ok(actions.length); return { action: actions.shift() }; }
+                    const name = question.message.startsWith('Confirm transfer') ? 'confirmTransaction' : prompts[question.message];
+                    if (name === 'action') { assert.ok(actions.length); return { [question.name]: actions.shift() }; }
                     if (name === 'requestId') {
                         resumes++;
                         status = resumes === 1 ? 'submitted' : 'confirmed';
-                        return { requestId: question.choices[0].value };
+                        return { [question.name]: question.choices[0].value };
                     }
                     const answers = { key: 'fixture-password', recipient: ${JSON.stringify(FROM)}, amount: scenario === 'max' ? ' MAX ' : '0.001', confirmTransaction: true, name: '' };
-                    assert.ok(name in answers, 'Unexpected prompt: ' + name);
-                    return { [name]: answers[name] };
+                    assert.ok(name in answers, 'Unexpected prompt: ' + question.message);
+                    return { [question.name]: answers[name] };
                 };
                 await runCli([]);
                 assert.equal(signs, scenario === 'max' ? 2 : 1);

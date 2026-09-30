@@ -7,35 +7,38 @@
     <title>HODL Wallet</title>
 </head>
 <body>
-    <a class="skip-link" href="#view">Skip to content</a>
-    <header class="topbar">
-        <a class="brand" href="/" aria-label="HODL Wallet, home"><span class="brand-mark" aria-hidden="true">&gt;_</span><span>HODL<span class="brand-suffix"> / terminal</span></span></a>
-        <div class="session-controls">
-            <span id="session-state" class="session-state">Locked</span>
-            <button id="palette-open" class="quiet-button" tabindex="0">Actions <kbd>/</kbd></button>
-            <button id="lock" class="quiet-button" tabindex="0" hidden>Lock</button>
-        </div>
-    </header>
-    <div class="workspace">
-        <aside class="sidebar">
-            <nav aria-label="Wallet">
-                <button data-page="home" tabindex="0"><span class="nav-symbol">01</span> Wallet</button>
-                <button data-page="addresses" tabindex="0" disabled><span class="nav-symbol">02</span> Addresses</button>
-                <button data-page="backup" tabindex="0" disabled><span class="nav-symbol">03</span> Backup</button>
-            </nav>
-            <div class="sidebar-bottom">
-                <div class="key-help"><kbd>Tab</kbd> navigate <kbd>Enter</kbd> select <kbd>Esc</kbd> back</div>
+    <div class="monitor">
+        <div class="screen">
+            <div class="crt">
+                <main id="term" class="term" aria-label="HODL Wallet terminal">
+                    <div id="out" role="log" aria-live="polite" aria-relevant="additions"></div>
+                </main>
+                <div class="status" aria-label="Session">
+                    <span class="tag">HODL/WALLET</span>
+                    <span class="wide">tty1</span>
+                    <span id="session-state" class="state">LOCKED</span>
+                    <span id="network" class="network"></span>
+                    <span class="fill"></span>
+                    <span class="hints wide"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> select · <kbd>Esc</kbd> back · <kbd>Ctrl+C</kbd> lock</span>
+                </div>
+                <div class="ov scan" aria-hidden="true"></div>
+                <div class="ov roll" aria-hidden="true"></div>
+                <div class="ov flicker" aria-hidden="true"></div>
+                <div class="ov vignette" aria-hidden="true"></div>
+                <div class="ov glass" aria-hidden="true"></div>
             </div>
-        </aside>
-        <main id="view" tabindex="-1"><p class="muted" role="status">Opening local vault…</p></main>
+        </div>
     </div>
-    <p id="notice" class="notice" role="status" aria-live="polite"></p>
-    <dialog id="palette" aria-labelledby="palette-title">
-        <div class="dialog-heading"><h2 id="palette-title">Actions</h2><button id="palette-close" class="quiet-button" tabindex="0" aria-label="Close actions">Esc</button></div>
-        <label for="action-search" class="sr-only">Search actions</label>
-        <input id="action-search" type="search" placeholder="Search actions…" autocomplete="off">
-        <ul id="action-results"></ul>
-    </dialog>
+    <div class="strip">
+        <div class="brand"><span class="led" aria-hidden="true"></span><span class="brand-name">Terminal</span></div>
+        <div class="dials" role="group" aria-label="Display">
+            <button id="preset" class="key" type="button" aria-label="Change phosphor color">P1:GRN</button>
+            <button id="scanlines" class="key" type="button" aria-pressed="true" aria-label="Scanlines and glow">FX:ON</button>
+            <button id="curvature" class="key" type="button" aria-pressed="true" aria-label="Screen curvature, bezel and flicker">CRT:ON</button>
+            <button id="sweep" class="key" type="button" aria-label="Rolling sweep bar: full, subtle or off">SWP:FULL</button>
+            <button id="sound" class="key" type="button" aria-pressed="false" aria-label="Keyboard sound">SND:OFF</button>
+        </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

@@ -6,6 +6,8 @@ export { TransferService } from './transfer-service.js';
 export { SwapService } from './swap/service.js';
 export { swapConfig } from './swap/config.js';
 export { clearSensitiveData } from './sensitive-data.js';
+export * from './app/index.js';
+export { AgentError } from './agent-errors.js';
 export type { WalletStore } from './wallet-store.js';
 export type { TransferResult } from './transfer-service.js';
 export type { SwapServiceOptions } from './swap/service.js';

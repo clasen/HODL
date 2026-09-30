@@ -1,17 +1,7 @@
 import { test, expect } from '@playwright/test';
+import { MAIN, choose, importPhrase, out, ready, shown, switchNetwork } from './terminal.js';
 
-const phrase = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-const password = 'browser-test-password';
-
-async function importWallet(page) {
-    await page.goto('/');
-    await page.getByRole('button', { name: /Import phrase/ }).click();
-    await page.locator('#mnemonic').fill(phrase);
-    await page.locator('#password').fill(password);
-    await page.locator('#confirmation').fill(password);
-    await page.getByRole('button', { name: 'Import wallet', exact: true }).click();
-    await expect(page.locator('#address-bitcoin')).toBeVisible();
-}
+const balance = async page => { await ready(page); await choose(page, MAIN, 'Show Balance'); };
 
 test('balances use shared networks and distinguish cached from unavailable data', async ({ page }) => {
     let unavailable = false;
@@ -31,29 +21,22 @@ test('balances use shared networks and distinguish cached from unavailable data'
         }
         return route.abort();
     });
-    await importWallet(page);
-    await expect(page.locator('.balance-table tbody')).toContainText('0.1');
+    await importPhrase(page);
+    await balance(page);
+    await expect(page.locator('#out .tbl').last().locator('tr').filter({ hasText: 'BTC' })).toHaveText('BTC0.1');
     unavailable = true;
-    await page.getByRole('button', { name: 'Refresh balances' }).click();
-    await expect(page.locator('.balance-table tbody')).toContainText('Cached');
-    await expect(page.locator('.balance-table tbody')).toContainText('0.1');
-    await page.locator('#network').selectOption('bsc');
-    await expect(page.locator('.balance-table tbody tr').filter({ hasText: 'BNB' })).toContainText('1');
-    await expect(page.locator('.balance-table tbody tr').filter({ hasText: 'USDT' })).toContainText('5');
-    await page.locator('#network').selectOption('pol');
-    await expect(page.locator('.balance-table tbody')).toContainText('Unavailable');
-    await expect(page.locator('.balance-table tbody')).not.toContainText('Cached');
+    await balance(page);
+    await shown(page, 'Showing cached balances that may be outdated');
+    await expect(page.locator('#out .tbl').last().locator('tr').filter({ hasText: 'BTC' })).toHaveText('BTC0.1');
+    await switchNetwork(page, 'bsc');
+    await balance(page);
+    await expect(page.locator('#out .tbl').last().locator('tr').filter({ hasText: 'BNB' })).toHaveText('BNB1');
+    await expect(page.locator('#out .tbl').last().locator('tr').filter({ hasText: 'USDT' })).toHaveText('USDT5');
+    await switchNetwork(page, 'pol');
+    await balance(page);
+    await shown(page, 'Balance unavailable');
+    await expect(page.locator('#out [role=alert]').last()).toContainText('Balance unavailable');
+    await ready(page);
+    expect(await out(page).textContent()).not.toMatch(/cached balances[^]*Balance unavailable[^]*cached balances/);
     expect(errors).toEqual([]);
-});
-
-test('mobile navigation has three bottom sections and no browser status label', async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/');
-    const buttons = page.locator('nav button');
-    await expect(buttons).toHaveCount(3);
-    const bar = await page.locator('.sidebar').boundingBox();
-    expect(bar.y + bar.height).toBeCloseTo(844, 0);
-    expect(bar.height).toBeGreaterThanOrEqual(60);
-    await expect(page.getByText('Browser online', { exact: true })).toHaveCount(0);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

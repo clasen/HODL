@@ -1,8 +1,21 @@
 import { test, expect } from '@playwright/test';
 import { webConfig } from '../config.mjs';
-import { mockNetworks, importFixture, unlockFixture, reviewTransfer, storedTransfers, EVM_TO } from './transfer-fixture.js';
+import { mockNetworks, importFixture, unlockFixture, reviewTransfer, sendTransfer, fillTransfer, storedTransfers, EVM_TO } from './transfer-fixture.js';
+import { MAIN, PASSWORD, answer, choose, confirm, lock, prompt, ready, shown, switchNetwork } from './terminal.js';
 
-for (const [network, asset, amount, expectedState] of [['bsc', 'BNB', '0.1', 'confirmed'], ['bsc', 'USDT', '1.2', 'confirmed'], ['btc', 'BTC', '0.001', 'submitted']]) {
+const PENDING = 'A previous transfer is still pending:';
+async function resume(page, status) {
+    await ready(page);
+    await choose(page, MAIN, 'Transfer Funds');
+    await choose(page, PENDING, `Check / resume 0.1 BNB to ${EVM_TO} (${status})`);
+    await expect(prompt(page, 'Send the saved transaction?')).toBeVisible();
+}
+
+for (const [network, asset, amount, expected] of [
+    ['bsc', 'BNB', '0.1', 'Transaction confirmed!'],
+    ['bsc', 'USDT', '1.2', 'Transaction confirmed!'],
+    ['btc', 'BTC', '0.001', 'Transaction submitted; awaiting confirmation.']
+]) {
     test(`${network} ${asset} confirms once and persists before broadcast`, async ({ page, context }) => {
         const state = await mockNetworks(context, page);
         const errors = [];
@@ -11,9 +24,12 @@ for (const [network, asset, amount, expectedState] of [['bsc', 'BNB', '0.1', 'co
         await reviewTransfer(page, network, amount, asset);
         expect(state.hashes).toHaveLength(0);
         expect(await storedTransfers(page)).toHaveLength(0);
-        await expect(page.locator('#review-back')).toBeFocused();
-        await page.getByRole('button', { name: 'Confirm and send', exact: true }).evaluate(button => { button.click(); button.click(); });
-        await expect(page.locator(`.transfer-state[data-state="${expectedState}"]`)).toBeVisible();
+        // A repeated Enter must not send a second time.
+        await prompt(page, 'Confirm transfer of').locator('input').fill('y');
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Enter');
+        await shown(page, expected);
+        await ready(page);
         expect(state.hashes).toHaveLength(1);
         expect(state.unexpected).toEqual([]);
         const stored = await storedTransfers(page);
@@ -27,31 +43,44 @@ test('rejects invalid destination, insufficient funds, higher fees and expired r
     await page.clock.install();
     const state = await mockNetworks(context, page);
     await importFixture(page);
-    await page.locator('#network').selectOption('bsc');
-    await page.getByRole('button', { name: 'Send funds', exact: true }).click();
-    await page.locator('#recipient').fill('invalid');
-    await page.locator('#amount').fill('0.1');
-    await page.getByRole('button', { name: 'Review transfer', exact: true }).click();
-    await expect(page.locator('#notice')).toContainText('valid recipient');
+    await switchNetwork(page, 'bsc');
+    await fillTransfer(page, { to: 'invalid' });
+    await shown(page, 'Enter a valid recipient address');
     state.balance = 0n;
-    await page.locator('#recipient').fill(EVM_TO);
-    await page.getByRole('button', { name: 'Review transfer', exact: true }).click();
-    await expect(page.locator('#notice')).toContainText('Insufficient funds');
+    await ready(page);
+    await fillTransfer(page, { to: EVM_TO });
+    await shown(page, 'Insufficient funds');
     state.balance = 1000000000000000000n;
-    await page.getByRole('button', { name: 'Review transfer', exact: true }).click();
-    await expect(page.locator('#review-title')).toBeVisible();
+    await ready(page);
+    await fillTransfer(page, { to: EVM_TO });
+    await expect(prompt(page, 'Confirm transfer of')).toBeVisible();
     state.gasPrice *= 2n;
-    await page.getByRole('button', { name: 'Confirm and send', exact: true }).click();
-    await expect(page.locator('#notice')).toContainText('fee increased');
+    await sendTransfer(page);
+    await shown(page, 'fee increased');
     expect(state.hashes).toHaveLength(0);
     expect(await storedTransfers(page)).toHaveLength(0);
-    await page.getByRole('button', { name: 'Review transfer', exact: true }).click();
-    await expect(page.locator('#review-title')).toBeVisible();
+    await ready(page);
+    await fillTransfer(page, { to: EVM_TO });
+    await expect(prompt(page, 'Confirm transfer of')).toBeVisible();
     await page.clock.fastForward(webConfig.transfer.reviewTtlMs + 1);
-    await page.getByRole('button', { name: 'Confirm and send', exact: true }).click();
-    await expect(page.locator('#notice')).toContainText('review expired');
+    await sendTransfer(page);
+    await shown(page, 'review expired');
     expect(state.hashes).toHaveLength(0);
     expect(await storedTransfers(page)).toHaveLength(0);
+});
+
+test('max resolves the amount before review and sends exactly what was reviewed', async ({ page, context }) => {
+    const state = await mockNetworks(context, page);
+    await importFixture(page);
+    await switchNetwork(page, 'bsc');
+    await fillTransfer(page, { to: EVM_TO, asset: 'BNB', amount: 'max' });
+    await shown(page, 'Maximum:');
+    await expect(prompt(page, 'Confirm transfer of maximum available BNB')).toBeVisible();
+    expect(state.hashes).toHaveLength(0);
+    expect(await storedTransfers(page)).toHaveLength(0);
+    await confirm(page, 'Confirm transfer of maximum');
+    await shown(page, 'Transaction confirmed!');
+    expect(state.hashes).toHaveLength(1);
 });
 
 test('a lost response reloads as unknown and only explicit recovery sends the same transaction', async ({ page, context }) => {
@@ -60,26 +89,25 @@ test('a lost response reloads as unknown and only explicit recovery sends the sa
     state.status = 'not_found';
     await importFixture(page);
     await reviewTransfer(page);
-    await page.getByRole('button', { name: 'Confirm and send', exact: true }).click();
-    await expect(page.locator('.transfer-state[data-state="broadcast_unknown"]')).toBeVisible();
+    await sendTransfer(page);
+    await shown(page, 'Saved transfer:');
+    await shown(page, 'broadcast outcome is unknown');
     const originalSigns = state.methods.filter(method => method === 'eth_getTransactionCount').length;
     await page.reload();
     await unlockFixture(page);
-    await expect(page.locator('.transfer-state[data-state="broadcast_unknown"]')).toBeVisible();
     expect(state.hashes).toHaveLength(1);
-    await page.locator('#network').selectOption('bsc');
-    await page.getByRole('button', { name: 'Send funds', exact: true }).click();
-    await page.locator('#recipient').fill(EVM_TO);
-    await page.locator('#amount').fill('0.2');
-    await page.getByRole('button', { name: 'Review transfer', exact: true }).click();
-    await expect(page.locator('#notice')).toContainText('Resolve the saved transfer');
-    await page.keyboard.press('Escape');
-    await page.getByRole('button', { name: 'Review saved transfer', exact: true }).click();
-    await expect(page.getByText('This sends the exact saved transaction.', { exact: false })).toBeVisible();
+    await switchNetwork(page, 'bsc');
+    await choose(page, MAIN, 'Transfer Funds');
+    await choose(page, PENDING, 'New transfer');
+    await answer(page, 'Recipient address:', EVM_TO);
+    await choose(page, 'Token to transfer:', 'BNB');
+    await answer(page, 'Amount to transfer (or max):', '0.2');
+    await shown(page, 'Resolve the saved transfer');
+    await resume(page, 'broadcast_unknown');
     state.mode = 'success';
     state.beforeBroadcast = async () => { state.status = 'confirmed'; };
-    await page.getByRole('button', { name: 'Send saved transaction', exact: true }).click();
-    await expect(page.locator('.transfer-state[data-state="confirmed"]')).toBeVisible();
+    await confirm(page, 'Send the saved transaction?');
+    await shown(page, 'Transaction confirmed!');
     expect(state.hashes).toHaveLength(2);
     expect(new Set(state.hashes).size).toBe(1);
     expect(state.methods.filter(method => method === 'eth_getTransactionCount')).toHaveLength(originalSigns);
@@ -100,16 +128,16 @@ for (const failAt of [1, 2]) {
         const state = await mockNetworks(context, page);
         await importFixture(page);
         await reviewTransfer(page);
-        await page.getByRole('button', { name: 'Confirm and send', exact: true }).click();
-        await expect(page.locator('#notice')).toContainText('Could not save');
+        await sendTransfer(page);
+        await shown(page, 'Could not save');
         expect(state.hashes).toHaveLength(0);
         const saved = await storedTransfers(page);
         expect(saved).toHaveLength(failAt === 1 ? 0 : 1);
         if (failAt === 2) {
             expect(saved[0].state).toBe('prepared');
-            await page.getByRole('button', { name: 'Review saved transfer', exact: true }).click();
-            await page.getByRole('button', { name: 'Send saved transaction', exact: true }).click();
-            await expect(page.locator('.transfer-state[data-state="confirmed"]')).toBeVisible();
+            await resume(page, 'prepared');
+            await confirm(page, 'Send the saved transaction?');
+            await shown(page, 'Transaction confirmed!');
             expect(state.hashes).toHaveLength(1);
         }
     });
@@ -121,21 +149,20 @@ test('locking during preparation prevents broadcast and another tab cannot unloc
     await reviewTransfer(page);
     const other = await context.newPage();
     await other.goto(page.url());
-    await other.locator('#password').fill('browser-test-password');
-    await other.getByRole('button', { name: 'Unlock', exact: true }).click();
-    await expect(other.locator('#notice')).toContainText('another tab');
+    await answer(other, 'Password:', PASSWORD);
+    await shown(other, 'another tab');
     let release;
     state.gate = () => new Promise(resolve => { release = resolve; });
-    await page.getByRole('button', { name: 'Confirm and send', exact: true }).click();
+    await sendTransfer(page);
     await expect.poll(() => Boolean(release)).toBe(true);
-    await page.locator('#lock').click();
+    await lock(page);
     state.gate = undefined;
     release();
-    await expect(page.getByRole('button', { name: 'Unlock', exact: true })).toBeEnabled();
+    await expect(prompt(page, 'Password:')).toBeVisible();
     expect(state.hashes).toHaveLength(0);
     expect(await storedTransfers(page)).toHaveLength(0);
     await unlockFixture(other);
-    await expect(other.locator('#session-state')).toHaveText('Unlocked');
+    await expect(other.locator('#session-state')).toHaveText('UNLOCKED');
 });
 
 test('closing after broadcast recovers from the durable journal without retransmitting', async ({ page, context }) => {
@@ -144,7 +171,7 @@ test('closing after broadcast recovers from the durable journal without retransm
     await reviewTransfer(page, 'btc', '0.001', 'BTC');
     let release;
     state.beforeBroadcast = () => new Promise(resolve => { release = resolve; });
-    await page.getByRole('button', { name: 'Confirm and send', exact: true }).click();
+    await sendTransfer(page);
     await expect.poll(() => Boolean(release)).toBe(true);
     await page.close();
     release();
@@ -152,7 +179,8 @@ test('closing after broadcast recovers from the durable journal without retransm
     state.page = reopened;
     await reopened.goto('http://127.0.0.1:4173/');
     await unlockFixture(reopened);
-    await expect(reopened.locator('.transfer-state[data-state="confirmed"]')).toBeVisible();
+    await choose(reopened, MAIN, 'Show Sent Transfers');
+    await expect(reopened.locator('#out .tbl tbody').last()).toContainText('confirmed');
     expect(state.hashes).toHaveLength(1);
     expect((await storedTransfers(reopened))[0].state).toBe('confirmed');
 });

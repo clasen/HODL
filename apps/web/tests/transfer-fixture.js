@@ -2,15 +2,13 @@ import { createRequire } from 'node:module';
 import { createDecipheriv, pbkdf2Sync, createHash } from 'node:crypto';
 import { expect } from '@playwright/test';
 import { webConfig } from '../config.mjs';
+import { MAIN, PASSWORD, PHRASE, EVM_FROM, BTC_FROM, answer, choose, confirm, prompt, shown, importPhrase, switchNetwork, unlock } from './terminal.js';
 
 const require = createRequire(import.meta.resolve('hodl-wallet'));
 const { Web3 } = require('web3');
 const bitcoin = require('bitcoinjs-lib');
-export const PASSWORD = 'browser-test-password';
-export const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-export const EVM_FROM = '0x9858EfFD232B4033E47d90003D41EC34EcaEda94';
+export { PASSWORD, PHRASE, EVM_FROM, BTC_FROM };
 export const EVM_TO = '0x1111111111111111111111111111111111111111';
-export const BTC_FROM = 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu';
 export const BTC_TO = 'bc1qyl7wjm2ldfezgnjk2c78adqlk7dvtm8sd7gn0q';
 
 export async function storedTransfers(page) {
@@ -35,31 +33,27 @@ export async function storedTransfers(page) {
     finally { plaintext.fill(0); key.fill(0); }
 }
 
-export async function importFixture(page) {
-    await page.goto('/');
-    await page.getByRole('button', { name: /Import phrase/ }).click();
-    await page.locator('#mnemonic').fill(PHRASE);
-    await page.locator('#password').fill(PASSWORD);
-    await page.locator('#confirmation').fill(PASSWORD);
-    await page.getByRole('button', { name: 'Import wallet', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Send funds', exact: true })).toBeEnabled();
+export const importFixture = page => importPhrase(page);
+
+export const unlockFixture = page => unlock(page);
+
+/** Answers the shared Transfer Funds prompts up to the amount. */
+export async function fillTransfer(page, { to, amount = '0.1', asset = 'BNB', tokens = true }) {
+    await choose(page, MAIN, 'Transfer Funds');
+    await answer(page, 'Recipient address:', to);
+    if (tokens) await choose(page, 'Token to transfer:', asset);
+    await answer(page, 'Amount to transfer (or max):', amount);
 }
 
-export async function unlockFixture(page) {
-    await page.locator('#password').fill(PASSWORD);
-    await page.getByRole('button', { name: 'Unlock', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Send funds', exact: true })).toBeEnabled();
-}
-
+/** Reaches the host's review of a transfer and the confirmation that follows it. */
 export async function reviewTransfer(page, network = 'bsc', amount = '0.1', asset = 'BNB') {
-    await page.locator('#network').selectOption(network);
-    await page.getByRole('button', { name: 'Send funds', exact: true }).click();
-    await page.locator('#recipient').fill(network === 'btc' ? BTC_TO : EVM_TO);
-    await page.locator('#asset').selectOption(asset);
-    await page.locator('#amount').fill(amount);
-    await page.getByRole('button', { name: 'Review transfer', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Confirm transfer' })).toBeVisible();
+    if (network !== 'btc') await switchNetwork(page, network);
+    await fillTransfer(page, { to: network === 'btc' ? BTC_TO : EVM_TO, amount, asset, tokens: network !== 'btc' });
+    await expect(prompt(page, 'Confirm transfer of')).toBeVisible();
+    await shown(page, 'Review transfer');
 }
+
+export const sendTransfer = page => confirm(page, 'Confirm transfer of');
 
 export async function mockNetworks(context, page) {
     const previous = new bitcoin.Transaction();

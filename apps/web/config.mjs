@@ -6,6 +6,15 @@ export const webConfig = {
         requestTimeoutMs: 15_000,
         reviewTtlMs: 60_000
     },
+    terminal: {
+        displayStorageKey: 'hodl-web:display',
+        secretMs: 15_000,
+        scrollbackMax: 400,
+        spinnerMs: 80,
+        presets: ['p1', 'p3', 'ice'],
+        sweeps: ['full', 'soft', 'off'],
+        defaults: { preset: 'p1', sweep: 'off', scanlines: true, curvature: true, sound: false }
+    },
     vault: {
         format: 'hodl-web-vault',
         version: 1,
@@ -18,6 +27,7 @@ export const webConfig = {
         passwordMinChars: 12,
         passwordMaxChars: 1024,
         nameMaxChars: 64,
+        defaultName: 'My wallet',
         maxBytes: 8 * 1024 * 1024,
         maxJsonDepth: 32,
         database: 'hodl-web',

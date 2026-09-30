@@ -17,9 +17,41 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 - **Install globally**: `npm install -g hodl-wallet` then run `hodl`
 - **Build**: `pnpm run build` (TypeScript sources emit to `packages/hodl-wallet/dist/`; copies the root README into the package)
 - **Typecheck**: `pnpm run typecheck`
-- **Focused checks**: `pnpm run test:agent`, `pnpm run test:persist`, `pnpm run test:transfer`, `pnpm run test:swap`
+- **Focused checks**: `pnpm run test:agent`, `pnpm run test:persist`, `pnpm run test:transfer`, `pnpm run test:swap`, `pnpm run test:app`
 - **Release checks**: `pnpm run prepublishOnly`
 - **Package tarball**: `pnpm --filter hodl-wallet pack` after building; publish only the package, never the private workspace root
+
+## Shared Flows (TUI and Web)
+
+- `app/` holds every interactive flow the TUI and the web share: startup, main menu,
+  account settings, balance, transfer and sent transfers. It imports no Node or DOM
+  modules. Change a menu, prompt, validation or message there and both interfaces change.
+  `index.ts` only wires the CLI: password prompt, profile lock, `NodeSession`, `InquirerUi`.
+- Flows talk to a `Ui` (`app/ui.ts`: select, input, password, confirm, autocomplete, table,
+  print, spinner) and a `WalletSession` (`app/session.ts`). `ui-inquirer.ts` renders `Ui`
+  with inquirer, cli-table3 and ora; `apps/web/src/terminal/` renders it in the DOM.
+- Whatever only one host can do goes through the session, never into a flow: `capabilities`,
+  the optional `contacts` port and `transfers.review`, and `HostAction` menu entries (Swap and
+  HODL files in the TUI; backup files and display settings in the web). Sessions never prompt
+  except through the `Ui` they are given. New prompts belong in a flow.
+- Prompt text, choice names and their order are the TUI's behavior. `test/test-app.ts`
+  (scripted `Ui`, fake session) and `test/test-transfer.ts` (drives `runCli` with mocked
+  inquirer, identifying prompts by message) cover them. `swap/ui.ts` still uses inquirer
+  directly; the web does not offer swaps yet.
+- `app/index.ts` is re-exported by `hodl-wallet/browser`; `dist/app` is published.
+
+## Web Terminal
+
+- `apps/web/src/main.ts` boots `DomTerminal` (a `Ui`), `BrowserSession` (the vault as a
+  `WalletSession`) and `host.ts` (password prompt, shared flows, lock and restart).
+  Esc selects the choice marked `back`, digits jump, Ctrl+C locks, and a lock rejects every
+  pending and later prompt until the host resets. Tables flagged `secret` are ephemeral.
+- A wallet that does not exist yet stays pending in `BrowserSession`, holding the chosen
+  password, until its first account exists; only then is the vault written.
+- Look and feel (P1/P3/Ice phosphor, scanlines and glow, rolling sweep bar full/subtle/off,
+  curvature/bezel/flicker, sound) is
+  `terminal/display.ts` plus `style.css`; defaults and timings are in `apps/web/config.mjs`.
+- Browser tests drive the terminal with the helpers in `apps/web/tests/terminal.js`.
 
 ## Web Feasibility Harness
 
@@ -32,9 +64,10 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 - Browser compatibility adapters and the WASM loader live in
   `apps/web/vite.config.js`. Keep constructor names intact because account keys
   use them. Browser probes compare addresses, signatures and recovery with Node.
-- `pnpm run build:web` builds the existing package and the static diagnostic in
-  `apps/web/dist/`. This is not yet an operational browser wallet.
-- `pnpm run preview:web` serves the built diagnostic locally.
+- `pnpm run build:web` builds the existing package, the terminal wallet and the static
+  diagnostic in `apps/web/dist/`. The web wallet covers the flows above; swaps, the address
+  book and `.HODL` files are TUI-only.
+- `pnpm run preview:web` serves the built wallet and diagnostic locally.
 - `pnpm run typecheck:web` checks browser TypeScript using the existing compiler.
 - `pnpm run test:web` builds and runs offline Playwright checks in Chromium,
   Firefox and WebKit. Install browsers with `pnpm --filter @hodl/web exec playwright install`.
