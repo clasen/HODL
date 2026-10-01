@@ -186,7 +186,7 @@ test('the prompt scrolls into view when it takes focus and when a keyboard shrin
 test.describe('on a touch screen', () => {
     test.use({ hasTouch: true, viewport: { width: 412, height: 839 } });
 
-    test('a swipe moves through a menu, a tap anywhere answers it, even on another choice, and text prompts still scroll', async ({ page, browserName }) => {
+    test('a swipe moves through a menu, a tap anywhere answers it, even on a link or another choice, and text prompts still scroll', async ({ page, browserName }) => {
         test.skip(browserName !== 'chromium', 'touch input is driven through the Chromium DevTools protocol');
         await importPhrase(page);
         const list = prompt(page, MAIN);
@@ -207,6 +207,22 @@ test.describe('on a touch screen', () => {
         await swipe(-40);
         expect(await selected()).toBe('Show Balance');
         await swipe(80);
+        expect(await selected()).toBe('Account Settings');
+        const pages = [];
+        page.context().on('page', opened => pages.push(opened));
+        await page.locator('#out').evaluate(out => {
+            const line = Object.assign(document.createElement('div'), { className: 'l' });
+            line.append(Object.assign(document.createElement('a'), { href: 'https://example.test/tx/1', target: '_blank', textContent: 'https://example.test/tx/1' }));
+            out.querySelector('.prompt:not(.done)').before(line);
+        });
+        const link = await page.locator('#out a[href="https://example.test/tx/1"]').boundingBox();
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: link.x + 5, y: link.y + link.height / 2 }] });
+        await touch('touchEnd');
+        await expect(prompt(page, 'Select an account option:')).toBeVisible();
+        expect(pages).toHaveLength(0);
+        await page.keyboard.press('Escape');
+        await ready(page);
+        await swipe(110);
         expect(await selected()).toBe('Account Settings');
         const exit = await list.locator('li', { hasText: 'Exit' }).boundingBox();
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: exit.x + 10, y: exit.y + exit.height / 2 }] });
