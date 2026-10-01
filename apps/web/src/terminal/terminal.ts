@@ -95,7 +95,7 @@ export class DomTerminal implements Ui {
     }
 
     /**
-     * While a menu waits, a vertical swipe moves its highlight instead of scrolling (finger up goes down the list)
+     * While a menu waits, a vertical swipe moves its highlight instead of scrolling, following the finger
      * and a tap anywhere on the screen answers it like Enter. Touching a choice does not pick it, so a swipe that
      * starts on one never chooses by accident; a mouse still clicks choices. Other prompts scroll and focus as usual.
      */
@@ -113,9 +113,9 @@ export class DomTerminal implements Ui {
             if (Math.hypot(touch.clientX - gesture.x, touch.clientY - gesture.y) > config.tapSlopPx) gesture.moved = true;
             if (!gesture.menu || !this.active?.swipe) return;
             event.preventDefault();
-            const steps = Math.trunc((gesture.anchor - touch.clientY) / config.swipeStepPx);
+            const steps = Math.trunc((touch.clientY - gesture.anchor) / config.swipeStepPx);
             if (steps === 0) return;
-            gesture.anchor -= steps * config.swipeStepPx;
+            gesture.anchor += steps * config.swipeStepPx;
             this.active.swipe(steps);
         }, { passive: false });
         screen.addEventListener('touchend', event => {

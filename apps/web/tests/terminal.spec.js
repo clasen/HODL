@@ -202,11 +202,11 @@ test.describe('on a touch screen', () => {
             await touch('touchEnd');
         };
         expect(await selected()).toBe('Transfer Funds');
-        await swipe(-80);
+        await swipe(80);
         expect(await selected()).toBe('Show Sent Transfers');
-        await swipe(40);
+        await swipe(-40);
         expect(await selected()).toBe('Show Balance');
-        await swipe(-80);
+        await swipe(80);
         expect(await selected()).toBe('Account Settings');
         const exit = await list.locator('li', { hasText: 'Exit' }).boundingBox();
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: exit.x + 10, y: exit.y + exit.height / 2 }] });
