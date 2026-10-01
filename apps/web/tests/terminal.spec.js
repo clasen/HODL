@@ -166,6 +166,49 @@ test('the bezel keys leave focus where it was', async ({ page }) => {
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
 });
 
+test.describe('on a touch screen', () => {
+    test.use({ hasTouch: true, viewport: { width: 412, height: 839 } });
+
+    test('a swipe moves through a menu, a tap answers it, and text prompts still scroll', async ({ page, browserName }) => {
+        test.skip(browserName !== 'chromium', 'touch input is driven through the Chromium DevTools protocol');
+        await importPhrase(page);
+        const list = prompt(page, MAIN);
+        const selected = () => list.locator('li.sel').innerText().then(text => text.replace(/^[❯\s]+/, ''));
+        const term = await page.locator('#term').boundingBox();
+        const x = term.x + term.width / 2;
+        const y = term.y + term.height / 2;
+        const cdp = await page.context().newCDPSession(page);
+        const touch = (type, at) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: at === undefined ? [] : [{ x, y: at }] });
+        const swipe = async distance => {
+            await touch('touchStart', y);
+            for (let i = 1; i <= 8; i++) await touch('touchMove', y + i * distance / 8);
+            await touch('touchEnd');
+        };
+        expect(await selected()).toBe('Transfer Funds');
+        await swipe(-80);
+        expect(await selected()).toBe('Show Sent Transfers');
+        await swipe(40);
+        expect(await selected()).toBe('Show Balance');
+        await swipe(-80);
+        expect(await selected()).toBe('Account Settings');
+        await page.locator('#term').evaluate(el => { el.scrollTop = 0; });
+        await touch('touchStart', term.y + 20);
+        await touch('touchEnd');
+        await expect(prompt(page, 'Select an account option:')).toBeVisible();
+        await page.keyboard.press('Escape');
+        await ready(page);
+        await choose(page, MAIN, 'Transfer Funds');
+        const field = prompt(page, 'Recipient address:').locator('input');
+        await page.locator('#out').evaluate(out => { for (let i = 0; i < 80; i++) out.prepend(Object.assign(document.createElement('div'), { className: 'l', textContent: `line ${i}` })); });
+        const scroller = page.locator('#term');
+        await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        const bottom = await scroller.evaluate(el => el.scrollTop);
+        await swipe(200);
+        await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeLessThan(bottom);
+        await expect(field).toBeVisible();
+    });
+});
+
 test('keys sound by default', async ({ page }) => {
     await page.goto('/');
     await expect(prompt(page, 'Password:')).toBeVisible();

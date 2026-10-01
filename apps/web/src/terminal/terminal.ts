@@ -9,6 +9,9 @@ const passwordEcho = '********';
 interface Active {
     onKey(event: KeyboardEvent): void;
     focus(): void;
+    /** A menu answers touch: a swipe moves its highlight and a tap on the screen picks it. */
+    swipe?(step: number): void;
+    tap?(): void;
     /** Drops whatever the prompt holds, secrets included. */
     dispose(): void;
 }
@@ -70,10 +73,46 @@ export class DomTerminal implements Ui {
         document.addEventListener('keydown', this.onKeyDown);
         document.addEventListener('visibilitychange', () => { if (document.hidden) this.clearSecrets(); });
         // A click or tap anywhere on the screen, empty space included, returns to the prompt unless it selected text.
-        (transcript.closest('.crt') ?? scroller).addEventListener('click', () => {
+        const screen = transcript.closest<HTMLElement>('.crt') ?? scroller;
+        screen.addEventListener('click', () => {
             if (!window.getSelection()?.toString()) this.active?.focus();
         });
+        this.touchMenus(screen);
         window.addEventListener('focus', () => this.active?.focus());
+    }
+
+    /**
+     * While a menu waits, a vertical swipe moves its highlight instead of scrolling (finger up goes down the list)
+     * and a tap on the screen outside the choices answers it like Enter. Other prompts scroll and focus as usual.
+     */
+    private touchMenus(screen: HTMLElement): void {
+        let gesture: { x: number; y: number; anchor: number; moved: boolean; menu: boolean } | undefined;
+        screen.addEventListener('touchstart', event => {
+            const touch = event.touches[0];
+            gesture = event.touches.length === 1
+                ? { x: touch.clientX, y: touch.clientY, anchor: touch.clientY, moved: false, menu: Boolean(this.active?.swipe) }
+                : undefined;
+        }, { passive: true });
+        screen.addEventListener('touchmove', event => {
+            if (!gesture) return;
+            const touch = event.touches[0];
+            if (Math.hypot(touch.clientX - gesture.x, touch.clientY - gesture.y) > config.tapSlopPx) gesture.moved = true;
+            if (!gesture.menu || !this.active?.swipe) return;
+            event.preventDefault();
+            const steps = Math.trunc((gesture.anchor - touch.clientY) / config.swipeStepPx);
+            if (steps === 0) return;
+            gesture.anchor -= steps * config.swipeStepPx;
+            this.active.swipe(steps);
+        }, { passive: false });
+        screen.addEventListener('touchend', event => {
+            const ended = gesture;
+            gesture = undefined;
+            if (!ended || ended.moved || !ended.menu || !this.active?.tap) return;
+            if ((event.target as Element | null)?.closest('.choice')) return;
+            event.preventDefault();
+            this.active.tap();
+        });
+        screen.addEventListener('touchcancel', () => { gesture = undefined; });
     }
 
     // ---- lifecycle
@@ -280,7 +319,7 @@ export class DomTerminal implements Ui {
         };
         paint();
         return {
-            move: step => { if (!rows.length) return; index = (index + step + rows.length) % rows.length; this.sound.move(); paint(); },
+            move: step => { if (!rows.length) return; index = ((index + step) % rows.length + rows.length) % rows.length; this.sound.move(); paint(); },
             jump: position => { if (position >= 0 && position < rows.length) { index = position; this.sound.move(); paint(); } },
             index: () => index
         };
@@ -301,6 +340,8 @@ export class DomTerminal implements Ui {
             return {
                 focus: () => list.focus({ preventScroll: true }),
                 dispose: () => list.remove(),
+                swipe: step => view.move(step),
+                tap: () => chosen(view.index()),
                 onKey: event => {
                     if (event.ctrlKey || event.metaKey || event.altKey) return;
                     if (event.key === 'ArrowDown' || event.key === 'j') view.move(1);

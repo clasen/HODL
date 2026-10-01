@@ -11,6 +11,9 @@ export const webConfig = {
         secretMs: 15_000,
         scrollbackMax: 400,
         spinnerMs: 80,
+        /** Touch travel that moves a menu's highlight one choice, and the most a tap may drift. */
+        swipeStepPx: 36,
+        tapSlopPx: 10,
         presets: ['p1', 'p3', 'ice'],
         sweeps: ['full', 'soft', 'off'],
         textScales: [0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8],
