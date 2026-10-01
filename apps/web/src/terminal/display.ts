@@ -9,7 +9,7 @@ export interface DisplayState { preset: Preset; sweep: Sweep; textScale: number;
 
 const config = webConfig.terminal;
 const presetLabels: Record<Preset, string> = { p1: 'GRN', p3: 'AMB', ice: 'ICE' };
-const sweepLabels: Record<Sweep, string> = { full: 'SWP:FULL', soft: 'SWP:SOFT', off: 'SWP:OFF' };
+const sweepNames: Record<Sweep, string> = { full: 'full', soft: 'subtle', off: 'off' };
 const textSizeName = (scale: number): string => `${Math.round(scale * 100)}%`;
 
 function isState(value: unknown): value is DisplayState {
@@ -60,10 +60,15 @@ export class Display {
             if (pressed !== undefined) button.setAttribute('aria-pressed', String(pressed));
         };
         set('preset', presetLabels[preset], undefined);
-        set('sweep', sweepLabels[sweep], undefined);
-        set('scanlines', `FX:${scanlines ? 'ON' : 'OFF'}`, scanlines);
-        set('curvature', `CRT:${curvature ? 'ON' : 'OFF'}`, curvature);
-        set('sound', `SND:${sound ? 'ON' : 'OFF'}`, sound);
+        set('scanlines', 'FX', scanlines);
+        set('curvature', 'CRT', curvature);
+        set('sound', 'SND', sound);
+        // The sweep has three strengths, so its key glows fully, faintly or not at all instead of being pressed.
+        const sweepKey = document.getElementById('sweep');
+        if (sweepKey) {
+            sweepKey.dataset.level = sweep;
+            sweepKey.setAttribute('aria-label', `Rolling sweep bar: ${sweepNames[sweep]}`);
+        }
         const scales = config.textScales;
         for (const [id, limit, action] of [['text-smaller', scales[0], 'Smaller'], ['text-larger', scales[scales.length - 1], 'Larger']] as const) {
             const button = document.getElementById(id) as HTMLButtonElement | null;

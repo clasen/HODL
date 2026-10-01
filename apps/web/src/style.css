@@ -172,7 +172,19 @@ html[data-curvature="off"] .screen { border-radius: 0; box-shadow: none; }
 .key:disabled { opacity: .4; cursor: default; }
 .key:disabled:hover { color: #d4cebd; }
 .key:disabled:active { transform: none; }
-.key[aria-pressed="true"] { color: var(--fg); }
+/* A key that switches something lights up in the phosphor colour while it is on and goes dark while it is off. */
+.key[aria-pressed="false"], .key[data-level="off"] { color: #8f8a7e; }
+.key[aria-pressed="false"]:hover, .key[data-level="off"]:hover { color: #d4cebd; }
+.key[aria-pressed="true"], .key[data-level="full"] {
+    color: var(--fg); text-shadow: 0 0 4px rgba(var(--fg-rgb), .9), 0 0 10px rgba(var(--fg-rgb), .5);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .09), inset 0 -2px 0 rgba(0, 0, 0, .25), inset 0 0 10px rgba(var(--fg-rgb), .18),
+        0 2px 0 #050604, 0 4px 8px rgba(0, 0, 0, .45), 0 0 12px rgba(var(--fg-rgb), .22);
+}
+.key[data-level="soft"] {
+    color: rgba(var(--fg-rgb), .7); text-shadow: 0 0 4px rgba(var(--fg-rgb), .45);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .09), inset 0 -2px 0 rgba(0, 0, 0, .25), inset 0 0 8px rgba(var(--fg-rgb), .08),
+        0 2px 0 #050604, 0 4px 8px rgba(0, 0, 0, .45);
+}
 .key:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
 
 @media (max-width: 720px) {

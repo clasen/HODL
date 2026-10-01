@@ -90,7 +90,7 @@ test('the phosphor, glass effects and sound are chosen from the keyboard or the 
     await page.locator('#preset').click();
     await expect(html).toHaveAttribute('data-preset', 'ice');
     await expect(html).toHaveAttribute('data-sweep', 'off');
-    await expect(page.locator('#sweep')).toHaveText('SWP:OFF');
+    await expect(page.locator('#sweep')).toHaveAttribute('data-level', 'off');
     await expect(page.locator('.roll')).toBeHidden();
     await page.locator('#sweep').click();
     await expect(html).toHaveAttribute('data-sweep', 'full');
@@ -98,7 +98,9 @@ test('the phosphor, glass effects and sound are chosen from the keyboard or the 
     expect(await page.locator('.roll').evaluate(band => getComputedStyle(band).opacity)).toBe('1');
     await page.locator('#sweep').click();
     await expect(html).toHaveAttribute('data-sweep', 'soft');
-    await expect(page.locator('#sweep')).toHaveText('SWP:SOFT');
+    await expect(page.locator('#sweep')).toHaveAttribute('data-level', 'soft');
+    await expect(page.locator('#sweep')).toHaveText('SWP');
+    await expect(page.locator('#sound')).toHaveText('SND');
     expect(await page.locator('.roll').evaluate(band => getComputedStyle(band).opacity)).toBe('0.3');
     await expect(page.locator('.flicker')).toBeVisible();
     await page.locator('#scanlines').click();
