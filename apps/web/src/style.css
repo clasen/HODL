@@ -17,7 +17,8 @@ html[data-preset="ice"] { --fg: #9fe7ff; --fg-rgb: 159, 231, 255; --bg: #02111a;
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #0a0b09; }
 body {
-    height: 100vh; height: 100dvh;
+    /* --viewport-h is the part an on-screen keyboard leaves visible; main.ts keeps it current. */
+    height: 100vh; height: 100dvh; height: var(--viewport-h, 100dvh);
     display: grid; grid-template-rows: minmax(0, 1fr) auto;
     font-family: var(--mono); color: var(--fg);
     -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;

@@ -70,6 +70,12 @@ export class DomTerminal implements Ui {
         new MutationObserver(records => {
             if (pinned && records.some(record => !(record.target as Element).classList?.contains('frame'))) scroller.scrollTop = scroller.scrollHeight;
         }).observe(transcript, { childList: true, subtree: true });
+        // Focusing the prompt, or the screen shrinking under a keyboard, always brings the prompt back into view.
+        transcript.addEventListener('focusin', () => requestAnimationFrame(() => this.reveal()));
+        new ResizeObserver(() => {
+            if (pinned) scroller.scrollTop = scroller.scrollHeight;
+            this.reveal();
+        }).observe(scroller);
         document.addEventListener('keydown', this.onKeyDown);
         document.addEventListener('visibilitychange', () => { if (document.hidden) this.clearSecrets(); });
         // A click or tap anywhere on the screen, empty space included, returns to the prompt unless it selected text.
@@ -79,6 +85,13 @@ export class DomTerminal implements Ui {
         });
         this.touchMenus(screen);
         window.addEventListener('focus', () => this.active?.focus());
+    }
+
+    /** Scrolls the focused prompt, or a menu's highlighted choice, into view. */
+    private reveal(): void {
+        const focused = document.activeElement;
+        if (!(focused instanceof HTMLElement) || !this.transcript.contains(focused)) return;
+        (focused.querySelector<HTMLElement>('li.sel') ?? focused).scrollIntoView({ block: 'nearest' });
     }
 
     /**

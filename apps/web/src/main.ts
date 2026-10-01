@@ -7,6 +7,23 @@ import { BrowserWallet } from './wallet.js';
 
 const element = (id: string): HTMLElement => document.getElementById(id)!;
 
+// iOS, and Android without resizes-content, open the keyboard over the page and shrink only what is visible.
+// The page follows the visible part so the keyboard never covers the prompt; a pinch zoom leaves it alone.
+const viewport = window.visualViewport;
+if (viewport) {
+    const fit = (): void => {
+        if (viewport.scale > 1.01) {
+            document.documentElement.style.removeProperty('--viewport-h');
+            return;
+        }
+        document.documentElement.style.setProperty('--viewport-h', `${viewport.height}px`);
+        if (window.scrollY || viewport.offsetTop) window.scrollTo(0, 0);
+    };
+    viewport.addEventListener('resize', fit);
+    viewport.addEventListener('scroll', fit);
+    fit();
+}
+
 const sound = new Sound();
 const display = new Display(document.documentElement, sound);
 const terminal = new DomTerminal(element('out'), sound);

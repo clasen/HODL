@@ -166,6 +166,23 @@ test('the bezel keys leave focus where it was', async ({ page }) => {
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
 });
 
+test('the prompt scrolls into view when it takes focus and when a keyboard shrinks the screen', async ({ page }) => {
+    await page.setViewportSize({ width: 412, height: 839 });
+    await page.goto('/');
+    const field = prompt(page, 'Password:').locator('input');
+    await expect(field).toBeFocused();
+    await page.locator('#out').evaluate(out => { for (let i = 0; i < 120; i++) out.prepend(Object.assign(document.createElement('div'), { className: 'l', textContent: `line ${i}` })); });
+    await page.locator('#term').evaluate(el => { el.scrollTop = 0; });
+    await field.blur();
+    await expect(field).not.toBeInViewport();
+    const screen = await page.locator('#term').boundingBox();
+    await page.mouse.click(screen.x + screen.width / 2, screen.y + 20);
+    await expect(field).toBeFocused();
+    await expect(field).toBeInViewport();
+    await page.setViewportSize({ width: 412, height: 420 });
+    await expect(field).toBeInViewport();
+});
+
 test.describe('on a touch screen', () => {
     test.use({ hasTouch: true, viewport: { width: 412, height: 839 } });
 
