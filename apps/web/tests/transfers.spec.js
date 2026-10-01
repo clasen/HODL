@@ -181,6 +181,9 @@ test('closing after broadcast recovers from the durable journal without retransm
     await unlockFixture(reopened);
     await choose(reopened, MAIN, 'Show Sent Transfers');
     await expect(reopened.locator('#out .tbl tbody').last()).toContainText('confirmed');
+    const explorer = reopened.locator('#out .tbl tbody').last().locator('a[href^="https://"]');
+    await expect(explorer).toHaveCount(1);
+    await expect(explorer).toHaveAttribute('target', '_blank');
     expect(state.hashes).toHaveLength(1);
     expect((await storedTransfers(reopened))[0].state).toBe('confirmed');
 });

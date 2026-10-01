@@ -186,7 +186,7 @@ test('the prompt scrolls into view when it takes focus and when a keyboard shrin
 test.describe('on a touch screen', () => {
     test.use({ hasTouch: true, viewport: { width: 412, height: 839 } });
 
-    test('a swipe moves through a menu, a tap anywhere answers it, even on another choice, and text prompts still scroll', async ({ page, browserName }) => {
+    test('a swipe moves through a menu, a tap anywhere but a link answers it, even on another choice, and text prompts still scroll', async ({ page, context, browserName }) => {
         test.skip(browserName !== 'chromium', 'touch input is driven through the Chromium DevTools protocol');
         await importPhrase(page);
         const list = prompt(page, MAIN);
@@ -207,6 +207,22 @@ test.describe('on a touch screen', () => {
         await swipe(-40);
         expect(await selected()).toBe('Show Balance');
         await swipe(80);
+        expect(await selected()).toBe('Account Settings');
+        await page.locator('#out').evaluate(out => {
+            const line = Object.assign(document.createElement('div'), { className: 'l' });
+            line.append(Object.assign(document.createElement('a'), { href: 'https://example.test/tx/1', target: '_blank', textContent: 'https://example.test/tx/1' }));
+            out.querySelector('.prompt:not(.done)').before(line);
+        });
+        await context.route('https://example.test/**', route => route.fulfill({ body: 'explorer' }));
+        const link = await page.locator('#out a[href="https://example.test/tx/1"]').boundingBox();
+        const opened = context.waitForEvent('page');
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: link.x + 5, y: link.y + link.height / 2 }] });
+        await touch('touchEnd');
+        const explorer = await opened;
+        expect(explorer.url()).toBe('https://example.test/tx/1');
+        await explorer.close();
+        await page.bringToFront();
+        await expect(list).toBeVisible();
         expect(await selected()).toBe('Account Settings');
         const exit = await list.locator('li', { hasText: 'Exit' }).boundingBox();
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: exit.x + 10, y: exit.y + exit.height / 2 }] });

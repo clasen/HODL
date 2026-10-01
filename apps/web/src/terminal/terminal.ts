@@ -29,6 +29,24 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string,
     return element;
 }
 
+const urlPattern = /https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)\]]/g;
+
+/** Puts text in an element with its web addresses as links that open in a new tab. */
+function linked<T extends HTMLElement>(element: T, text: string): T {
+    let last = 0;
+    for (const match of text.matchAll(urlPattern)) {
+        element.append(text.slice(last, match.index));
+        const link = node('a', undefined, match[0]);
+        link.href = match[0];
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        element.append(link);
+        last = match.index + match[0].length;
+    }
+    element.append(text.slice(last));
+    return element;
+}
+
 /**
  * An input that is a field of a prompt: no browser help that would store or alter what is typed.
  * Secrets are masked by style, not type=password, because password managers ignore data-bwignore there.
@@ -97,7 +115,8 @@ export class DomTerminal implements Ui {
     /**
      * While a menu waits, a vertical swipe moves its highlight instead of scrolling, following the finger
      * and a tap anywhere on the screen answers it like Enter. Touching a choice does not pick it, so a swipe that
-     * starts on one never chooses by accident; a mouse still clicks choices. Other prompts scroll and focus as usual.
+     * starts on one never chooses by accident; a mouse still clicks choices. A tap on a link only opens the link.
+     * Other prompts scroll and focus as usual.
      */
     private touchMenus(screen: HTMLElement): void {
         let gesture: { x: number; y: number; anchor: number; moved: boolean; menu: boolean } | undefined;
@@ -122,6 +141,7 @@ export class DomTerminal implements Ui {
             const ended = gesture;
             gesture = undefined;
             if (!ended?.menu || !this.active?.tap) return;
+            if (!ended.moved && (event.target as Element | null)?.closest('a[href]')) return;
             // No click follows, so the touched choice is never picked in place of the highlighted one.
             event.preventDefault();
             if (!ended.moved) this.active.tap();
@@ -189,19 +209,14 @@ export class DomTerminal implements Ui {
     }
 
     print(text: string): void {
-        this.append(node('div', 'l', text));
+        this.append(linked(node('div', 'l'), text));
     }
 
     table(spec: TableSpec): void {
         const cell = (tag: 'th' | 'td', value: Cell): HTMLElement => {
             const element = node(tag);
-            if (typeof value === 'string') {
-                element.textContent = value;
-            } else {
-                element.colSpan = value.colSpan;
-                element.textContent = value.content;
-            }
-            return element;
+            if (typeof value !== 'string') element.colSpan = value.colSpan;
+            return linked(element, typeof value === 'string' ? value : value.content);
         };
         const wrap = node('div', 'tbl-wrap');
         wrap.dataset.tone = spec.tone;
