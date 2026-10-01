@@ -58,6 +58,10 @@ test('typing after clicking elsewhere still reaches the prompt, and an IME Enter
     await page.locator('.status').click();
     await page.keyboard.type('after a click');
     await expect(field).toHaveValue('after a click');
+    await field.blur();
+    const screen = await page.locator('#term').boundingBox();
+    await page.mouse.click(screen.x + screen.width / 2, screen.y + screen.height - 10);
+    await expect(field).toBeFocused();
     await field.evaluate(input => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true })));
     await expect(prompt(page, 'Password:')).toBeVisible();
     await expect(field).toHaveValue('after a click');

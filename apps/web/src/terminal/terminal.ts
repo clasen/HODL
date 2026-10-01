@@ -69,7 +69,8 @@ export class DomTerminal implements Ui {
         }).observe(transcript, { childList: true, subtree: true });
         document.addEventListener('keydown', this.onKeyDown);
         document.addEventListener('visibilitychange', () => { if (document.hidden) this.clearSecrets(); });
-        transcript.addEventListener('mouseup', () => {
+        // A click or tap anywhere on the screen, empty space included, returns to the prompt unless it selected text.
+        (transcript.closest('.crt') ?? scroller).addEventListener('click', () => {
             if (!window.getSelection()?.toString()) this.active?.focus();
         });
         window.addEventListener('focus', () => this.active?.focus());
