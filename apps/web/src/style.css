@@ -65,8 +65,6 @@ html[data-scanlines="on"] .term { text-shadow: var(--shadow); }
 .answered { color: rgba(var(--fg-rgb), .8); }
 .err { color: var(--bad); }
 .ok { color: var(--fg); }
-.term a { color: inherit; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: .18em; }
-.term a:hover, .term a:focus-visible { color: var(--hot); }
 .fail { color: var(--bad); }
 .frame { display: inline-block; min-width: 1ch; }
 
