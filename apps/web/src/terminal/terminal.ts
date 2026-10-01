@@ -99,8 +99,6 @@ export class DomTerminal implements Ui {
         this.transcript.replaceChildren();
     }
 
-    focus(): void { this.active?.focus(); }
-
     private readonly onKeyDown = (event: KeyboardEvent): void => {
         const target = event.target as Element | null;
         if (target?.closest('.strip') || event.isComposing || event.keyCode === 229) return;

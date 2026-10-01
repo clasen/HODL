@@ -29,8 +29,10 @@ const dials: Array<[string, () => void]> = [
     ['sweep', () => display.cycleSweep()],
     ['sound', () => display.toggle('sound')]
 ];
+// The keys leave focus where it was: pressing one neither takes it from the prompt nor opens a phone's keyboard.
 for (const [id, act] of dials) {
-    element(id).addEventListener('click', () => { act(); terminal.focus(); });
+    element(id).addEventListener('mousedown', event => event.preventDefault());
+    element(id).addEventListener('click', act);
 }
 
 runHost(terminal, wallet, status).catch(error => {

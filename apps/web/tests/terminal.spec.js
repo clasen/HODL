@@ -152,6 +152,20 @@ test('the bezel resizes the text within its limits and remembers the size', asyn
     expect(await size()).toBeLessThan(start);
 });
 
+test('the bezel keys leave focus where it was', async ({ page }) => {
+    await page.goto('/');
+    const field = prompt(page, 'Password:').locator('input');
+    await expect(field).toBeFocused();
+    await page.locator('#preset').click();
+    await page.locator('#text-larger').click();
+    await expect(page.locator('html')).toHaveAttribute('data-preset', 'p3');
+    await expect(field).toBeFocused();
+    await field.blur();
+    await page.locator('#scanlines').click();
+    await expect(page.locator('html')).toHaveAttribute('data-scanlines', 'off');
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+});
+
 test('keys sound by default', async ({ page }) => {
     await page.goto('/');
     await expect(prompt(page, 'Password:')).toBeVisible();
