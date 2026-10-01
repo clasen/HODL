@@ -4,7 +4,6 @@ import {
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
-import { textSizeName, type Display, type Preset, type Sweep, type Toggle } from './terminal/display.js';
 import { parseHodlFile, type HodlFile } from './hodl-file.js';
 import type { DomTerminal } from './terminal/terminal.js';
 import { VaultError, userMessage } from './vault-error.js';
@@ -43,7 +42,6 @@ export class BrowserSession implements WalletSession {
     constructor(
         private readonly wallet: BrowserWallet,
         private readonly terminal: DomTerminal,
-        private readonly display: Display,
         private readonly onNetwork: (name: string) => void,
         opened: { snapshot: PublicWallet } | { password: string }
     ) {
@@ -171,7 +169,7 @@ export class BrowserSession implements WalletSession {
     }
 
     menuActions(): HostAction[] {
-        return [{ name: 'Display Settings', run: ui => this.settings(ui) }];
+        return [];
     }
 
     private async importHodlFile(): Promise<boolean> {
@@ -219,50 +217,6 @@ export class BrowserSession implements WalletSession {
         }
         download(text, fileName);
         ui.table({ head: ['HODL File Exported'], tone: 'green', rows: [[`Download started: ${fileName}`]] });
-    }
-
-    private async settings(ui: Ui): Promise<void> {
-        for (;;) {
-            const state = this.display.state;
-            const on = (value: boolean): string => value ? 'ON' : 'OFF';
-            const choice = await ui.select<Toggle | 'preset' | 'sweep' | 'text' | 'back'>({
-                message: 'Display settings:',
-                choices: [
-                    { name: `Phosphor: ${this.display.presets.find(preset => preset.id === state.preset)!.name}`, value: 'preset' },
-                    { name: `Text size: ${textSizeName(state.textScale)}`, value: 'text' },
-                    { name: `Scanlines and glow: ${on(state.scanlines)}`, value: 'scanlines' },
-                    { name: `Rolling sweep bar: ${this.display.sweeps.find(sweep => sweep.id === state.sweep)!.name}`, value: 'sweep' },
-                    { name: `Screen curvature, bezel and flicker: ${on(state.curvature)}`, value: 'curvature' },
-                    { name: `Sound: ${on(state.sound)}`, value: 'sound' },
-                    { name: 'Go Back', value: 'back', back: true }
-                ]
-            });
-            if (choice === 'back') return;
-            if (choice === 'preset') {
-                const preset = await ui.select<Preset>({
-                    message: 'Phosphor:',
-                    choices: this.display.presets.map(item => ({ name: item.name, value: item.id })),
-                    default: state.preset
-                });
-                this.display.setPreset(preset);
-            } else if (choice === 'sweep') {
-                const sweep = await ui.select<Sweep>({
-                    message: 'Rolling sweep bar:',
-                    choices: this.display.sweeps.map(item => ({ name: item.name, value: item.id })),
-                    default: state.sweep
-                });
-                this.display.setSweep(sweep);
-            } else if (choice === 'text') {
-                const textScale = await ui.select<number>({
-                    message: 'Text size:',
-                    choices: this.display.textScales.map(scale => ({ name: textSizeName(scale), value: scale })),
-                    default: state.textScale
-                });
-                this.display.setTextScale(textScale);
-            } else {
-                this.display.toggle(choice);
-            }
-        }
     }
 
     private rows(review: TransferReview, saved: boolean): Cell[][] {

@@ -1,7 +1,6 @@
 import { AccountNotInitialized, farewell, initialize, isPromptAborted, mainMenu, showError, welcome } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { BrowserSession } from './session.js';
-import type { Display } from './terminal/display.js';
 import type { DomTerminal } from './terminal/terminal.js';
 import { VaultError, userMessage } from './vault-error.js';
 import type { BrowserWallet } from './wallet.js';
@@ -30,7 +29,7 @@ function validNewPassword(input: string): true | string {
 }
 
 /** Asks for the password: unlocks an existing vault, or holds a new one's password until its first account exists. */
-async function openSession(terminal: DomTerminal, wallet: BrowserWallet, display: Display, status: Status): Promise<BrowserSession> {
+async function openSession(terminal: DomTerminal, wallet: BrowserWallet, status: Status): Promise<BrowserSession> {
     const exists = await wallet.exists();
     const onNetwork = (name: string): void => status.setNetwork(name);
     for (;;) {
@@ -41,11 +40,11 @@ async function openSession(terminal: DomTerminal, wallet: BrowserWallet, display
                 showError(terminal, 'Passwords do not match. Please try again.');
                 continue;
             }
-            return new BrowserSession(wallet, terminal, display, onNetwork, { password });
+            return new BrowserSession(wallet, terminal, onNetwork, { password });
         }
         const spinner = terminal.spinner('Unlocking…');
         try {
-            return new BrowserSession(wallet, terminal, display, onNetwork, { snapshot: await wallet.unlock(password) });
+            return new BrowserSession(wallet, terminal, onNetwork, { snapshot: await wallet.unlock(password) });
         } catch (error) {
             showError(terminal, describe(error));
         } finally {
@@ -76,7 +75,7 @@ async function retrying(terminal: DomTerminal, step: () => Promise<void>): Promi
  * The web host: a locked terminal that asks for the password, runs the shared wallet flows, and locks again.
  * Leaving by Exit or Ctrl+C returns to the first screen; any other lock says so.
  */
-export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, display: Display, status: Status): Promise<never> {
+export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, status: Status): Promise<never> {
     let notice: string | undefined;
     let interrupted = false;
     terminal.onInterrupt = () => {
@@ -93,7 +92,7 @@ export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, disp
         notice = undefined;
         interrupted = false;
         try {
-            const session = await openSession(terminal, wallet, display, status);
+            const session = await openSession(terminal, wallet, status);
             if (session.isNew) status.setSession('setup');
             await retrying(terminal, () => initialize(terminal, session));
             status.setSession('unlocked');

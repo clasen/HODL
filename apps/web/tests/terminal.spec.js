@@ -153,28 +153,17 @@ test('keys sound by default', async ({ page }) => {
     expect(await tones(page)).toBeGreaterThan(0);
 });
 
-test('Display Settings in the main menu change the look and keep the wallet unlocked', async ({ page }) => {
+test('the main menu leaves display settings to the bezel, which works without locking the wallet', async ({ page }) => {
     await importPhrase(page);
-    await choose(page, MAIN, 'Display Settings');
-    await choose(page, 'Display settings:', 'Phosphor: Green phosphor');
-    await choose(page, 'Phosphor:', 'Amber phosphor');
+    await expect(prompt(page, MAIN).locator('li')).not.toContainText(['Display Settings']);
+    await page.locator('#preset').click();
     await expect(page.locator('html')).toHaveAttribute('data-preset', 'p3');
-    await choose(page, 'Display settings:', 'Rolling sweep bar: Off');
-    await choose(page, 'Rolling sweep bar:', 'Subtle');
-    await expect(page.locator('html')).toHaveAttribute('data-sweep', 'soft');
-    await expect(page.locator('.roll')).toBeVisible();
-    await choose(page, 'Display settings:', 'Rolling sweep bar: Subtle');
-    await choose(page, 'Rolling sweep bar:', 'Off');
-    await expect(page.locator('html')).toHaveAttribute('data-sweep', 'off');
-    await expect(page.locator('.roll')).toBeHidden();
-    await expect(page.locator('#sweep')).toHaveText('SWP:OFF');
-    await choose(page, 'Display settings:', 'Text size: 110%');
-    await choose(page, 'Text size:', '150%');
-    await expect(page.locator('html')).toHaveCSS('--text-scale', '1.5');
-    await choose(page, 'Display settings:', 'Sound: ON');
+    await page.locator('#sweep').click();
+    await expect(page.locator('html')).toHaveAttribute('data-sweep', 'full');
+    await page.locator('#text-larger').click();
+    await expect(page.locator('html')).toHaveCSS('--text-scale', '1.2');
+    await page.locator('#sound').click();
     await expect(page.locator('html')).toHaveAttribute('data-sound', 'off');
-    await expect(page.locator('#sound')).toHaveAttribute('aria-pressed', 'false');
-    await choose(page, 'Display settings:', 'Go Back');
     await ready(page);
     await expect(page.locator('#session-state')).toHaveText('UNLOCKED');
 });

@@ -9,10 +9,8 @@ export interface DisplayState { preset: Preset; sweep: Sweep; textScale: number;
 
 const config = webConfig.terminal;
 const presetLabels: Record<Preset, string> = { p1: 'GRN', p3: 'AMB', ice: 'ICE' };
-const presetNames: Record<Preset, string> = { p1: 'Green phosphor', p3: 'Amber phosphor', ice: 'Ice blue phosphor' };
 const sweepLabels: Record<Sweep, string> = { full: 'SWP:FULL', soft: 'SWP:SOFT', off: 'SWP:OFF' };
-const sweepNames: Record<Sweep, string> = { full: 'Full', soft: 'Subtle', off: 'Off' };
-export const textSizeName = (scale: number): string => `${Math.round(scale * 100)}%`;
+const textSizeName = (scale: number): string => `${Math.round(scale * 100)}%`;
 
 function isState(value: unknown): value is DisplayState {
     if (typeof value !== 'object' || value === null) return false;
@@ -32,9 +30,6 @@ export class Display {
     }
 
     get state(): Readonly<DisplayState> { return this.current; }
-    get presets(): Array<{ id: Preset; name: string }> { return (config.presets as Preset[]).map(id => ({ id, name: presetNames[id] })); }
-    get sweeps(): Array<{ id: Sweep; name: string }> { return (config.sweeps as Sweep[]).map(id => ({ id, name: sweepNames[id] })); }
-    get textScales(): number[] { return config.textScales; }
 
     private stored(): DisplayState | undefined {
         try {

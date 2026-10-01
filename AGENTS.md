@@ -32,7 +32,7 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   with inquirer, cli-table3 and ora; `apps/web/src/terminal/` renders it in the DOM.
 - Whatever only one host can do goes through the session, never into a flow: `capabilities`,
   the optional `contacts` port and `transfers.review`, and `HostAction` menu entries (Swap in the
-  TUI; display settings in the web; HODL file export and import in both, each host with its own
+  TUI; HODL file export and import in both, each host with its own
   file access). Sessions never prompt
   except through the `Ui` they are given. New prompts belong in a flow.
 - Prompt text, choice names and their order are the TUI's behavior. `test/test-app.ts`
@@ -51,7 +51,8 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   password, until its first account exists; only then is the vault written.
 - Look and feel (P1/P3/Ice phosphor, scanlines and glow, rolling sweep bar full/subtle/off,
   curvature/bezel/flicker, sound) is
-  `terminal/display.ts` plus `style.css`; defaults and timings are in `apps/web/config.mjs`.
+  `terminal/display.ts` plus `style.css`, changed only from the bezel controls below the screen
+  (no menu entry); defaults and timings are in `apps/web/config.mjs`.
 - Browser tests drive the terminal with the helpers in `apps/web/tests/terminal.js`.
 
 ## Web Feasibility Harness

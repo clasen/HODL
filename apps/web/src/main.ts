@@ -33,7 +33,7 @@ for (const [id, act] of dials) {
     element(id).addEventListener('click', () => { act(); terminal.focus(); });
 }
 
-runHost(terminal, wallet, display, status).catch(error => {
+runHost(terminal, wallet, status).catch(error => {
     console.error(error);
     terminal.print('The terminal stopped unexpectedly. Reload the page.');
 });
