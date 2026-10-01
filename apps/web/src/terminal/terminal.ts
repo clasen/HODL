@@ -56,6 +56,8 @@ export class DomTerminal implements Ui {
     /** Set by the host: Ctrl+C with nothing selected means leave. */
     onInterrupt: () => void = () => {};
     private active?: Active;
+    /** The block of the prompt that is waiting, where a swipe changes a menu's choice. */
+    private activeBlock?: HTMLElement;
     private aborted = false;
     private prompts = 0;
     private choiceIds = 0;
@@ -95,23 +97,26 @@ export class DomTerminal implements Ui {
     }
 
     /**
-     * While a menu waits, a vertical swipe moves its highlight instead of scrolling, following the finger
-     * and a tap anywhere on the screen answers it like Enter. Touching a choice does not pick it, so a swipe that
-     * starts on one never chooses by accident; a mouse still clicks choices. Other prompts scroll and focus as usual.
+     * While a menu waits, a vertical swipe that starts on the menu (or below it) moves its highlight, following the
+     * finger; one that starts on the text above scrolls the transcript. A tap anywhere on the screen answers the menu
+     * like Enter; touching a choice does not pick it, and a mouse still clicks choices. Other prompts scroll and
+     * focus as usual.
      */
     private touchMenus(screen: HTMLElement): void {
-        let gesture: { x: number; y: number; anchor: number; moved: boolean; menu: boolean } | undefined;
+        let gesture: { x: number; y: number; anchor: number; moved: boolean; menu: boolean; onMenu: boolean } | undefined;
         screen.addEventListener('touchstart', event => {
             const touch = event.touches[0];
+            const menu = Boolean(this.active?.swipe);
+            const onMenu = menu && touch.clientY >= (this.activeBlock?.getBoundingClientRect().top ?? Infinity);
             gesture = event.touches.length === 1
-                ? { x: touch.clientX, y: touch.clientY, anchor: touch.clientY, moved: false, menu: Boolean(this.active?.swipe) }
+                ? { x: touch.clientX, y: touch.clientY, anchor: touch.clientY, moved: false, menu, onMenu }
                 : undefined;
         }, { passive: true });
         screen.addEventListener('touchmove', event => {
             if (!gesture) return;
             const touch = event.touches[0];
             if (Math.hypot(touch.clientX - gesture.x, touch.clientY - gesture.y) > config.tapSlopPx) gesture.moved = true;
-            if (!gesture.menu || !this.active?.swipe) return;
+            if (!gesture.onMenu || !this.active?.swipe) return;
             event.preventDefault();
             const steps = Math.trunc((touch.clientY - gesture.anchor) / config.swipeStepPx);
             if (steps === 0) return;
@@ -285,10 +290,12 @@ export class DomTerminal implements Ui {
             block.dataset.prompt = kind;
             const settle = (echo: string, symbol: string): void => {
                 this.active = undefined;
+                this.activeBlock = undefined;
                 block.classList.add('done');
                 block.replaceChildren(node('div', 'l answered', `${symbol} ${message} ${echo}`.trimEnd()));
             };
             const active = build((value, echo) => { settle(echo, '✔'); this.prompts++; this.sound.enter(); resolve(value); }, block);
+            this.activeBlock = block;
             this.active = {
                 ...active,
                 dispose: () => {

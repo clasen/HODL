@@ -186,19 +186,20 @@ test('the prompt scrolls into view when it takes focus and when a keyboard shrin
 test.describe('on a touch screen', () => {
     test.use({ hasTouch: true, viewport: { width: 412, height: 839 } });
 
-    test('a swipe moves through a menu, a tap anywhere answers it, even on a link or another choice, and text prompts still scroll', async ({ page, browserName }) => {
+    test('a swipe on a menu moves through it, a swipe above it scrolls, a tap anywhere answers it, even on a link or another choice', async ({ page, browserName }) => {
         test.skip(browserName !== 'chromium', 'touch input is driven through the Chromium DevTools protocol');
         await importPhrase(page);
         const list = prompt(page, MAIN);
         const selected = () => list.locator('li.sel').innerText().then(text => text.replace(/^[❯\s]+/, ''));
         const term = await page.locator('#term').boundingBox();
         const x = term.x + term.width / 2;
-        const y = term.y + term.height / 2;
         const cdp = await page.context().newCDPSession(page);
         const touch = (type, at) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: at === undefined ? [] : [{ x, y: at }] });
-        const swipe = async distance => {
-            await touch('touchStart', y);
-            for (let i = 1; i <= 8; i++) await touch('touchMove', y + i * distance / 8);
+        // Menu swipes start on the menu; above it the text scrolls.
+        const swipe = async (distance, from) => {
+            from ??= (await list.boundingBox()).y + 30;
+            await touch('touchStart', from);
+            for (let i = 1; i <= 8; i++) await touch('touchMove', from + i * distance / 8);
             await touch('touchEnd');
         };
         expect(await selected()).toBe('Transfer Funds');
@@ -224,6 +225,14 @@ test.describe('on a touch screen', () => {
         await ready(page);
         await swipe(110);
         expect(await selected()).toBe('Account Settings');
+        const scroller = page.locator('#term');
+        await page.locator('#out').evaluate(out => { for (let i = 0; i < 80; i++) out.prepend(Object.assign(document.createElement('div'), { className: 'l', textContent: `line ${i}` })); });
+        await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
+        const bottom = await scroller.evaluate(el => el.scrollTop);
+        await swipe(200, term.y + 60);
+        await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeLessThan(bottom);
+        expect(await selected()).toBe('Account Settings');
+        await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
         const exit = await list.locator('li', { hasText: 'Exit' }).boundingBox();
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: exit.x + 10, y: exit.y + exit.height / 2 }] });
         await touch('touchEnd');
@@ -232,12 +241,10 @@ test.describe('on a touch screen', () => {
         await ready(page);
         await choose(page, MAIN, 'Transfer Funds');
         const field = prompt(page, 'Recipient address:').locator('input');
-        await page.locator('#out').evaluate(out => { for (let i = 0; i < 80; i++) out.prepend(Object.assign(document.createElement('div'), { className: 'l', textContent: `line ${i}` })); });
-        const scroller = page.locator('#term');
         await scroller.evaluate(el => { el.scrollTop = el.scrollHeight; });
-        const bottom = await scroller.evaluate(el => el.scrollTop);
-        await swipe(200);
-        await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeLessThan(bottom);
+        const end = await scroller.evaluate(el => el.scrollTop);
+        await swipe(200, term.y + term.height / 2);
+        await expect.poll(() => scroller.evaluate(el => el.scrollTop)).toBeLessThan(end);
         await expect(field).toBeVisible();
     });
 });

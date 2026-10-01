@@ -46,8 +46,9 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 - `apps/web/src/main.ts` boots `DomTerminal` (a `Ui`), `BrowserSession` (the vault as a
   `WalletSession`) and `host.ts` (password prompt, shared flows, lock and restart).
   Esc selects the choice marked `back`, digits jump, Ctrl+C locks, and a lock rejects every
-  pending and later prompt until the host resets. On touch screens a swipe moves a menu's
-  highlight and a tap anywhere answers it (touching a choice does not pick it); text prompts scroll and focus as usual. Tables flagged `secret` are ephemeral.
+  pending and later prompt until the host resets. On touch screens a swipe that starts on a menu
+  moves its highlight, one that starts above it scrolls, and a tap anywhere answers the menu (touching a
+  choice or a link does not pick or open it); text prompts scroll and focus as usual. Tables flagged `secret` are ephemeral.
 - A wallet that does not exist yet stays pending in `BrowserSession`, holding the chosen
   password, until its first account exists; only then is the vault written.
 - Look and feel (P1/P3/Ice phosphor, scanlines and glow, rolling sweep bar full/subtle/off,
