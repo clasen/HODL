@@ -83,7 +83,8 @@ export class DomTerminal implements Ui {
 
     /**
      * While a menu waits, a vertical swipe moves its highlight instead of scrolling (finger up goes down the list)
-     * and a tap on the screen outside the choices answers it like Enter. Other prompts scroll and focus as usual.
+     * and a tap anywhere on the screen answers it like Enter. Touching a choice does not pick it, so a swipe that
+     * starts on one never chooses by accident; a mouse still clicks choices. Other prompts scroll and focus as usual.
      */
     private touchMenus(screen: HTMLElement): void {
         let gesture: { x: number; y: number; anchor: number; moved: boolean; menu: boolean } | undefined;
@@ -107,10 +108,10 @@ export class DomTerminal implements Ui {
         screen.addEventListener('touchend', event => {
             const ended = gesture;
             gesture = undefined;
-            if (!ended || ended.moved || !ended.menu || !this.active?.tap) return;
-            if ((event.target as Element | null)?.closest('.choice')) return;
+            if (!ended?.menu || !this.active?.tap) return;
+            // No click follows, so the touched choice is never picked in place of the highlighted one.
             event.preventDefault();
-            this.active.tap();
+            if (!ended.moved) this.active.tap();
         });
         screen.addEventListener('touchcancel', () => { gesture = undefined; });
     }

@@ -169,7 +169,7 @@ test('the bezel keys leave focus where it was', async ({ page }) => {
 test.describe('on a touch screen', () => {
     test.use({ hasTouch: true, viewport: { width: 412, height: 839 } });
 
-    test('a swipe moves through a menu, a tap answers it, and text prompts still scroll', async ({ page, browserName }) => {
+    test('a swipe moves through a menu, a tap anywhere answers it, even on another choice, and text prompts still scroll', async ({ page, browserName }) => {
         test.skip(browserName !== 'chromium', 'touch input is driven through the Chromium DevTools protocol');
         await importPhrase(page);
         const list = prompt(page, MAIN);
@@ -191,8 +191,8 @@ test.describe('on a touch screen', () => {
         expect(await selected()).toBe('Show Balance');
         await swipe(-80);
         expect(await selected()).toBe('Account Settings');
-        await page.locator('#term').evaluate(el => { el.scrollTop = 0; });
-        await touch('touchStart', term.y + 20);
+        const exit = await list.locator('li', { hasText: 'Exit' }).boundingBox();
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: exit.x + 10, y: exit.y + exit.height / 2 }] });
         await touch('touchEnd');
         await expect(prompt(page, 'Select an account option:')).toBeVisible();
         await page.keyboard.press('Escape');
