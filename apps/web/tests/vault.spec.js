@@ -173,10 +173,11 @@ test('create with the keyboard only and lock without retaining inputs', async ({
     await expect(out(page)).not.toContainText('Wallet locked.');
 });
 
-test('exit returns to the first screen without a lock notice', async ({ page }) => {
+test('exit returns to the first screen with the farewell and without a lock notice', async ({ page }) => {
     await importPhrase(page);
     await choose(page, MAIN, 'Exit');
     await expect(prompt(page, 'Password:').locator('input')).toHaveValue('');
+    await expect(out(page)).toContainText('Good bye!');
     await expect(page.locator('#session-state')).toHaveText('LOCKED');
     await expect(out(page)).not.toContainText('Wallet locked.');
     await expect(out(page)).not.toContainText(BTC_FROM);

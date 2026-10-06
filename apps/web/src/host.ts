@@ -73,11 +73,12 @@ async function retrying(terminal: DomTerminal, step: () => Promise<void>): Promi
 
 /**
  * The web host: a locked terminal that asks for the password, runs the shared wallet flows, and locks again.
- * Leaving by Exit or Ctrl+C returns to the first screen; any other lock says so.
+ * Leaving by Exit returns to the first screen with the TUI's farewell, by Ctrl+C to the bare first screen; any other lock says so.
  */
 export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, status: Status): Promise<never> {
     let notice: string | undefined;
     let interrupted = false;
+    let left = false;
     terminal.onInterrupt = () => {
         interrupted = true;
         wallet.lock();
@@ -88,16 +89,18 @@ export async function runHost(terminal: DomTerminal, wallet: BrowserWallet, stat
         status.setSession('locked');
         status.setNetwork(undefined);
         welcome(terminal);
+        if (left) farewell(terminal);
         if (notice) terminal.print(notice);
         notice = undefined;
         interrupted = false;
+        left = false;
         try {
             const session = await openSession(terminal, wallet, status);
             if (session.isNew) status.setSession('setup');
             await retrying(terminal, () => initialize(terminal, session));
             status.setSession('unlocked');
             await retrying(terminal, () => mainMenu(terminal, session));
-            farewell(terminal);
+            left = true;
         } catch (error) {
             if (!terminal.isAborted && !isPromptAborted(error)) notice = describe(error);
             else if (!interrupted) notice = lockedNotice;
