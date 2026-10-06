@@ -150,15 +150,17 @@ export default class BitcoinNetwork extends BaseNetwork {
                 }
             }
 
-            const estimatedFee = this.estimateTxSize(psbt.inputCount, maximum ? 1 : 2) * feeRate;
+            const singleOutputFee = this.estimateTxSize(psbt.inputCount, 1) * feeRate;
             if (maximum) {
-                satoshis = totalInputValue - estimatedFee;
+                satoshis = totalInputValue - singleOutputFee;
                 if (!Number.isSafeInteger(satoshis) || satoshis <= 546) {
                     throw new Error('Insufficient spendable Bitcoin balance after fees.');
                 }
                 amountBaseUnits = BigInt(satoshis);
             }
-            if (totalInputValue < satoshis + estimatedFee) {
+            // Dust change is left to the fee, so it needs no output and no fee for one.
+            const changeValue = totalInputValue - satoshis - this.estimateTxSize(psbt.inputCount, 2) * feeRate;
+            if (totalInputValue < satoshis + singleOutputFee) {
                 throw new Error('Insufficient balance for the transaction including fees.');
             }
 
@@ -167,7 +169,6 @@ export default class BitcoinNetwork extends BaseNetwork {
                 value: satoshis
             });
 
-            const changeValue = totalInputValue - satoshis - estimatedFee;
             let returnedChange = 0;
             if (changeValue > 546) {
                 psbt.addOutput({

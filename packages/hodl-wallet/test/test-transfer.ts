@@ -404,6 +404,8 @@ test('Bitcoin max spends all inputs with one output and subtracts the fee', asyn
     assert.equal(tx.outs.length, 1);
     assert.equal(tx.outs[0].value, 300000 - network.estimateTxSize(2, 1) * 2);
     assert.equal(BigInt(result.amountBaseUnits) + BigInt(result.fee.baseUnits), 300000n);
+    const resolved = await network.prepareTransfer(from, FROM, result.amount, 'BTC', { feeRate: 2, maxFeeBaseUnits: result.fee.baseUnits });
+    assert.equal(resolved.rawTransaction, result.rawTransaction);
     network.getUTXOs = async () => [];
     await assert.rejects(network.prepareTransfer(from, FROM, 'max', 'BTC'), /Insufficient/);
 });
