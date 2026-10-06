@@ -77,7 +77,8 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   it with a phrase or key keeps its address book, as in the TUI.
   Neither side imports legacy-format `.HODL` files; only `~/.HODL` profiles still migrate.
 - `pnpm run preview:web` serves the built wallet and diagnostic locally.
-- `pnpm run typecheck:web` checks browser TypeScript using the existing compiler.
+- `pnpm run typecheck:web` builds the package, then checks browser TypeScript using the existing compiler
+  (the browser types come from `packages/hodl-wallet/dist/`).
 - `pnpm run test:web` builds and runs offline Playwright checks in Chromium,
   Firefox and WebKit. Install browsers with `pnpm --filter @hodl/web exec playwright install`.
 - `pnpm run test:web:connectivity` explicitly probes configured public endpoints
