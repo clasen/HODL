@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AgentError } from '../agent-errors.js';
-import { initialize, isPromptAborted, loadAccount, mainMenu, PromptAborted, showAccountDetails, showBalance, showTransactions, transferFunds } from '../app/index.js';
-import type { Cell, HostAction, SentTransfer, SessionCapabilities, TableSpec, TransferPort, Ui, WalletSession } from '../app/index.js';
+import { initialize, isPromptAborted, loadAccount, mainMenu, PromptAborted, recordedTransferKeys, sentTransfers, showAccountDetails, showBalance, showTransactions, transferFunds } from '../app/index.js';
+import type { Cell, HostAction, JournalTransfer, SentTransfer, SessionCapabilities, TableSpec, TransferPort, Ui, WalletSession } from '../app/index.js';
 import type { NetworkPlugin } from '../network/types.js';
 import type { TransferResult } from '../transfer-service.js';
 
@@ -219,6 +219,27 @@ test('sent transfers show only the columns the host records', async () => {
     await showTransactions(browser, fakeSession({ capabilities: browserCapabilities, sentTransfers: async () => [] }));
     assert.deepEqual(browser.tables[0].head, ['Date', 'Recipient', 'Token', 'Amount', 'Status']);
     assert.deepEqual(browser.tables[0].rows, [[{ colSpan: 5, content: 'No transaction history available.' }]]);
+});
+
+test('sent transfers merge recorded history with the sender\'s journal, the journal status winning', async () => {
+    const plugin = { id: 'op', nativeToken: 'ETH', explorer: 'https://x/' } as NetworkPlugin;
+    assert.deepEqual(recordedTransferKeys(plugin), ['ETH', 'OP']);
+    assert.deepEqual(recordedTransferKeys({ ...plugin, id: 'btc', nativeToken: 'BTC' }), ['BTC']);
+    const journal = (from: string, hash: string, createdAt: string, status: JournalTransfer['status']): JournalTransfer => ({
+        network: 'op', from, to: 'bob', asset: 'ETH', amount: '2', amountBaseUnits: '2', transactionHash: hash, createdAt, status,
+        fee: { asset: 'ETH', amount: '0', baseUnits: '0', decimals: 18, estimated: true }
+    });
+    const sent = await sentTransfers(plugin, 'me', [
+        { timestamp: '2026-01-03', recipient: 'alice', token: 'ETH', amount: 1, hash: 'h1', balance: '9' }
+    ], [
+        journal('me', 'h1', '2026-01-03', 'confirmed'),
+        journal('me', 'h2', '2026-01-01', 'submitted'),
+        journal('other', 'h3', '2026-01-02', 'confirmed')
+    ], async address => address === 'bob' ? 'Bob' : undefined);
+    assert.deepEqual(sent, [
+        { timestamp: '2026-01-01', recipient: 'bob', contact: 'Bob', token: 'ETH', amount: '2', balance: undefined, status: 'submitted', url: 'https://x/h2' },
+        { timestamp: '2026-01-03', recipient: 'alice', contact: undefined, token: 'ETH', amount: 1, balance: '9', status: 'confirmed', url: 'https://x/h1' }
+    ]);
 });
 
 test('transfer asks recipient, token, amount and confirmation, then sends and records once', async () => {

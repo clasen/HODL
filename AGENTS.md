@@ -71,10 +71,12 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 - `pnpm run build:web` builds the existing package, the terminal wallet and the static
   diagnostic in `apps/web/dist/`. The web wallet covers the flows above, address book included;
   swaps are TUI-only. The web has no backup format of its own: it exports and imports the CLI's
-  v2 `.HODL` files (`src/hodl-file.ts`). Web exports hold `account`, `mnemonic` and `contact` and,
-  in both hosts, accept only the wallet password; imports keep one recovery phrase or one private
-  key plus the file's address book, and replacing an open wallet keeps its password. Replacing
-  it with a phrase or key keeps its address book, as in the TUI.
+  v2 `.HODL` files (`src/hodl-file.ts`). Web exports hold `account`, `mnemonic`, `contact`,
+  `transactions` and `sendRequest` and, in both hosts, accept only the wallet password; imports keep
+  one recovery phrase or one private key plus the file's address book and that account's sent
+  transfers (journal entries still awaiting a broadcast decision stay behind), and replacing an
+  open wallet keeps its password. Replacing it with a phrase or key keeps its address book and
+  sent transfers, as in the TUI. Both hosts list sent transfers through `app/history.ts`.
   Neither side imports legacy-format `.HODL` files; only `~/.HODL` profiles still migrate.
 - `pnpm run preview:web` serves the built wallet and diagnostic locally.
 - `pnpm run typecheck:web` builds the package, then checks browser TypeScript using the existing compiler

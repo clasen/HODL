@@ -1,5 +1,5 @@
 import {
-    AgentError, NetworkRegistry, clearSensitiveData, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
+    AgentError, NetworkRegistry, clearSensitiveData, sentTransfers, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
     type HostAction, type NetworkPlugin, type NewAccount, type SentTransfer, type SessionCapabilities, type TransferDraft,
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
@@ -160,13 +160,8 @@ export class BrowserSession implements WalletSession {
         const failed = history.find(entry => entry.error);
         if (failed) this.terminal.print(`Could not update every transfer: ${failed.error}`);
         const contacts = new Map((await this.contacts.list()).map(contact => [contact.address, contact.name]));
-        return history
-            .filter(entry => entry.network === this.selected.id && entry.from === address)
-            .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-            .map(entry => ({
-                timestamp: entry.createdAt, recipient: entry.to, contact: contacts.get(entry.to), token: entry.asset,
-                amount: entry.amount, status: entry.status, url: entry.explorer + entry.transactionHash
-            }));
+        return sentTransfers(this.selected, address, await this.wallet.recordedTransfers(this.selected.id, address), history,
+            async recipient => contacts.get(recipient));
     }
 
     importActions(): HostAction[] {

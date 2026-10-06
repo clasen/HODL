@@ -338,3 +338,41 @@ test('the address book travels in CLI .HODL files and survives replacing the wal
     await addressBook();
     await shown(page, 'No addresses in the address book.');
 });
+
+test('sent transfers travel in CLI .HODL files and survive replacing the wallet with a phrase', async ({ page }) => {
+    const { evm, btc, evmKey, btcKey } = await networks();
+    const account = { [evmKey]: await evm.accountFromMnemonic(PHRASE), [btcKey]: await btc.accountFromMnemonic(PHRASE) };
+    const stranger = '0x' + '5'.repeat(40);
+    const hash = digit => '0x' + digit.repeat(64);
+    const saved = (state, digit, from = EVM_FROM) => ({
+        network: 'eth', from, to: '0x' + '3'.repeat(40), asset: 'ETH', amount: '0.5', amountBaseUnits: '500000000000000000',
+        fee: { asset: 'ETH', amount: '0.0001', baseUnits: '100000000000000', decimals: 18, estimated: true },
+        transactionHash: hash(digit), rawTransaction: '0x' + digit.repeat(10), fingerprint: digit.repeat(64), state,
+        createdAt: `2026-01-0${digit}T00:00:00.000Z`, updatedAt: `2026-01-0${digit}T00:00:00.000Z`
+    });
+    const recorded = { timestamp: '2025-12-01T00:00:00.000Z', recipient: '0x' + '4'.repeat(40), token: 'ETH', amount: '1.25', hash: hash('1'), balance: '3' };
+    const file = await hodlFile({ account, mnemonic: PHRASE,
+        transactions: { [EVM_FROM]: { ETH: { legacy: recorded } }, [stranger]: { ETH: { other: { ...recorded, hash: hash('8') } } } },
+        sendRequest: { sent: saved('confirmed', '2'), undecided: saved('prepared', '6'), foreign: saved('confirmed', '7', stranger) } });
+    const sentTransfers = async () => {
+        await ready(page);
+        await choose(page, MAIN, 'Show Sent Transfers');
+        await ready(page);
+        const rows = page.locator('#out .tbl tbody').last();
+        for (const digit of ['1', '2']) await expect(rows).toContainText(hash(digit));
+        for (const digit of ['6', '7', '8']) await expect(rows).not.toContainText(hash(digit));
+    };
+
+    await firstRun(page);
+    await importHodl(page, () => choose(page, 'Select an account option:', 'Import HODL File'), file);
+    await switchNetwork(page, 'eth');
+    await sentTransfers();
+    await replaceWith(page, 'Import Mnemonic (12 or 24 words)');
+    await answer(page, 'Enter your mnemonic phrase', PHRASE);
+    await sentTransfers();
+
+    const { default: Persist } = await import('hodl-wallet/dist/persist.js');
+    const profile = Persist.decrypt((await exportHodl(page)).text, PASSWORD);
+    expect(profile.transactions).toEqual({ [EVM_FROM]: { ETH: { legacy: recorded } } });
+    expect(profile.sendRequest).toEqual({ sent: saved('confirmed', '2') });
+});

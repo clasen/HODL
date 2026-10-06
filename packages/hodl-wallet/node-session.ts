@@ -11,6 +11,7 @@ import { routeForNetwork } from './swap/routes.js';
 import { startSwapMenu } from './swap/ui.js';
 import { errorMessage } from './app/format.js';
 import { showError } from './app/output.js';
+import { recordedTransferKeys, sentTransfers, type RecordedTransfer } from './app/history.js';
 import type {
     AccountDetails, Contact, ContactsPort, HostAction, NewAccount, PendingTransfer, SentTransfer,
     SessionCapabilities, TransferDraft, TransferPort, WalletSession
@@ -26,15 +27,6 @@ import type {
 
 type StoredContact = {
     name: string;
-};
-type StoredTransaction = {
-    timestamp: string;
-    recipient: string;
-    token: string;
-    amount: string | number;
-    hash: string;
-    balance?: string | number;
-    status?: string;
 };
 
 function isNetworkUsageEntry(value: unknown): value is NetworkUsageEntry {
@@ -257,46 +249,12 @@ export class NodeSession implements WalletSession {
 
     async sentTransfers(): Promise<SentTransfer[]> {
         const address = await this.address();
-        const history = await this.db.values(
-            'transactions',
-            address,
-            this.selectedNetwork.nativeToken
-        ) as StoredTransaction[] || [];
-        const legacyHistoryKey = this.selectedNetwork.id === 'op'
-            ? 'OP'
-            : this.selectedNetwork.id === 'arb'
-                ? 'ARB'
-                : null;
-        if (legacyHistoryKey) {
-            const legacyHistory = await this.db.values(
-                'transactions',
-                address,
-                legacyHistoryKey
-            ) as StoredTransaction[] || [];
-            history.push(...legacyHistory);
-            history.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        const recorded: RecordedTransfer[] = [];
+        for (const key of recordedTransferKeys(this.selectedNetwork)) {
+            recorded.push(...await this.db.values('transactions', address, key) as RecordedTransfer[]);
         }
-
-        const transfers = await this.transferService().list();
-        for (const transfer of transfers.filter(item => item.from === address)) {
-            const existing = history.find(item => item.hash === transfer.transactionHash);
-            if (existing) existing.status = transfer.status;
-            else history.push({
-                timestamp: transfer.createdAt, recipient: transfer.to, token: transfer.asset,
-                amount: transfer.amount, hash: transfer.transactionHash, status: transfer.status
-            });
-        }
-        history.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-
-        const sent: SentTransfer[] = [];
-        for (const tx of history) {
-            sent.push({
-                timestamp: tx.timestamp, recipient: tx.recipient, contact: await this.contactName(tx.recipient),
-                token: tx.token, amount: tx.amount, balance: tx.balance, status: tx.status,
-                url: this.selectedNetwork.explorer + tx.hash
-            });
-        }
-        return sent;
+        return sentTransfers(this.selectedNetwork, address, recorded, await this.transferService().list(),
+            recipient => this.contactName(recipient));
     }
 
     importActions(): HostAction[] {
@@ -386,7 +344,7 @@ export class NodeSession implements WalletSession {
             balance
         };
         const address = await this.address();
-        const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) as StoredTransaction[] || [];
+        const history = await this.db.values('transactions', address, this.selectedNetwork.nativeToken) as RecordedTransfer[] || [];
         if (!history.some(entry => entry.hash === hash)) {
             await this.db.add('transactions', address, this.selectedNetwork.nativeToken, transaction);
         }

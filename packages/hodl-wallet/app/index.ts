@@ -9,3 +9,5 @@ export { errorMessage, formatAmount, formatDate } from './format.js';
 export { AccountNotInitialized, initialize, mainMenu, runWallet, showBalance, showTransactions } from './menu.js';
 export { loadAccount, showAccountDetails, switchNetwork } from './account.js';
 export { transferFunds } from './transfer.js';
+export { isRecordedTransfer, recordedTransferKeys, sentTransfers } from './history.js';
+export type { JournalTransfer, RecordedTransfer } from './history.js';

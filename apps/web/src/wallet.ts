@@ -1,4 +1,5 @@
-import { NetworkRegistry, clearSensitiveData, networkStorageName, type AccountDetails, type Contact, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
+import { NetworkRegistry, clearSensitiveData, isRecordedTransfer, networkStorageName, recordedTransferKeys,
+    type AccountDetails, type Contact, type RecordedTransfer, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { openHodlFile, sealHodlFile, type HodlFile } from './hodl-file.js';
 import { BrowserVault, type VaultData } from './vault.js';
@@ -11,7 +12,12 @@ type Family = 'evm' | 'bitcoin';
 type Metadata = { name: string; kind: 'mnemonic' | 'private-key'; createdAt: string };
 /** The CLI's address book: network storage name, then address, then the contact. */
 type Contacts = Record<string, Record<string, { name: string }>>;
-type WalletData = VaultData & { metadata: Metadata; account: Record<string, WalletAccount>; mnemonic?: string; contact?: Contacts };
+/** The CLI's sent transfers: sender address, history key, id, then the transfer. */
+type RecordedTransfers = Record<string, Record<string, Record<string, RecordedTransfer>>>;
+type WalletData = VaultData & {
+    metadata: Metadata; account: Record<string, WalletAccount>; mnemonic?: string; contact?: Contacts;
+    transactions?: RecordedTransfers; sendRequest?: Record<string, unknown>;
+};
 export type PublicWallet = {
     name: string;
     kind: Metadata['kind'];
@@ -48,6 +54,14 @@ function profileContacts(value: unknown): Contacts {
     }
     return contacts;
 }
+
+function isRecordedTransfers(value: unknown): value is RecordedTransfers {
+    return record(value) && Object.values(value).every(book => record(book) && Object.values(book).every(list =>
+        record(list) && Object.values(list).every(isRecordedTransfer)));
+}
+
+/** Journal states whose broadcast needs no further decision. */
+const SETTLED_STATES = ['submitted', 'confirmed', 'failed'];
 
 function storedAccount(account: WalletAccount): WalletAccount {
     return { address: account.address, privateKey: account.privateKey,
@@ -150,6 +164,40 @@ export class BrowserWallet {
         throw new VaultError('The HODL file has separate keys per network. Import its recovery phrase or one private key instead.');
     }
 
+    /**
+     * The file's sent transfers from the wallet's accounts: recorded ones, and journal entries already broadcast.
+     * Entries still awaiting a broadcast decision stay in the file.
+     */
+    private profileHistory(profile: unknown, accounts: WalletData['account']): Pick<WalletData, 'transactions' | 'sendRequest'> {
+        const owners = (['evm', 'bitcoin'] as const).flatMap(family => {
+            const account = accounts[this.network(family).plugin.NetworkClass.name];
+            return account ? [{ family, address: account.address }] : [];
+        });
+        const owner = (address: unknown, family?: Family) => typeof address === 'string'
+            ? owners.find(candidate => (family === undefined || candidate.family === family) && sameAddress(candidate.family, candidate.address, address))
+            : undefined;
+        const file = record(profile) ? profile : {};
+        const transactions: RecordedTransfers = {};
+        for (const [address, book] of Object.entries(record(file.transactions) ? file.transactions : {})) {
+            const sender = owner(address);
+            if (!sender || !record(book)) continue;
+            for (const [key, list] of Object.entries(book)) {
+                if (!record(list)) continue;
+                for (const [id, transfer] of Object.entries(list)) {
+                    if (isRecordedTransfer(transfer)) ((transactions[sender.address] ??= {})[key] ??= {})[id] = structuredClone(transfer);
+                }
+            }
+        }
+        const sendRequest: Record<string, unknown> = {};
+        for (const [id, saved] of Object.entries(record(file.sendRequest) ? file.sendRequest : {})) {
+            if (!record(saved)) continue;
+            const plugin = this.registry.list().find(candidate => candidate.id === saved.network);
+            if (plugin && owner(saved.from, plugin.family) && SETTLED_STATES.includes(String(saved.state)) &&
+                typeof saved.transactionHash === 'string' && typeof saved.createdAt === 'string') sendRequest[id] = structuredClone(saved);
+        }
+        return { ...(Object.keys(transactions).length ? { transactions } : {}), ...(Object.keys(sendRequest).length ? { sendRequest } : {}) };
+    }
+
     /** Saved transfers still waiting for the user's decision belong to the open wallet; replacing it would drop them. */
     private async assertReplaceable(): Promise<void> {
         for (const network of (await this.snapshot()).networks) {
@@ -159,12 +207,15 @@ export class BrowserWallet {
         }
     }
 
-    /** Replacing the open wallet with a phrase or a key keeps its address book, as the CLI does. */
-    private keepingContacts(create: () => Promise<WalletData>): () => Promise<WalletData> {
+    /** Replacing the open wallet with a phrase or a key keeps its address book and sent transfers, as the CLI does. */
+    private keepingRecords(create: () => Promise<WalletData>): () => Promise<WalletData> {
         return async () => {
-            const contact = this.unlocked ? await this.vault.get('contact') : undefined;
-            const data = await create();
-            return isContacts(contact) ? { ...data, contact } : data;
+            const kept: Record<string, unknown> = {};
+            for (const key of ['contact', 'transactions', 'sendRequest']) {
+                const value = this.unlocked ? await this.vault.get(key) : undefined;
+                if (value !== undefined) kept[key] = value;
+            }
+            return { ...await create(), ...kept };
         };
     }
 
@@ -188,8 +239,9 @@ export class BrowserWallet {
     }
 
     private validate = async (value: VaultData): Promise<void> => {
-        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'contact', 'sendRequest', 'swapQuote', 'swapOperation'].includes(key)) ||
-            !record(value.metadata) || !record(value.account) || (value.contact !== undefined && !isContacts(value.contact))) throw new VaultError('Invalid wallet data.');
+        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'contact', 'transactions', 'sendRequest', 'swapQuote', 'swapOperation'].includes(key)) ||
+            !record(value.metadata) || !record(value.account) || (value.contact !== undefined && !isContacts(value.contact)) ||
+            (value.transactions !== undefined && !isRecordedTransfers(value.transactions))) throw new VaultError('Invalid wallet data.');
         const metadata = value.metadata;
         if (typeof metadata.name !== 'string' || walletName(metadata.name) !== metadata.name ||
             !['mnemonic', 'private-key'].includes(String(metadata.kind)) ||
@@ -249,11 +301,11 @@ export class BrowserWallet {
     /** Without a password it replaces the open wallet; the same holds for the other imports. */
     importMnemonic(name: string, password: string | undefined, phrase: string): Promise<PublicWallet> {
         const mnemonic = phrase.trim().toLowerCase().split(/\s+/).join(' ');
-        return this.store(password, this.keepingContacts(() => this.fromMnemonic(name, mnemonic)));
+        return this.store(password, this.keepingRecords(() => this.fromMnemonic(name, mnemonic)));
     }
 
     importPrivateKey(name: string, password: string | undefined, family: Family, privateKey: string): Promise<PublicWallet> {
-        return this.store(password, this.keepingContacts(() => this.fromPrivateKey(name, family, privateKey)));
+        return this.store(password, this.keepingRecords(() => this.fromPrivateKey(name, family, privateKey)));
     }
 
     importHodlFile(name: string, password: string | undefined, file: HodlFile, filePassword: string): Promise<PublicWallet> {
@@ -262,7 +314,7 @@ export class BrowserWallet {
             try {
                 const data = await this.fromProfile(name, profile);
                 const contact = profileContacts(record(profile) ? profile.contact : undefined);
-                return Object.keys(contact).length ? { ...data, contact } : data;
+                return { ...data, ...(Object.keys(contact).length ? { contact } : {}), ...this.profileHistory(profile, data.account) };
             }
             finally { clearSensitiveData(profile); }
         });
@@ -273,14 +325,15 @@ export class BrowserWallet {
         return this.opened();
     }
 
-    /** The wallet's accounts and address book as the CLI profile inside a .HODL file, sealed with the wallet password. */
+    /** The wallet's accounts, address book and sent transfers as the CLI profile inside a .HODL file, sealed with the wallet password. */
     async exportHodlFile(password: string): Promise<string> {
         await this.vault.verifyPassword(password);
         const { store } = this.vault.scope();
-        const account = await store.get('account');
-        const mnemonic = await store.get('mnemonic');
-        const contact = await store.get('contact');
-        const profile = { account, ...(mnemonic === undefined ? {} : { mnemonic }), ...(contact === undefined ? {} : { contact }) };
+        const profile: Record<string, unknown> = { account: await store.get('account') };
+        for (const key of ['mnemonic', 'contact', 'transactions', 'sendRequest']) {
+            const value = await store.get(key);
+            if (value !== undefined) profile[key] = value;
+        }
         try { return await sealHodlFile(profile, password); }
         finally { clearSensitiveData(profile); }
     }
@@ -291,6 +344,16 @@ export class BrowserWallet {
     reviewSavedTransfer(network: string, id: string): Promise<TransferReview> { return this.transfers.reviewSaved(network, id); }
     confirmTransfer(id: string, onBroadcast: () => void): Promise<TransferOutcome> { return this.transfers.confirm(id, onBroadcast); }
     transferHistory(refresh: boolean, networkId?: string): Promise<HistoryEntry[]> { return this.transfers.history(refresh, networkId); }
+
+    /** Transfers the CLI recorded from `address` on a network, outside the journal. */
+    async recordedTransfers(networkId: string, address: string): Promise<RecordedTransfer[]> {
+        const { store } = this.vault.scope();
+        const recorded: RecordedTransfer[] = [];
+        for (const key of recordedTransferKeys(this.registry.get(networkId))) {
+            recorded.push(...(await store.entries('transactions', address, key) as Array<[string, RecordedTransfer]>).map(([, transfer]) => transfer));
+        }
+        return recorded;
+    }
     cancelTransferReview(): void { this.transfers.reset(); }
 
     private contactBook(networkId: string): string {
