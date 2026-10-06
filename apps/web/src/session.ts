@@ -1,5 +1,5 @@
 import {
-    AgentError, NetworkRegistry, clearSensitiveData, showError, type AccountDetails, type BaseNetworkContract, type Cell,
+    AgentError, NetworkRegistry, clearSensitiveData, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
     type HostAction, type NetworkPlugin, type NewAccount, type SentTransfer, type SessionCapabilities, type TransferDraft,
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
@@ -31,6 +31,7 @@ function download(text: string, fileName: string): void {
 export class BrowserSession implements WalletSession {
     readonly capabilities: SessionCapabilities = { replaceAccount: false, balanceHistory: false, switchNetworkFirst: true };
     readonly transfers: TransferPort;
+    readonly contacts: ContactsPort;
 
     private readonly registry = new NetworkRegistry();
     private password: string | undefined;
@@ -48,6 +49,13 @@ export class BrowserSession implements WalletSession {
         if ('snapshot' in opened) this.snapshot = opened.snapshot;
         else this.password = opened.password;
         this.transfers = this.transferPort();
+        this.contacts = {
+            list: () => this.wallet.contacts(this.selected.id),
+            get: address => this.wallet.contactName(this.selected.id, address),
+            set: (address, name) => this.wallet.saveContact(this.selected.id, address, name),
+            delete: address => this.wallet.deleteContact(this.selected.id, address),
+            clear: () => this.wallet.clearContacts()
+        };
     }
 
     /** No vault exists yet; it is written when the first account is created or imported. */
@@ -151,12 +159,13 @@ export class BrowserSession implements WalletSession {
         const history = await this.protect('Checking saved transfers…', () => this.wallet.transferHistory(true, this.selected.id));
         const failed = history.find(entry => entry.error);
         if (failed) this.terminal.print(`Could not update every transfer: ${failed.error}`);
+        const contacts = new Map((await this.contacts.list()).map(contact => [contact.address, contact.name]));
         return history
             .filter(entry => entry.network === this.selected.id && entry.from === address)
             .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
             .map(entry => ({
-                timestamp: entry.createdAt, recipient: entry.to, token: entry.asset, amount: entry.amount,
-                status: entry.status, url: entry.explorer + entry.transactionHash
+                timestamp: entry.createdAt, recipient: entry.to, contact: contacts.get(entry.to), token: entry.asset,
+                amount: entry.amount, status: entry.status, url: entry.explorer + entry.transactionHash
             }));
     }
 
@@ -261,8 +270,8 @@ export class BrowserSession implements WalletSession {
                 return outcome.transfer;
             },
             record: async (result: TransferResult, draft: TransferDraft): Promise<SentTransfer> => ({
-                timestamp: new Date(), recipient: draft.to, token: draft.asset, amount: result.amount, status: result.status,
-                url: this.selected.explorer + result.transactionHash
+                timestamp: new Date(), recipient: draft.to, contact: await this.contacts.get(draft.to), token: draft.asset,
+                amount: result.amount, status: result.status, url: this.selected.explorer + result.transactionHash
             })
         };
     }

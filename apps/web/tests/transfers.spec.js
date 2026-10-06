@@ -29,12 +29,16 @@ for (const [network, asset, amount, expected] of [
         await page.keyboard.press('Enter');
         await page.keyboard.press('Enter');
         await shown(page, expected);
+        await answer(page, 'Name for the address book', 'Alice');
+        await shown(page, 'Recipient saved to the address book.');
         await ready(page);
         expect(state.hashes).toHaveLength(1);
         expect(state.unexpected).toEqual([]);
         const stored = await storedTransfers(page);
         expect(stored).toHaveLength(1);
         expect(await page.locator('body').textContent()).not.toContain(stored[0].rawTransaction);
+        await choose(page, MAIN, 'Show Sent Transfers');
+        await expect(page.locator('#out .tbl tbody').last()).toContainText('Alice');
         expect(errors).toEqual([]);
     });
 }

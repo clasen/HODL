@@ -301,3 +301,39 @@ test('CLI .HODL files import on first run and replace an open wallet keeping its
     await choose(page, 'Select an account option:', 'Switch Network');
     await expect(prompt(page, 'Select the network:').locator('li.choice', { hasText: 'Bitcoin' })).toHaveCount(0);
 });
+
+test('the address book travels in CLI .HODL files and survives replacing the wallet with a phrase', async ({ page }) => {
+    const { evm, btc, evmKey, btcKey } = await networks();
+    const contact = '0x2222222222222222222222222222222222222222';
+    const book = { '[ERC-20] Ethereum': { [contact]: { name: 'Alice' } } };
+    const account = { [evmKey]: await evm.accountFromMnemonic(PHRASE), [btcKey]: await btc.accountFromMnemonic(PHRASE) };
+    const file = await hodlFile({ account, mnemonic: PHRASE, contact: book });
+    const addressBook = async () => {
+        await ready(page);
+        await choose(page, MAIN, 'Account Settings');
+        await choose(page, 'Select an account option:', 'Manage Address Book');
+        await choose(page, 'Select an address book option:', 'Delete Address');
+    };
+
+    await firstRun(page);
+    await importHodl(page, () => choose(page, 'Select an account option:', 'Import HODL File'), file);
+    await switchNetwork(page, 'eth');
+    await replaceWith(page, 'Import Mnemonic (12 or 24 words)');
+    await answer(page, 'Enter your mnemonic phrase', PHRASE);
+    await addressBook();
+    await choose(page, 'Select an address to delete:', `${contact} (Alice)`);
+    await confirm(page, 'Are you sure you want to delete this address?', false);
+
+    const { default: Persist } = await import('hodl-wallet/dist/persist.js');
+    expect(Persist.decrypt((await exportHodl(page)).text, PASSWORD).contact).toEqual(book);
+
+    await addressBook();
+    await choose(page, 'Select an address to delete:', `${contact} (Alice)`);
+    await confirm(page, 'Are you sure you want to delete this address?');
+    await shown(page, 'Address deleted successfully.');
+    await page.reload();
+    await unlock(page);
+    await switchNetwork(page, 'eth');
+    await addressBook();
+    await shown(page, 'No addresses in the address book.');
+});

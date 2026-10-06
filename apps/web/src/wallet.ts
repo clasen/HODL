@@ -1,4 +1,4 @@
-import { NetworkRegistry, clearSensitiveData, type AccountDetails, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
+import { NetworkRegistry, clearSensitiveData, networkStorageName, type AccountDetails, type Contact, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { openHodlFile, sealHodlFile, type HodlFile } from './hodl-file.js';
 import { BrowserVault, type VaultData } from './vault.js';
@@ -9,7 +9,9 @@ import { BrowserTransfers, type TransferInput, type TransferReview, type Transfe
 
 type Family = 'evm' | 'bitcoin';
 type Metadata = { name: string; kind: 'mnemonic' | 'private-key'; createdAt: string };
-type WalletData = VaultData & { metadata: Metadata; account: Record<string, WalletAccount>; mnemonic?: string };
+/** The CLI's address book: network storage name, then address, then the contact. */
+type Contacts = Record<string, Record<string, { name: string }>>;
+type WalletData = VaultData & { metadata: Metadata; account: Record<string, WalletAccount>; mnemonic?: string; contact?: Contacts };
 export type PublicWallet = {
     name: string;
     kind: Metadata['kind'];
@@ -27,6 +29,24 @@ function walletName(name: string): string {
 
 function sameAddress(family: Family, a: string, b: string): boolean {
     return family === 'evm' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+function isContacts(value: unknown): value is Contacts {
+    return record(value) && Object.values(value).every(book => record(book) && Object.values(book).every(entry =>
+        record(entry) && typeof entry.name === 'string' && Object.keys(entry).length === 1));
+}
+
+/** The named entries of a CLI profile's address book. */
+function profileContacts(value: unknown): Contacts {
+    const contacts: Contacts = {};
+    if (!record(value)) return contacts;
+    for (const [network, book] of Object.entries(value)) {
+        if (!record(book)) continue;
+        for (const [address, entry] of Object.entries(book)) {
+            if (record(entry) && typeof entry.name === 'string') (contacts[network] ??= {})[address] = { name: entry.name };
+        }
+    }
+    return contacts;
 }
 
 function storedAccount(account: WalletAccount): WalletAccount {
@@ -139,6 +159,15 @@ export class BrowserWallet {
         }
     }
 
+    /** Replacing the open wallet with a phrase or a key keeps its address book, as the CLI does. */
+    private keepingContacts(create: () => Promise<WalletData>): () => Promise<WalletData> {
+        return async () => {
+            const contact = this.unlocked ? await this.vault.get('contact') : undefined;
+            const data = await create();
+            return isContacts(contact) ? { ...data, contact } : data;
+        };
+    }
+
     /** Creates the wallet with a new password, or replaces the open one keeping its password. */
     private async store(password: string | undefined, create: () => Promise<WalletData>): Promise<PublicWallet> {
         if (!this.unlocked) {
@@ -159,8 +188,8 @@ export class BrowserWallet {
     }
 
     private validate = async (value: VaultData): Promise<void> => {
-        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'sendRequest', 'swapQuote', 'swapOperation'].includes(key)) ||
-            !record(value.metadata) || !record(value.account)) throw new VaultError('Invalid wallet data.');
+        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'contact', 'sendRequest', 'swapQuote', 'swapOperation'].includes(key)) ||
+            !record(value.metadata) || !record(value.account) || (value.contact !== undefined && !isContacts(value.contact))) throw new VaultError('Invalid wallet data.');
         const metadata = value.metadata;
         if (typeof metadata.name !== 'string' || walletName(metadata.name) !== metadata.name ||
             !['mnemonic', 'private-key'].includes(String(metadata.kind)) ||
@@ -220,17 +249,21 @@ export class BrowserWallet {
     /** Without a password it replaces the open wallet; the same holds for the other imports. */
     importMnemonic(name: string, password: string | undefined, phrase: string): Promise<PublicWallet> {
         const mnemonic = phrase.trim().toLowerCase().split(/\s+/).join(' ');
-        return this.store(password, () => this.fromMnemonic(name, mnemonic));
+        return this.store(password, this.keepingContacts(() => this.fromMnemonic(name, mnemonic)));
     }
 
     importPrivateKey(name: string, password: string | undefined, family: Family, privateKey: string): Promise<PublicWallet> {
-        return this.store(password, () => this.fromPrivateKey(name, family, privateKey));
+        return this.store(password, this.keepingContacts(() => this.fromPrivateKey(name, family, privateKey)));
     }
 
     importHodlFile(name: string, password: string | undefined, file: HodlFile, filePassword: string): Promise<PublicWallet> {
         return this.store(password, async () => {
             const profile = await openHodlFile(file, filePassword);
-            try { return await this.fromProfile(name, profile); }
+            try {
+                const data = await this.fromProfile(name, profile);
+                const contact = profileContacts(record(profile) ? profile.contact : undefined);
+                return Object.keys(contact).length ? { ...data, contact } : data;
+            }
             finally { clearSensitiveData(profile); }
         });
     }
@@ -240,13 +273,14 @@ export class BrowserWallet {
         return this.opened();
     }
 
-    /** The wallet's accounts as the CLI profile inside a .HODL file, sealed with the wallet password. */
+    /** The wallet's accounts and address book as the CLI profile inside a .HODL file, sealed with the wallet password. */
     async exportHodlFile(password: string): Promise<string> {
         await this.vault.verifyPassword(password);
         const { store } = this.vault.scope();
         const account = await store.get('account');
         const mnemonic = await store.get('mnemonic');
-        const profile = { account, ...(mnemonic === undefined ? {} : { mnemonic }) };
+        const contact = await store.get('contact');
+        const profile = { account, ...(mnemonic === undefined ? {} : { mnemonic }), ...(contact === undefined ? {} : { contact }) };
         try { return await sealHodlFile(profile, password); }
         finally { clearSensitiveData(profile); }
     }
@@ -258,6 +292,44 @@ export class BrowserWallet {
     confirmTransfer(id: string, onBroadcast: () => void): Promise<TransferOutcome> { return this.transfers.confirm(id, onBroadcast); }
     transferHistory(refresh: boolean, networkId?: string): Promise<HistoryEntry[]> { return this.transfers.history(refresh, networkId); }
     cancelTransferReview(): void { this.transfers.reset(); }
+
+    private contactBook(networkId: string): string {
+        return networkStorageName(this.registry.get(networkId));
+    }
+
+    async contacts(networkId: string): Promise<Contact[]> {
+        const { store } = this.vault.scope();
+        const entries = await store.entries('contact', this.contactBook(networkId)) as Array<[string, { name: string }]>;
+        return entries.map(([address, { name }]) => ({ address, name }));
+    }
+
+    async contactName(networkId: string, address: string): Promise<string | undefined> {
+        const { store } = this.vault.scope();
+        const name = await store.get('contact', this.contactBook(networkId), address, 'name');
+        return typeof name === 'string' ? name : undefined;
+    }
+
+    async saveContact(networkId: string, address: string, name: string): Promise<void> {
+        const { store } = this.vault.scope();
+        await store.set('contact', this.contactBook(networkId), address, { name });
+        await store.flush();
+    }
+
+    async deleteContact(networkId: string, address: string): Promise<void> {
+        const { store } = this.vault.scope();
+        const book = this.contactBook(networkId);
+        const contacts = await store.get('contact', book) as Contacts[string] | undefined;
+        if (!contacts || !Object.hasOwn(contacts, address)) return;
+        delete contacts[address];
+        await store.set('contact', book, contacts);
+        await store.flush();
+    }
+
+    async clearContacts(): Promise<void> {
+        const { store } = this.vault.scope();
+        await store.set('contact', {});
+        await store.flush();
+    }
 
     async balances(networkId: string): Promise<BalanceRow[]> {
         const { store, check } = this.vault.scope();
