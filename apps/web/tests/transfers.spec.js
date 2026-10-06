@@ -185,6 +185,7 @@ test('closing after broadcast recovers from the durable journal without retransm
     await unlockFixture(reopened);
     await choose(reopened, MAIN, 'Show Sent Transfers');
     await expect(reopened.locator('#out .tbl tbody').last()).toContainText('confirmed');
+    await expect(reopened.locator('#out .tbl tbody').last().locator('a')).toHaveAttribute('href', /^https:\/\/btcscan\.org\/tx\/\w+$/);
     expect(state.hashes).toHaveLength(1);
     expect((await storedTransfers(reopened))[0].state).toBe('confirmed');
 });

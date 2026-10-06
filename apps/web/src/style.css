@@ -95,6 +95,7 @@ html[data-scanlines="on"] .term { text-shadow: var(--shadow); }
 }
 .tbl thead th { color: var(--tone); font-weight: 700; border-color: var(--tone); }
 .tbl-wrap[data-tone="red"] .tbl th, .tbl-wrap[data-tone="red"] .tbl td { border-color: var(--bad); }
+.link { color: inherit; text-decoration: none; }
 .secret .tbl-wrap { outline: 1px dashed var(--warn); outline-offset: 3px; }
 .secret .dim { color: var(--warn); }
 

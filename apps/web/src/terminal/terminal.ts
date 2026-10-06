@@ -29,6 +29,20 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string,
     return element;
 }
 
+/** Output text; a value that is a whole https URL, like an explorer link, becomes a link styled as the text around it. */
+function write<T extends HTMLElement>(element: T, text: string): T {
+    if (!/^https:\/\/\S+$/.test(text)) {
+        element.textContent = text;
+        return element;
+    }
+    const link = node('a', 'link', text);
+    link.href = text;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    element.append(link);
+    return element;
+}
+
 /**
  * An input that is a field of a prompt: no browser help that would store or alter what is typed.
  * Secrets are masked by style, not type=password, because password managers ignore data-bwignore there.
@@ -194,19 +208,14 @@ export class DomTerminal implements Ui {
     }
 
     print(text: string): void {
-        this.append(node('div', 'l', text));
+        this.append(write(node('div', 'l'), text));
     }
 
     table(spec: TableSpec): void {
         const cell = (tag: 'th' | 'td', value: Cell): HTMLElement => {
             const element = node(tag);
-            if (typeof value === 'string') {
-                element.textContent = value;
-            } else {
-                element.colSpan = value.colSpan;
-                element.textContent = value.content;
-            }
-            return element;
+            if (typeof value !== 'string') element.colSpan = value.colSpan;
+            return write(element, typeof value === 'string' ? value : value.content);
         };
         const wrap = node('div', 'tbl-wrap');
         wrap.dataset.tone = spec.tone;
