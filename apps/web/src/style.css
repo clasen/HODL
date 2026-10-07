@@ -86,7 +86,6 @@ html[data-scanlines="on"] .term { text-shadow: var(--shadow); }
 
 /* ---- tables */
 .tbl-wrap { --tone: var(--fg); margin: .5em 0; max-width: 100%; overflow-x: auto; }
-.tbl-wrap[data-tone="yellow"] { --tone: var(--warn); }
 .tbl-wrap[data-tone="red"] { --tone: var(--bad); }
 .tbl { border-collapse: collapse; max-width: 100%; }
 .tbl th, .tbl td {
