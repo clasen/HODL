@@ -1,5 +1,5 @@
-import { NetworkRegistry, clearSensitiveData, isRecordedTransfer, networkStorageName, recordedTransferKeys,
-    type AccountDetails, type Contact, type RecordedTransfer, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
+import { NetworkRegistry, clearSensitiveData, isNetworkUsageEntry, isRecordedTransfer, networkStorageName, recordNetworkUse, recordedTransferKeys,
+    type AccountDetails, type Contact, type NetworkUsage, type RecordedTransfer, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { openHodlFile, sealHodlFile, type HodlFile } from './hodl-file.js';
 import { BrowserVault, type VaultData } from './vault.js';
@@ -16,7 +16,7 @@ type Contacts = Record<string, Record<string, { name: string }>>;
 type RecordedTransfers = Record<string, Record<string, Record<string, RecordedTransfer>>>;
 type WalletData = VaultData & {
     metadata: Metadata; account: Record<string, WalletAccount>; mnemonic?: string; contact?: Contacts;
-    transactions?: RecordedTransfers; sendRequest?: Record<string, unknown>;
+    transactions?: RecordedTransfers; sendRequest?: Record<string, unknown>; networkUsage?: NetworkUsage;
 };
 export type PublicWallet = {
     name: string;
@@ -211,7 +211,7 @@ export class BrowserWallet {
     private keepingRecords(create: () => Promise<WalletData>): () => Promise<WalletData> {
         return async () => {
             const kept: Record<string, unknown> = {};
-            for (const key of ['contact', 'transactions', 'sendRequest']) {
+            for (const key of ['contact', 'transactions', 'sendRequest', 'networkUsage']) {
                 const value = this.unlocked ? await this.vault.get(key) : undefined;
                 if (value !== undefined) kept[key] = value;
             }
@@ -239,9 +239,10 @@ export class BrowserWallet {
     }
 
     private validate = async (value: VaultData): Promise<void> => {
-        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'contact', 'transactions', 'sendRequest', 'swapQuote', 'swapOperation'].includes(key)) ||
+        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'contact', 'transactions', 'sendRequest', 'swapQuote', 'swapOperation', 'networkUsage'].includes(key)) ||
             !record(value.metadata) || !record(value.account) || (value.contact !== undefined && !isContacts(value.contact)) ||
-            (value.transactions !== undefined && !isRecordedTransfers(value.transactions))) throw new VaultError('Invalid wallet data.');
+            (value.transactions !== undefined && !isRecordedTransfers(value.transactions)) ||
+            (value.networkUsage !== undefined && !(record(value.networkUsage) && Object.values(value.networkUsage).every(isNetworkUsageEntry)))) throw new VaultError('Invalid wallet data.');
         const metadata = value.metadata;
         if (typeof metadata.name !== 'string' || walletName(metadata.name) !== metadata.name ||
             !['mnemonic', 'private-key'].includes(String(metadata.kind)) ||
@@ -392,6 +393,21 @@ export class BrowserWallet {
         const { store } = this.vault.scope();
         await store.set('contact', {});
         await store.flush();
+    }
+
+    async networkUsage(): Promise<NetworkUsage> {
+        const { store } = this.vault.scope();
+        return (await store.get('networkUsage') ?? {}) as NetworkUsage;
+    }
+
+    /** Counts a use of the network, as the CLI does. */
+    async useNetwork(networkId: string): Promise<NetworkUsage> {
+        const { store } = this.vault.scope();
+        const usage = (await store.get('networkUsage') ?? {}) as NetworkUsage;
+        recordNetworkUse(usage, this.registry.get(networkId));
+        await store.set('networkUsage', usage);
+        await store.flush();
+        return usage;
     }
 
     async balances(networkId: string): Promise<BalanceRow[]> {

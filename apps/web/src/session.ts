@@ -1,6 +1,6 @@
 import {
-    AgentError, NetworkRegistry, clearSensitiveData, sentTransfers, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
-    type HostAction, type NetworkPlugin, type NewAccount, type SentTransfer, type SessionCapabilities, type TransferDraft,
+    AgentError, NetworkRegistry, byRecentUse, clearSensitiveData, sentTransfers, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
+    type HostAction, type NetworkPlugin, type NetworkUsage, type NewAccount, type SentTransfer, type SessionCapabilities, type TransferDraft,
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
@@ -36,6 +36,7 @@ export class BrowserSession implements WalletSession {
     private readonly registry = new NetworkRegistry();
     private password: string | undefined;
     private snapshot: PublicWallet | undefined;
+    private usage: NetworkUsage = {};
     private selected!: NetworkPlugin;
     private instance!: BaseNetworkContract;
     private review: { value: TransferReview; draft: TransferDraft } | undefined;
@@ -65,15 +66,23 @@ export class BrowserSession implements WalletSession {
     get network(): BaseNetworkContract { return this.instance; }
 
     async start(): Promise<void> {
-        await this.selectNetwork(this.networks()[0]);
+        if (this.snapshot) this.usage = await this.wallet.networkUsage();
+        this.setSelected(this.networks()[0]);
     }
 
+    /** Most recently used first. */
     networks(): NetworkPlugin[] {
         if (!this.snapshot) return this.registry.list();
-        return this.snapshot.networks.map(network => this.registry.get(network.id));
+        return byRecentUse(this.snapshot.networks.map(network => this.registry.get(network.id)), this.usage);
     }
 
+    /** Remembers the choice in the vault, so the wallet opens on the network used last. */
     async selectNetwork(plugin: NetworkPlugin): Promise<void> {
+        if (this.snapshot) this.usage = await this.wallet.useNetwork(plugin.id);
+        this.setSelected(plugin);
+    }
+
+    private setSelected(plugin: NetworkPlugin): void {
         this.selected = plugin;
         this.instance = new plugin.NetworkClass(plugin);
         this.instance.name = plugin.name;
@@ -108,7 +117,8 @@ export class BrowserSession implements WalletSession {
     private async opened(snapshot: PublicWallet): Promise<void> {
         this.snapshot = snapshot;
         this.password = undefined;
-        if (!(await this.hasAccount())) await this.selectNetwork(this.networks()[0]);
+        this.usage = await this.wallet.networkUsage();
+        if (!(await this.hasAccount())) this.setSelected(this.networks()[0]);
     }
 
     private pendingPassword(): string {

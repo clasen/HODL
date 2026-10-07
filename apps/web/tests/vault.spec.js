@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { webConfig } from '../config.mjs';
-import { BTC_FROM, EVM_FROM, MAIN, PASSWORD, PHRASE, answer, choose, confirm, firstRun, importPhrase, lock, out, prompt, ready, shown, switchNetwork, unlock } from './terminal.js';
+import { BTC_FROM, EVM_FROM, MAIN, NETWORKS, PASSWORD, PHRASE, answer, choose, confirm, firstRun, importPhrase, lock, out, prompt, ready, shown, switchNetwork, unlock } from './terminal.js';
 
 async function raw(page) {
     return page.evaluate(config => new Promise((resolve, reject) => {
@@ -125,6 +125,19 @@ test('encrypted roundtrip, authentication, reload and fresh IVs', async ({ page,
         await shown(other, EVM_FROM);
     } finally { await clean.close(); }
     expect(errors).toEqual([]);
+});
+
+test('the wallet opens on the network used last', async ({ page }) => {
+    await importPhrase(page);
+    await expect(page.locator('#network')).toHaveText(NETWORKS.btc);
+    await switchNetwork(page, 'bsc');
+    await page.reload();
+    await unlock(page);
+    await expect(page.locator('#network')).toHaveText(NETWORKS.bsc);
+    await shown(page, EVM_FROM);
+    await choose(page, MAIN, 'Account Settings');
+    await choose(page, 'Select an account option:', 'Switch Network');
+    await expect(prompt(page, 'Select the network:').locator('li.choice').first()).toContainText(NETWORKS.bsc);
 });
 
 test('exclusive tab ownership and inactivity lock', async ({ page, context }) => {

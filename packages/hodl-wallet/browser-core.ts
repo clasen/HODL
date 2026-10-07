@@ -1,5 +1,5 @@
 export { formatUnits, normalizeDecimal, parseDecimalToUnits } from './amounts.js';
-export { NetworkRegistry, ACTIVE_NETWORKS, networkStorageName } from './network-registry.js';
+export { NetworkRegistry, ACTIVE_NETWORKS, networkStorageName, byRecentUse, isNetworkUsageEntry, recordNetworkUse } from './network-registry.js';
 export { default as Web3Network } from './network/lib/Web3Network.js';
 export { default as BitcoinNetwork, signBitcoinTransaction } from './network/lib/BitcoinNetwork.js';
 export { TransferService } from './transfer-service.js';

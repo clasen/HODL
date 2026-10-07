@@ -120,18 +120,18 @@ test('a lost response reloads as unknown and only explicit recovery sends the sa
 
 for (const failAt of [1, 2]) {
     test(`storage failure at write ${failAt} does not broadcast and restores committed state`, async ({ page, context }) => {
-        await page.addInitScript(failAt => {
+        await page.addInitScript(() => {
             const original = IDBObjectStore.prototype.put;
-            let count = 0;
-            window.failWriteAt = failAt;
+            window.writes = 0;
             IDBObjectStore.prototype.put = function (...args) {
-                if (++count === window.failWriteAt) { this.transaction.abort(); throw new DOMException('fixture storage failure', 'QuotaExceededError'); }
+                if (++window.writes === window.failWriteAt) { this.transaction.abort(); throw new DOMException('fixture storage failure', 'QuotaExceededError'); }
                 return original.apply(this, args);
             };
-        }, failAt);
+        });
         const state = await mockNetworks(context, page);
         await importFixture(page);
         await reviewTransfer(page);
+        await page.evaluate(failAt => { window.failWriteAt = window.writes + failAt; }, failAt);
         await sendTransfer(page);
         await shown(page, 'Could not save');
         expect(state.hashes).toHaveLength(0);

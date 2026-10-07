@@ -4,7 +4,7 @@ import path from 'path';
 import Persist from './persist.js';
 import { TransferService } from './transfer-service.js';
 import type { TransferResult } from './transfer-service.js';
-import { NetworkRegistry, networkStorageName } from './network-registry.js';
+import { NetworkRegistry, byRecentUse, isNetworkUsageEntry, networkStorageName, recordNetworkUse } from './network-registry.js';
 import { ProfileLock } from './profile-lock.js';
 import { SwapService } from './swap/service.js';
 import { routeForNetwork } from './swap/routes.js';
@@ -21,22 +21,12 @@ import type {
     BaseNetworkContract,
     NetworkPlugin,
     NetworkUsage,
-    NetworkUsageEntry,
     WalletAccount
 } from './network/types.js';
 
 type StoredContact = {
     name: string;
 };
-
-function isNetworkUsageEntry(value: unknown): value is NetworkUsageEntry {
-    return (
-        typeof value === 'object' &&
-        value !== null &&
-        !Array.isArray(value) &&
-        typeof (value as Partial<NetworkUsageEntry>).count === 'number'
-    );
-}
 
 async function askEncryptionKey(ui: Ui): Promise<string> {
     return ui.password({ message: 'Password:' });
@@ -125,47 +115,11 @@ export class NodeSession implements WalletSession {
 
     /** Most recently used first. */
     networks(): NetworkPlugin[] {
-        return new NetworkRegistry().list().sort((a, b) => {
-            const aUsage = this.networkUsage[networkStorageName(a)];
-            const bUsage = this.networkUsage[networkStorageName(b)];
-
-            // Handle old format (number) vs new format (object)
-            const aLastUsed = typeof aUsage === 'object' ? aUsage.lastUsed || 0 : 0;
-            const bLastUsed = typeof bUsage === 'object' ? bUsage.lastUsed || 0 : 0;
-
-            // If neither has lastUsed timestamp, sort by old count format
-            if (aLastUsed === 0 && bLastUsed === 0) {
-                const aCount = typeof aUsage === 'number' ? aUsage : (aUsage?.count || 0);
-                const bCount = typeof bUsage === 'number' ? bUsage : (bUsage?.count || 0);
-                return bCount - aCount;
-            }
-
-            return bLastUsed - aLastUsed;
-        });
+        return byRecentUse(new NetworkRegistry().list(), this.networkUsage);
     }
 
     async selectNetwork(selectedNetwork: NetworkPlugin): Promise<void> {
-        // Update usage info for the selected network
-        // Handle migration from old format (number) to new format (object)
-        const currentUsage = this.networkUsage[networkStorageName(selectedNetwork)];
-
-        if (!currentUsage || typeof currentUsage === 'number' || typeof currentUsage !== 'object' || currentUsage === null || Array.isArray(currentUsage)) {
-            // Old format (number), doesn't exist, or corrupted data - create new object
-            this.networkUsage[networkStorageName(selectedNetwork)] = {
-                count: typeof currentUsage === 'number' ? currentUsage + 1 : 1,
-                lastUsed: Date.now()
-            };
-        } else if (isNetworkUsageEntry(currentUsage)) {
-            // New format (object) - update values
-            currentUsage.count = (currentUsage.count || 0) + 1;
-            currentUsage.lastUsed = Date.now();
-        } else {
-            this.networkUsage[networkStorageName(selectedNetwork)] = {
-                count: 1,
-                lastUsed: Date.now()
-            };
-        }
-
+        recordNetworkUse(this.networkUsage, selectedNetwork);
         await this.db.set('networkUsage', this.networkUsage);
 
         this.selectedNetwork = selectedNetwork;
