@@ -222,7 +222,7 @@ We've carefully selected trusted and well-maintained dependencies for this proje
   - **bip39**: For generating and handling mnemonic phrases.
 - Web3
   - **web3**: The Ethereum JavaScript API for blockchain interactions.
-  - **hdkey**: For handling hierarchical deterministic (HD) keys.
+  - **@scure/bip32**: For handling hierarchical deterministic (HD) keys.
 - Bitcoin
   - **bitcoinjs-lib**: For Bitcoin-specific operations.
   - **bip32**: For handling hierarchical deterministic (HD) keys.

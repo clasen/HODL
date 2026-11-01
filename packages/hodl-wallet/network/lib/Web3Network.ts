@@ -2,7 +2,7 @@ import BaseNetwork from './BaseNetwork.js';
 import { Web3, TransactionNotFound } from 'web3';
 import { ERC20_ABI } from '../abis/erc20.js';
 import bip39 from 'bip39';
-import hdkey from 'hdkey';
+import { HDKey } from '@scure/bip32';
 import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
 import type {
     AssetBalance,
@@ -304,10 +304,11 @@ export default class Web3Network extends BaseNetwork {
 
     async accountFromMnemonic(mnemonic: string): Promise<WalletAccount> {
         const seed = await bip39.mnemonicToSeed(mnemonic);
-        const root = hdkey.fromMasterSeed(seed);
-        const addrNode = root.derive("m/44'/60'/0'/0/0");
-        const privateKey = addrNode.privateKey.toString('hex');
-        const account = this.web3.eth.accounts.privateKeyToAccount('0x' + privateKey);
+        const addrNode = HDKey.fromMasterSeed(seed).derive("m/44'/60'/0'/0/0");
+        if (!addrNode.privateKey) {
+            throw new Error('Mnemonic derivation produced no private key');
+        }
+        const account = this.web3.eth.accounts.privateKeyToAccount(this.web3.utils.bytesToHex(addrNode.privateKey));
         return { ...account, mnemonic };
     }
 
