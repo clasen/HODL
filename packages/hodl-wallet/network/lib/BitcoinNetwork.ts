@@ -1,6 +1,7 @@
 import BaseNetwork from './BaseNetwork.js';
 import * as bitcoin from 'bitcoinjs-lib';
-import bip39 from 'bip39';
+import * as bip39 from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english.js';
 import * as ecc from 'tiny-secp256k1';
 import { BIP32Factory } from 'bip32';
 import { ECPairFactory } from 'ecpair';
@@ -290,7 +291,7 @@ export default class BitcoinNetwork extends BaseNetwork {
 
     async accountFromMnemonic(mnemonic: string): Promise<WalletAccount> {
         const seed = await bip39.mnemonicToSeed(mnemonic);
-        const root = bip32.fromSeed(seed, this.network);
+        const root = bip32.fromSeed(Buffer.from(seed), this.network);
         const path = `m/84'/0'/0'/0/0`;
         const child = root.derivePath(path);
 
@@ -324,7 +325,7 @@ export default class BitcoinNetwork extends BaseNetwork {
     async createAccountFromMnemonic(wordCount: 12 | 24 = 12): Promise<WalletAccount> {
         try {
             const strength = wordCount === 24 ? 256 : 128;
-            const mnemonic = bip39.generateMnemonic(strength);
+            const mnemonic = bip39.generateMnemonic(wordlist, strength);
             return this.accountFromMnemonic(mnemonic);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -333,7 +334,7 @@ export default class BitcoinNetwork extends BaseNetwork {
     }
 
     validateMnemonic(mnemonic: string): boolean {
-        return bip39.validateMnemonic(mnemonic);
+        return bip39.validateMnemonic(mnemonic, wordlist);
     }
 
     satoshisToBTC(satoshis: number): string {

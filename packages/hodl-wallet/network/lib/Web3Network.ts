@@ -1,7 +1,8 @@
 import BaseNetwork from './BaseNetwork.js';
 import { Web3, TransactionNotFound } from 'web3';
 import { ERC20_ABI } from '../abis/erc20.js';
-import bip39 from 'bip39';
+import * as bip39 from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { HDKey } from '@scure/bip32';
 import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
 import type {
@@ -315,7 +316,7 @@ export default class Web3Network extends BaseNetwork {
     async createAccountFromMnemonic(wordCount: 12 | 24 = 12): Promise<WalletAccount> {
         try {
             const strength = wordCount === 24 ? 256 : 128;
-            const mnemonic = bip39.generateMnemonic(strength);
+            const mnemonic = bip39.generateMnemonic(wordlist, strength);
             return this.accountFromMnemonic(mnemonic);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -324,7 +325,7 @@ export default class Web3Network extends BaseNetwork {
     }
 
     validateMnemonic(mnemonic: string): boolean {
-        return bip39.validateMnemonic(mnemonic);
+        return bip39.validateMnemonic(mnemonic, wordlist);
     }
 
     async sendSignedTransaction(signedTx: SignedTransaction | string): Promise<unknown> {

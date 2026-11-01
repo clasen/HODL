@@ -85,19 +85,16 @@
     ],
     "dependencies": {
         "@scure/bip32": "2.4.0",
+        "@scure/bip39": "2.4.0",
         "bip32": "^4.0.0",
-        "bip39": "3.1.0",
         "bitcoinjs-lib": "6.1.7",
         "cli-table3": "0.6.5",
         "deepbase": "3.8.2",
         "ecpair": "2.1.0",
-        "external-editor": "3.1.0",
         "inquirer": "9.3.7",
         "inquirer-autocomplete-prompt": "3.0.1",
-        "inquirer-fuzzy-path": "2.3.0",
         "ora": "8.1.1",
         "tiny-secp256k1": "2.2.3",
-        "tmp": "0.2.7",
         "web3": "4.16.0"
     },
     "devDependencies": {

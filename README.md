@@ -214,12 +214,11 @@ We've carefully selected trusted and well-maintained dependencies for this proje
 
 - Common
   - **inquirer** and **inquirer-autocomplete-prompt**: For interactive command-line interfaces.
-  - **inquirer-fuzzy-path**: For fuzzy searching and selecting file paths during HODL file import.
   - **cli-table3**: For creating formatted CLI tables.
   - **ora**: For displaying progress bars.
   - **deepbase**: For persistent storage.
   - **node:crypto**: Native encryption for JSON storage.
-  - **bip39**: For generating and handling mnemonic phrases.
+  - **@scure/bip39**: For generating and handling mnemonic phrases.
 - Web3
   - **web3**: The Ethereum JavaScript API for blockchain interactions.
   - **@scure/bip32**: For handling hierarchical deterministic (HD) keys.
