@@ -65,9 +65,9 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   Existing package entry points remain available without an exports map.
 - `Persist` implements `WalletStore`. Reads must be detached; callers hold the
   wallet lock and `flush()` must finish durable writes before any broadcast.
-- Browser compatibility adapters and the WASM loader live in
-  `apps/web/vite.config.js`. Keep constructor names intact because account keys
-  use them. Browser probes compare addresses, signatures and recovery with Node.
+- Browser compatibility adapters live in `apps/web/vite.config.js`. Keep
+  constructor names intact because account keys use them. Browser probes compare
+  addresses, signatures and recovery with Node.
 - `pnpm run build:web` builds the existing package, the terminal wallet and the static
   diagnostic in `apps/web/dist/`. The web wallet covers the flows above, address book included;
   swaps are TUI-only. The web has no backup format of its own: it exports and imports the CLI's

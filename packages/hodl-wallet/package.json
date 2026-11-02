@@ -87,6 +87,7 @@
         "clasen"
     ],
     "dependencies": {
+        "@bitcoinerlab/secp256k1": "1.2.0",
         "@scure/bip32": "2.4.0",
         "@scure/bip39": "2.4.0",
         "bip32": "^4.0.0",
@@ -97,7 +98,6 @@
         "inquirer": "9.3.7",
         "inquirer-autocomplete-prompt": "3.0.1",
         "ora": "8.1.1",
-        "tiny-secp256k1": "2.2.3",
         "viem": "2.57.7"
     },
     "devDependencies": {

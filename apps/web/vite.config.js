@@ -36,19 +36,6 @@ export default defineConfig({
             }
         },
         {
-            name: 'preserve-secp256k1-wasm-globals',
-            enforce: 'pre',
-            load(id) {
-                if (!id.endsWith('/tiny-secp256k1/lib/wasm_loader.browser.js')) return;
-                // tiny-secp256k1 reads WebAssembly.Global.value; ESM WASM imports unwrap globals.
-                return `import init from './secp256k1.wasm?init';
-                    import * as rand from './rand.browser.js';
-                    import * as validateError from './validate_error.js';
-                    const instance = await init({ './rand.js': rand, './validate_error.js': validateError });
-                    export default instance.exports;`;
-            }
-        },
-        {
             name: 'require-browser-only-graph',
             moduleParsed({ id }) {
                 if (id.includes('browser-external') || /\/hodl-wallet\/dist\/(persist|wallet-service|profile-lock|environment-node|index)\.js$/.test(id)) {

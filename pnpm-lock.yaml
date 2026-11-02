@@ -181,6 +181,9 @@ importers:
 
   packages/hodl-wallet:
     dependencies:
+      '@bitcoinerlab/secp256k1':
+        specifier: 1.2.0
+        version: 1.2.0
       '@scure/bip32':
         specifier: 2.4.0
         version: 2.4.0
@@ -211,9 +214,6 @@ importers:
       ora:
         specifier: 8.1.1
         version: 8.1.1
-      tiny-secp256k1:
-        specifier: 2.2.3
-        version: 2.2.3
       viem:
         specifier: 2.57.7
         version: 2.57.7(typescript@5.9.2)
@@ -229,6 +229,9 @@ packages:
 
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
+
+  '@bitcoinerlab/secp256k1@1.2.0':
+    resolution: {integrity: sha512-jeujZSzb3JOZfmJYI0ph1PVpCRV5oaexCgy+RvCXV8XlY+XFB/2n3WOcvBsKLsOw78KYgnQrQWb2HrKE4be88Q==}
 
   '@colors/colors@1.5.0':
     resolution: {integrity: sha512-ooWCrlZP11i8GImSjTHYHLkvFDP48nS4+204nGb1RiX/WXYHmJA2III9/e2DWVabCESdW7hBAEzHRqUn9OUVvQ==}
@@ -1016,10 +1019,6 @@ packages:
     resolution: {integrity: sha512-qpCAvRl9stuOHveKsn7HncJRvv501qIacKzQlO/+Lwxc9+0q2wLyv4Dfvt80/DPn2pqOBsJdDiogXGR9+OvwRw==}
     engines: {node: '>=8'}
 
-  tiny-secp256k1@2.2.3:
-    resolution: {integrity: sha512-SGcL07SxcPN2nGKHTCvRMkQLYPSoeFcvArUSCYtjVARiFAWU44cCIqYS0mYAU6nY7XfvwURuTIGo2Omt3ZQr0Q==}
-    engines: {node: '>=14.0.0'}
-
   tinyglobby@0.2.17:
     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
     engines: {node: '>=12.0.0'}
@@ -1050,10 +1049,6 @@ packages:
     resolution: {integrity: sha512-CWBzXQrc/qOkhidw1OzBTQuYRbfyxDXJMVJ1XNwUHGROVmuaeiEm3OslpZ1RV96d7SKKjZKrSJu3+t/xlw3R9A==}
     engines: {node: '>=14.17'}
     hasBin: true
-
-  uint8array-tools@0.0.7:
-    resolution: {integrity: sha512-vrrNZJiusLWoFWBqz5Y5KMCgP9W9hnjZHzZiZRT8oNAkq3d5Z5Oe76jAvVVSRh4U8GGR90N2X1dWtrhvx6L8UQ==}
-    engines: {node: '>=14.0.0'}
 
   undici-types@7.16.0:
     resolution: {integrity: sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw==}
@@ -1151,6 +1146,10 @@ packages:
 snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
+
+  '@bitcoinerlab/secp256k1@1.2.0':
+    dependencies:
+      '@noble/curves': 1.9.1
 
   '@colors/colors@1.5.0':
     optional: true
@@ -1907,10 +1906,6 @@ snapshots:
     dependencies:
       has-flag: 4.0.0
 
-  tiny-secp256k1@2.2.3:
-    dependencies:
-      uint8array-tools: 0.0.7
-
   tinyglobby@0.2.17:
     dependencies:
       fdir: 6.5.0(picomatch@4.0.7)
@@ -1937,8 +1932,6 @@ snapshots:
   typeforce@1.18.0: {}
 
   typescript@5.9.2: {}
-
-  uint8array-tools@0.0.7: {}
 
   undici-types@7.16.0: {}
 

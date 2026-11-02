@@ -227,7 +227,7 @@ We've carefully selected trusted and well-maintained dependencies for this proje
   - **bitcoinjs-lib**: For Bitcoin-specific operations.
   - **bip32**: For handling hierarchical deterministic (HD) keys.
   - **ecpair**: For elliptic curve pairings.
-  - **tiny-secp256k1**: For elliptic curve secp256k1 operations.
+  - **@bitcoinerlab/secp256k1**: For elliptic curve secp256k1 operations.
 
 ⚠️ **Important Notice**: HODL Wallet is a personal project created with the best intentions. While we strive for security, it may contain security flaws or vulnerabilities. Use at your own risk and always exercise caution with your crypto assets.
 
