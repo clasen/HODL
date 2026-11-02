@@ -38,6 +38,7 @@ const endpoints = [
     { id: 'chainflip', url: `${swapConfig.chainflip.url}/api/networkInfo` },
     { id: 'thorchain', url: `${swapConfig.thorchain.url}/thorchain/inbound_addresses` },
     { id: 'midgard', url: `${swapConfig.thorchain.midgardUrl}/v2/health` },
+    { id: 'near-intents', url: `${swapConfig.nearIntents.url}/v0/tokens` },
     { id: 'prices', url: swapConfig.pricesUrl }
 ];
 await writeFile('dist/compatibility.json', JSON.stringify({ results, endpoints, timeoutMs: swapConfig.httpTimeoutMs }, null, 2));

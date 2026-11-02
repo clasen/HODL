@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import readline from 'node:readline';
 import { EventEmitter } from 'node:events';
-import { decodeAbiParameters, keccak256, parseTransaction, recoverTransactionAddress, toBytes, type Hex, type TransactionSerialized } from 'viem';
+import { createPublicClient, decodeAbiParameters, http, keccak256, parseTransaction, recoverTransactionAddress, toBytes, type Hex, type TransactionSerialized } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import Persist from '../../persist.js';
 import { runAgentCli } from '../../agent-cli.js';
@@ -20,6 +20,7 @@ import { swapMenu } from '../../app/swap.js';
 import { InquirerUi } from '../../ui-inquirer.js';
 import { PromptUi } from './prompt-ui.js';
 import { jsonOnly } from './json-store.js';
+import { errorMessage, request } from '../../request.js';
 import type { ChainReceipt, ProviderProgress, ProviderQuote, SwapInput, SwapOperation, SwapPlan, SwapPrices, SwapProvider, SwapProviderId, SwapQuote, SwapStep } from '../types.js';
 
 const SOURCE = '0x1111111111111111111111111111111111111111';
@@ -399,6 +400,20 @@ test('THORChain adapter quotes automatic streaming and binds its exact memo thro
     });
     await mockedFetch(() => thorInbound().map(item => ({ ...item, halted: true })), async () => {
         await assert.rejects(provider.quote(input), /unavailable/);
+    });
+});
+
+test('a request that gets no response names the host instead of the bare fetch error', async () => {
+    const input: SwapInput = { routeId: 'bsc-btc', from: SOURCE, to: DESTINATION, amount: '100', amountBaseUnits: (100n * 10n ** 18n).toString() };
+    const thorchain = new URL(config.thorchain.url).host;
+    await mockedFetch(() => { throw new TypeError('fetch failed'); }, async () => {
+        await assert.rejects(new ThorchainSwapProvider().quote(input), { message: `Could not reach ${thorchain}.` });
+        const client = createPublicClient({ transport: http(config.source.url, { retryCount: 0, fetchFn: request }) });
+        const failure = await client.getChainId().then(() => assert.fail('expected a network failure'), (error: unknown) => error);
+        assert.equal(errorMessage(failure), `Could not reach ${new URL(config.source.url).host}.`);
+    });
+    await mockedFetch(() => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError'); }, async () => {
+        await assert.rejects(new ThorchainSwapProvider().quote(input), { message: `${thorchain} did not respond in time.` });
     });
 });
 
@@ -1100,6 +1115,33 @@ test('the terminal watch spins until Enter, pauses for output and releases its i
         assert.equal(spinning, false);
         watch.stop();
         assert.equal(closed, true);
+    } finally {
+        readline.createInterface = createInterface;
+        prototype.start = start; prototype.stop = stop;
+    }
+});
+
+test('Ctrl+C while following a swap ends the CLI instead of returning to the menu', async t => {
+    const createInterface = readline.createInterface;
+    const prototype = Object.getPrototypeOf(ora());
+    const start = prototype.start;
+    const stop = prototype.stop;
+    let spinning = false;
+    const input = new EventEmitter();
+    Object.assign(input, { close: () => input.emit('close') });
+    const kill = t.mock.method(process, 'kill', () => true);
+    try {
+        prototype.start = function () { spinning = true; return this; };
+        prototype.stop = function () { spinning = false; return this; };
+        readline.createInterface = (() => input) as unknown as typeof createInterface;
+        const watch = new InquirerUi().watch('Updating swap…');
+        let left = false;
+        void watch.left.then(() => { left = true; });
+        input.emit('SIGINT');
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(kill.mock.calls.map(call => call.arguments), [[process.pid, 'SIGINT']]);
+        assert.equal(spinning, false);
+        assert.equal(left, false);
     } finally {
         readline.createInterface = createInterface;
         prototype.start = start; prototype.stop = stop;

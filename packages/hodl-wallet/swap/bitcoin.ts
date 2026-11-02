@@ -1,6 +1,7 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import BitcoinNetwork, { signBitcoinTransaction } from '../network/lib/BitcoinNetwork.js';
 import type { WalletAccount } from '../network/types.js';
+import { request } from '../request.js';
 import { BscPayments, BitcoinPayments } from './chain.js';
 import { swapConfig as config } from './config.js';
 import { integer, list, record, swapJson, swapText, SwapHttpError, textField, transactionHash, units } from './http.js';
@@ -154,7 +155,7 @@ export class BitcoinSwapChain extends BitcoinPayments implements SwapChain {
     }
 
     async broadcast(step: SwapStep): Promise<void> {
-        const response = await fetch(`${config.destination.url}/tx`, {
+        const response = await request(`${config.destination.url}/tx`, {
             method: 'POST', headers: { 'content-type': 'text/plain' }, body: step.rawTransaction,
             signal: AbortSignal.timeout(config.httpTimeoutMs), redirect: 'error'
         });

@@ -176,4 +176,5 @@ Each network plugin exports:
 - All user interactions use the `inquirer` library for CLI prompts
 - Tables displayed using `cli-table3` for consistent formatting
 - Async/await pattern used throughout
+- HTTP goes through `request()` in `request.ts` (viem through `fetchFn`), so a request with no response names its host; show errors with `errorMessage`
 - ES6 modules with `.js` extensions

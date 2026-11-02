@@ -1,6 +1,7 @@
 import { AgentError } from '../agent-errors.js';
 import { randomUUID } from '#environment';
 import { formatUnits, normalizeDecimal, parseDecimalToUnits } from '../amounts.js';
+import { errorMessage } from '../request.js';
 import { clearSensitiveData } from '../sensitive-data.js';
 import type { WalletStore } from '../wallet-store.js';
 import { BitcoinSwapChain } from './bitcoin.js';
@@ -467,5 +468,5 @@ function validateId(id: string): void {
 }
 
 function safeMessage(error: unknown): string {
-    return error instanceof Error ? error.message.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 240) : 'Swap provider is unavailable.';
+    return error instanceof Error ? errorMessage(error).replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 240) : 'Swap provider is unavailable.';
 }

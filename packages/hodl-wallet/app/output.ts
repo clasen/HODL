@@ -59,7 +59,7 @@ export function showTransactionError(ui: Ui, error: unknown): void {
     const reason = typeof error === 'object' && error !== null && 'reason' in error
         ? String(error.reason)
         : null;
-    const message = error instanceof Error ? error.message : errorMessage(error);
+    const message = errorMessage(error);
     const data = reason ? reason.replace(/(\w+):/g, "\n$1:").trim() : null;
     showError(ui, message, data);
 }

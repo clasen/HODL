@@ -6,6 +6,7 @@ import * as ecc from '@bitcoinerlab/secp256k1';
 import { BIP32Factory } from 'bip32';
 import { ECPairFactory } from 'ecpair';
 import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
+import { request } from '../../request.js';
 import type {
     AssetBalance,
     ChainTransfer,
@@ -404,7 +405,7 @@ export default class BitcoinNetwork extends BaseNetwork {
     }
 
     async getTransactionStatus(transactionHash: string): Promise<TransactionStatus> {
-        const response = await fetch(`${this.url}/tx/${transactionHash}/status`);
+        const response = await request(`${this.url}/tx/${transactionHash}/status`);
         if (response.status === 404) {
             return { state: 'not_found', transactionHash };
         }
@@ -464,7 +465,7 @@ export default class BitcoinNetwork extends BaseNetwork {
         options: RequestInit = {},
         responseType: 'json' | 'text' = 'json'
     ): Promise<T | string> {
-        const response = await fetch(`${this.url}${path}`, options);
+        const response = await request(`${this.url}${path}`, options);
 
         if (!response.ok) {
             const errorBody = await response.text();

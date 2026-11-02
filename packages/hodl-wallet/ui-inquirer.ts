@@ -83,6 +83,7 @@ export class InquirerUi implements Ui {
         };
     }
 
+    /** Ctrl+C ends the CLI as it does at a prompt; readline would otherwise just close and leave the screen. */
     watch(text: string): Watch {
         const spinner = ora({ text, spinner: 'dots', discardStdin: false }).start();
         const input = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -90,6 +91,10 @@ export class InquirerUi implements Ui {
             const leave = (): void => { spinner.stop(); resolve(); };
             input.once('line', leave);
             input.once('close', leave);
+        });
+        input.once('SIGINT', () => {
+            spinner.stop();
+            process.kill(process.pid, 'SIGINT');
         });
         return {
             update: message => { spinner.start(message); },

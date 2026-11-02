@@ -1,6 +1,4 @@
-export function errorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}
+export { errorMessage } from '../request.js';
 
 export function formatAmount(num: number | string): string {
     return amountWithDecimals(num, 3);

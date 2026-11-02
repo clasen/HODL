@@ -3,6 +3,7 @@ import { formatUnits, normalizeDecimal, parseDecimalToUnits } from '../amounts.j
 import { swapConfig } from '../swap/config.js';
 import type { SwapService } from '../swap/service.js';
 import { terminalSwapStates } from '../swap/types.js';
+import { errorMessage } from './format.js';
 import type { SwapState } from '../swap/types.js';
 import { isPromptAborted } from './ui.js';
 import type { Choice, Ui } from './ui.js';
@@ -32,7 +33,7 @@ async function withSpinner<T>(ui: Ui, text: string, work: () => Promise<T>): Pro
 /** Prompt aborts end the flow like any other prompt; anything else is reported and returns to the menu. */
 function report(ui: Ui, error: unknown, fallback: string): void {
     if (isPromptAborted(error)) throw error;
-    ui.print(error instanceof Error ? error.message : fallback);
+    ui.print(error instanceof Error ? errorMessage(error) : fallback);
 }
 
 export async function swapMenu(ui: Ui, service: SwapPort): Promise<void> {

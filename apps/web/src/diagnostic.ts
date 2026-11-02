@@ -66,6 +66,7 @@ async function start(): Promise<void> {
                         if (endpoint.id === 'bsc' && data.result !== '0x38') throw new Error('Unexpected BSC chain ID.');
                         if (endpoint.id === 'chainflip' && !Array.isArray(data.assets)) throw new Error('Invalid asset inventory.');
                         if (endpoint.id === 'thorchain' && !Array.isArray(data)) throw new Error('Invalid inbound addresses.');
+                        if (endpoint.id === 'near-intents' && !Array.isArray(data)) throw new Error('Invalid token list.');
                     }
                     row('#providers', endpoint.id, 'reachable', 'Public response readable; operations not yet verified.');
                 } catch (error) {

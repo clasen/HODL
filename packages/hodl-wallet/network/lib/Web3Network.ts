@@ -23,6 +23,7 @@ import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { HDKey } from '@scure/bip32';
 import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
 import { walletConfig } from '../../config.js';
+import { request } from '../../request.js';
 import type {
     AssetBalance,
     ChainTransfer,
@@ -45,7 +46,7 @@ export default class Web3Network extends BaseNetwork {
     constructor(config: NetworkConfig) {
         super(config);
         // A retried eth_sendRawTransaction would broadcast the transfer again.
-        this.client = createPublicClient({ transport: http(config.url, { retryCount: 0 }) });
+        this.client = createPublicClient({ transport: http(config.url, { retryCount: 0, fetchFn: request }) });
     }
 
     private formatPrivateKey(privateKey: string): Hex {
@@ -157,7 +158,7 @@ export default class Web3Network extends BaseNetwork {
     private async recentTokenTransfers(history: TransferHistoryConfig, address: string, limit: number, cursor?: string): Promise<TransferScan> {
         if (cursor !== undefined && !/^\d+$/.test(cursor)) throw new Error('Invalid transfer cursor.');
         const owner = this.address(address);
-        const client = history.url ? createPublicClient({ transport: http(history.url) }) : this.client;
+        const client = history.url ? createPublicClient({ transport: http(history.url, { fetchFn: request }) }) : this.client;
         const tokens = new Map(Object.entries(this.config.tokens).map(([symbol, token]) => [this.address(token.address), symbol]));
         if (tokens.size === 0) return { transfers: [] };
 
