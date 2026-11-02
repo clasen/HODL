@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { createDecipheriv, pbkdf2Sync, createHash } from 'node:crypto';
+import { createCipheriv, createDecipheriv, pbkdf2Sync, createHash, randomBytes } from 'node:crypto';
 import { expect } from '@playwright/test';
 import { keccak256 } from 'viem';
 import { webConfig } from '../config.mjs';
@@ -11,7 +11,8 @@ export { PASSWORD, PHRASE, EVM_FROM, BTC_FROM };
 export const EVM_TO = '0x1111111111111111111111111111111111111111';
 export const BTC_TO = 'bc1qyl7wjm2ldfezgnjk2c78adqlk7dvtm8sd7gn0q';
 
-export async function storedTransfers(page) {
+/** Decrypts the stored vault; the caller zeroes the key. */
+async function openVault(page) {
     const envelope = await page.evaluate(config => new Promise((resolve, reject) => {
         const request = indexedDB.open(config.database, config.databaseVersion);
         request.onerror = () => reject(new Error('Storage unavailable'));
@@ -29,8 +30,36 @@ export async function storedTransfers(page) {
     decipher.setAAD(Buffer.from(JSON.stringify(header)));
     decipher.setAuthTag(bytes.subarray(-16));
     const plaintext = Buffer.concat([decipher.update(bytes.subarray(0, -16)), decipher.final()]);
-    try { return Object.values(JSON.parse(plaintext.toString()).sendRequest ?? {}); }
-    finally { plaintext.fill(0); key.fill(0); }
+    try { return { header, key, data: JSON.parse(plaintext.toString()) }; }
+    finally { plaintext.fill(0); }
+}
+
+export async function storedTransfers(page) {
+    const { key, data } = await openVault(page);
+    try { return Object.values(data.sendRequest ?? {}); }
+    finally { key.fill(0); }
+}
+
+/** Adds top-level entries to the stored vault, as a session of this wallet would have saved them. Lock the wallet first. */
+export async function addToVault(page, entries) {
+    const { header, key, data } = await openVault(page);
+    try {
+        const sealed = { ...header, cipher: { ...header.cipher, iv: randomBytes(webConfig.vault.ivBytes).toString('base64') } };
+        const cipher = createCipheriv('aes-256-gcm', key, Buffer.from(sealed.cipher.iv, 'base64'));
+        cipher.setAAD(Buffer.from(JSON.stringify(sealed)));
+        const bytes = Buffer.concat([cipher.update(JSON.stringify({ ...data, ...entries })), cipher.final(), cipher.getAuthTag()]);
+        await page.evaluate(([config, envelope]) => new Promise((resolve, reject) => {
+            const request = indexedDB.open(config.database, config.databaseVersion);
+            request.onerror = () => reject(new Error('Storage unavailable'));
+            request.onsuccess = () => {
+                const db = request.result;
+                const tx = db.transaction(config.store, 'readwrite');
+                tx.objectStore(config.store).put(envelope, config.record);
+                tx.oncomplete = () => { db.close(); resolve(); };
+                tx.onabort = () => reject(new Error('Storage write failed'));
+            };
+        }), [webConfig.vault, { ...sealed, ciphertext: bytes.toString('base64') }]);
+    } finally { key.fill(0); }
 }
 
 export const importFixture = page => importPhrase(page);

@@ -15,9 +15,11 @@ import { BscSwapChain } from '../chain.js';
 import { ChainflipSwapProvider, NearIntentsSwapProvider, ThorchainSwapProvider } from '../providers.js';
 import { swapConfig as config } from '../config.js';
 import { swapRoutes } from '../routes.js';
-import inquirer from 'inquirer';
 import ora from 'ora';
-import { startSwapMenu, trackSwapsMenu } from '../ui.js';
+import { swapMenu } from '../../app/swap.js';
+import { InquirerUi } from '../../ui-inquirer.js';
+import { PromptUi } from './prompt-ui.js';
+import { jsonOnly } from './json-store.js';
 import type { ChainReceipt, ProviderProgress, ProviderQuote, SwapInput, SwapOperation, SwapPlan, SwapPrices, SwapProvider, SwapProviderId, SwapQuote, SwapStep } from '../types.js';
 
 const SOURCE = '0x1111111111111111111111111111111111111111';
@@ -92,7 +94,7 @@ class FakeProvider implements SwapProvider {
 
 async function fixture(providerId: SwapProviderId = 'chainflip') {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-swap-test-'));
-    const db = new Persist({ path: directory, encryptionKey: 'fixture-password' });
+    const db = jsonOnly(new Persist({ path: directory, encryptionKey: 'fixture-password' }));
     await db.connect();
     await db.set('account', config.source.NetworkClass.name, { address: SOURCE, privateKey: 'fixture-only-key' });
     await db.set('account', config.destination.NetworkClass.name, { address: DESTINATION, privateKey: 'fixture-only-btc-key' });
@@ -574,29 +576,25 @@ for (const provider of ['thorchain', 'chainflip'] as const) {
     test(`interactive ${provider} summary preserves quote terms and cancellation does not sign`, async () => {
         const f = await fixture(provider);
         f.provider.streaming = provider === 'thorchain';
-        const prompt = inquirer.prompt;
-        const log = console.log;
-        const output: string[] = [];
         try {
             const quote = (await f.service.quote('100')).quotes[0];
             f.service.quote = async () => ({ quotes: [quote], recommendedQuoteId: quote.quoteId, unavailable: [] });
-            console.log = (...values: unknown[]) => { output.push(values.join(' ')); };
-            (inquirer as any).prompt = async (question: { name: string; default?: boolean; choices?: Array<{ value: string }> }) => {
+            const ui = new PromptUi(question => {
                 switch (question.name) {
-                    case 'route': return { route: 'usdt-btc' };
-                    case 'amount': return { amount: '100' };
-                    case 'destination': return { destination: DESTINATION };
-                    case 'quoteId': return { quoteId: question.choices![0].value };
+                    case 'route': return 'new';
+                    case 'amount': return '100';
+                    case 'destination': return DESTINATION;
+                    case 'quoteId': return question.choices![0].value;
                     case 'confirmed':
                         assert.equal(question.default, false);
-                        return { confirmed: false };
+                        return false;
                     default: throw new Error('Unexpected interactive question');
                 }
-            };
-            await startSwapMenu(f.service);
+            });
+            await swapMenu(ui, f.service);
             assert.equal(f.provider.prepareCalls, 0);
             assert.equal(f.chain.signs, 0);
-            const summary = output.join('\n');
+            const summary = ui.output.join('\n');
             assert.ok(summary.includes(`${quote.source.amount} USDT → ≈ ${quote.destination.estimated} BTC`));
             assert.ok(summary.includes(quote.from));
             assert.ok(summary.includes(quote.to));
@@ -609,7 +607,7 @@ for (const provider of ['thorchain', 'chainflip'] as const) {
             assert.ok(summary.includes(`${config.bitcoinConfirmations} BTC confirmations to complete`));
             assert.ok(summary.includes('Provider fees already deducted from estimated BTC'));
             assert.ok(summary.includes('delayed BTC cannot auto-refund to USDT'));
-        } finally { inquirer.prompt = prompt; console.log = log; await f.close(); }
+        } finally { await f.close(); }
     });
 }
 
@@ -843,102 +841,78 @@ test('NEAR Intents deposits are plain USDT transfers within the transfer gas bud
 
 test('destination autocomplete offers only own account and typed addresses, excluding saved contacts', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
     try {
         await f.db.set('contact', config.destination.name, 'bc1-other-contact', { name: 'Savings' });
         await f.db.set('contact', config.destination.name, DESTINATION, { name: 'Duplicate own account' });
         await f.db.set('contact', config.source.name, SOURCE, { name: 'BSC contact' });
-        (inquirer as any).prompt = async (question: { name: string; type: string; source: (input?: string) => Array<{ name: string; value: string }> }) => {
-            if (question.name === 'route') return { route: 'usdt-btc' };
-            if (question.name === 'amount') return { amount: '100' };
+        const ui = new PromptUi(question => {
+            if (question.name === 'route') return 'new';
+            if (question.name === 'amount') return '100';
             assert.equal(question.name, 'destination');
-            assert.equal(question.type, 'search');
-            const choices = question.source();
+            assert.equal(question.kind, 'autocomplete');
+            const choices = question.source!('');
             assert.equal(choices[0].value, DESTINATION);
             assert.match(choices[0].name, /My account/);
             assert.equal(choices.filter(choice => choice.value === DESTINATION).length, 1);
             assert.deepEqual(choices.map(choice => choice.value), [DESTINATION, '']);
             assert.ok(!choices.some(choice => choice.value === SOURCE));
-            assert.ok(!question.source('savings').some(choice => choice.value === 'bc1-other-contact'));
-            assert.equal(question.source('bc1-external')[0].value, 'bc1-external');
-            return { destination: '' };
-        };
-        await startSwapMenu(f.service);
+            assert.ok(!question.source!('savings').some(choice => choice.value === 'bc1-other-contact'));
+            assert.equal(question.source!('bc1-external')[0].value, 'bc1-external');
+            return '';
+        });
+        await swapMenu(ui, f.service);
         assert.equal(f.chain.signs, 0);
-    } finally { inquirer.prompt = prompt; await f.close(); }
+    } finally { await f.close(); }
 });
 
 test('quote spinner runs during lookup and stops before prompts or errors', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
-    const log = console.log;
-    const error = console.error;
-    const prototype = Object.getPrototypeOf(ora());
-    const start = prototype.start;
-    const stop = prototype.stop;
     const quote = f.service.quote.bind(f.service);
-    let spinning = false;
-    let starts = 0;
-    let stops = 0;
     let fail = false;
-    let reported = '';
     try {
-        console.log = () => {};
-        console.error = (message: string) => { assert.equal(spinning, false); reported = message; };
-        prototype.start = function () { spinning = true; starts++; return this; };
-        prototype.stop = function () { spinning = false; stops++; return this; };
+        const ui = new PromptUi(question => {
+            if (question.name === 'route') return 'new';
+            if (question.name === 'amount') return '100';
+            if (question.name === 'destination') return DESTINATION;
+            if (question.name === 'quoteId') return 'cancel';
+            throw new Error('Unexpected question');
+        });
         f.service.quote = async (...args) => {
-            assert.equal(spinning, true);
+            assert.equal(ui.spinning, true);
             if (fail) throw new Error('Quote unavailable');
             return quote(...args);
         };
-        (inquirer as any).prompt = async (question: { name: string }) => {
-            assert.equal(spinning, false);
-            if (question.name === 'route') return { route: 'usdt-btc' };
-            if (question.name === 'amount') return { amount: '100' };
-            if (question.name === 'destination') return { destination: DESTINATION };
-            if (question.name === 'quoteId') return { quoteId: 'cancel' };
-            throw new Error('Unexpected question');
-        };
-        await startSwapMenu(f.service);
-        assert.equal(stops, starts);
+        await swapMenu(ui, f.service);
+        assert.equal(ui.spinning, false);
         fail = true;
-        await startSwapMenu(f.service);
-        assert.equal(stops, starts);
-        assert.equal(reported, 'Quote unavailable');
+        await swapMenu(ui, f.service);
+        assert.equal(ui.spinning, false);
+        assert.equal(ui.output.at(-1), 'Quote unavailable');
         assert.equal(f.chain.signs, 0);
-    } finally {
-        prototype.start = start; prototype.stop = stop;
-        inquirer.prompt = prompt; console.log = log; console.error = error;
-        await f.close();
-    }
+    } finally { await f.close(); }
 });
 
 
 test('missing Bitcoin account is explained instead of silently hiding My account', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
-    const log = console.log;
-    const output: string[] = [];
     try {
         await f.db.del('account', config.destination.NetworkClass.name);
-        console.log = (...values: unknown[]) => { output.push(values.join(' ')); };
-        (inquirer as any).prompt = async (question: { name: string; source: (input?: string) => Array<{ name: string; value: string; disabled?: string }> }) => {
-            if (question.name === 'route') return { route: 'usdt-btc' };
-            if (question.name === 'amount') return { amount: '100' };
+        const ui = new PromptUi(question => {
+            if (question.name === 'route') return 'new';
+            if (question.name === 'amount') return '100';
             assert.equal(question.name, 'destination');
-            const choices = question.source();
+            const choices = question.source!('');
             assert.equal(choices[0].name, 'My account');
             assert.equal(choices[0].disabled, 'BTC (Bitcoin) account not configured');
-            const manual = question.source(DESTINATION);
+            const manual = question.source!(DESTINATION);
             assert.equal(manual[0].value, DESTINATION);
             assert.equal(manual[0].disabled, undefined);
-            return { destination: '' };
-        };
-        await startSwapMenu(f.service);
-        assert.ok(output.some(line => line.includes('Create or import an account on that network')));
+            return '';
+        });
+        await swapMenu(ui, f.service);
+        assert.ok(ui.output.some(line => line.includes('Create or import an account on that network')));
         assert.equal(f.chain.signs, 0);
-    } finally { inquirer.prompt = prompt; console.log = log; await f.close(); }
+    } finally { await f.close(); }
 });
 
 
@@ -1068,122 +1042,104 @@ for (const outcome of ['completed', 'refunded']) {
 
 test('tracking spinners cover read-only updates, and stop on completion, failure or Enter', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
-    const log = console.log;
-    const error = console.error;
-    const createInterface = readline.createInterface;
-    const prototype = Object.getPrototypeOf(ora());
-    const start = prototype.start;
-    const stop = prototype.stop;
-    let spinning = false;
-    let summaries = 0;
     try {
         const quote = (await f.service.quote('100')).quotes[0];
         const operation = await f.service.execute(quote.quoteId, 'spinner-tracking');
-        prototype.start = function () { spinning = true; return this; };
-        prototype.stop = function () { spinning = false; return this; };
-        console.log = (message: string) => {
-            assert.equal(spinning, false);
-            if (message.startsWith('\nSwap ')) summaries++;
-        };
-        console.error = () => { assert.equal(spinning, false); };
-        (inquirer as any).prompt = async (question: { name: string }) => {
-            assert.equal(spinning, false);
-            assert.equal(question.name, 'requestId');
-            return { requestId: operation.requestId };
-        };
-        f.service.list = async () => { assert.equal(spinning, true); return [operation]; };
         f.service.resume = async () => { throw new Error('Tracking must never resume a swap'); };
         for (const outcome of ['completed', 'error', 'cancel']) {
-            summaries = 0;
-            const input = new EventEmitter();
-            Object.assign(input, { close: () => input.emit('close') });
-            readline.createInterface = (() => input) as unknown as typeof createInterface;
+            const ui = new PromptUi(question => {
+                if (question.name === 'route') return 'track';
+                assert.equal(question.name, 'requestId');
+                return operation.requestId;
+            });
+            f.service.list = async () => { assert.equal(ui.spinning, true); return [operation]; };
             let reads = 0;
             f.service.status = async () => {
-                assert.equal(spinning, true);
+                assert.equal(ui.spinning, true);
                 reads++;
                 if (reads === 1) return operation;
                 if (outcome === 'error') throw new Error('Status unavailable');
                 if (outcome === 'cancel') {
                     setImmediate(() => {
-                        assert.equal(spinning, true, 'spinner remains active between polls');
-                        input.emit('line');
+                        assert.equal(ui.spinning, true, 'spinner remains active between polls');
+                        ui.leaveWatch();
                     });
                     return operation;
                 }
                 return { ...operation, state: 'completed' };
             };
-            await trackSwapsMenu(f.service);
-            assert.equal(spinning, false);
+            await swapMenu(ui, f.service);
+            assert.equal(ui.spinning, false);
             assert.equal(reads, 2);
-            assert.equal(summaries, outcome === 'completed' ? 1 : 0, 'only changed swap data produces another summary');
+            assert.equal(ui.output.filter(line => line.startsWith('Swap ')).length, outcome === 'completed' ? 1 : 0, 'only changed swap data produces another summary');
         }
+    } finally { await f.close(); }
+});
+
+test('the terminal watch spins until Enter, pauses for output and releases its input', async () => {
+    const createInterface = readline.createInterface;
+    const prototype = Object.getPrototypeOf(ora());
+    const start = prototype.start;
+    const stop = prototype.stop;
+    let spinning = false;
+    let closed = false;
+    const input = new EventEmitter();
+    Object.assign(input, { close: () => { closed = true; input.emit('close'); } });
+    try {
+        prototype.start = function () { spinning = true; return this; };
+        prototype.stop = function () { spinning = false; return this; };
+        readline.createInterface = (() => input) as unknown as typeof createInterface;
+        const watch = new InquirerUi().watch('Updating swap…');
+        assert.equal(spinning, true);
+        watch.pause();
+        assert.equal(spinning, false);
+        watch.update('Exchanging assets · Enter to return');
+        assert.equal(spinning, true);
+        input.emit('line');
+        await watch.left;
+        assert.equal(spinning, false);
+        watch.stop();
+        assert.equal(closed, true);
     } finally {
-        inquirer.prompt = prompt; console.log = log; console.error = error;
         readline.createInterface = createInterface;
         prototype.start = start; prototype.stop = stop;
-        await f.close();
     }
 });
 
 test('submission spinner stops before displaying a preparation error', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
-    const log = console.log;
-    const error = console.error;
-    const prototype = Object.getPrototypeOf(ora());
-    const start = prototype.start;
-    const stop = prototype.stop;
-    let spinning = false;
-    let reported = '';
     try {
-        prototype.start = function () { spinning = true; return this; };
-        prototype.stop = function () { spinning = false; return this; };
-        console.log = () => { assert.equal(spinning, false); };
-        console.error = (message: string) => { assert.equal(spinning, false); reported = message; };
-        (inquirer as any).prompt = async (question: { name: string; choices?: Array<{ value: string }> }) => {
-            assert.equal(spinning, false);
+        const ui = new PromptUi(question => {
             switch (question.name) {
-                case 'route': return { route: 'usdt-btc' };
-                case 'amount': return { amount: '100' };
-                case 'destination': return { destination: DESTINATION };
-                case 'quoteId': return { quoteId: question.choices![0].value };
-                case 'confirmed': return { confirmed: true };
+                case 'route': return 'new';
+                case 'amount': return '100';
+                case 'destination': return DESTINATION;
+                case 'quoteId': return question.choices![0].value;
+                case 'confirmed': return true;
                 default: throw new Error('Unexpected question');
             }
-        };
+        });
         f.service.execute = async () => {
-            assert.equal(spinning, true);
+            assert.equal(ui.spinning, true);
             throw new Error('Preparation unavailable');
         };
-        await startSwapMenu(f.service);
-        assert.equal(reported, 'Preparation unavailable');
-        assert.equal(spinning, false);
-    } finally {
-        inquirer.prompt = prompt; console.log = log; console.error = error;
-        prototype.start = start; prototype.stop = stop;
-        await f.close();
-    }
+        await swapMenu(ui, f.service);
+        assert.equal(ui.output.at(-1), 'Preparation unavailable');
+        assert.equal(ui.spinning, false);
+    } finally { await f.close(); }
 });
 
 
 test('tracking every pending stage is read-only, while finished swaps only show the result', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
-    const log = console.log;
-    const createInterface = readline.createInterface;
     try {
         const quote = (await f.service.quote('100')).quotes[0];
         const operation = await f.service.execute(quote.quoteId, 'funded-tracking');
-        console.log = () => {};
-        (inquirer as any).prompt = async (question: { name: string }) => {
+        const ui = new PromptUi(question => {
+            if (question.name === 'route') return 'track';
             assert.equal(question.name, 'requestId', 'tracking only asks which swap to view');
-            return { requestId: operation.requestId };
-        };
-        const input = new EventEmitter();
-        Object.assign(input, { close: () => input.emit('close') });
-        readline.createInterface = (() => input) as unknown as typeof createInterface;
+            return operation.requestId;
+        });
         let resumes = 0;
         f.service.resume = async () => { resumes++; throw new Error('Must not submit another transaction'); };
         for (const state of ['preparing', 'approval_pending', 'deposit_pending', 'swapping', 'btc_pending', 'refund_pending', 'completed', 'partial_completed', 'refunded', 'failed'] as const) {
@@ -1195,15 +1151,12 @@ test('tracking every pending stage is read-only, while finished swaps only show 
                 reads++;
                 return reads === 1 ? current : { ...current, state: 'completed' };
             };
-            await trackSwapsMenu(f.service);
+            await swapMenu(ui, f.service);
             assert.equal(reads, ['completed', 'partial_completed', 'refunded', 'failed'].includes(state) ? 1 : 2);
         }
         assert.equal(resumes, 0);
         assert.equal(f.chain.broadcasts.length, 1);
-    } finally {
-        inquirer.prompt = prompt; console.log = log; readline.createInterface = createInterface;
-        await f.close();
-    }
+    } finally { await f.close(); }
 });
 
 test('existing quotes and operations without a route retain their BSC funding and Bitcoin payout', async () => {
@@ -1232,7 +1185,6 @@ test('existing quotes and operations without a route retain their BSC funding an
 
 test('USDT max quotes the entire token balance and still requires BNB for fees', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
     let quoted = false;
     let selected = false;
     f.chain.nativeBalance = 0n;
@@ -1242,25 +1194,23 @@ test('USDT max quotes the entire token balance and still requires BNB for fees',
         return { provider: 'chainflip', expectedBaseUnits: '160000', minimumBaseUnits: '159200',
             expiresAt: Date.now() + config.quoteLifetimeMs, estimatedSeconds: 60, fees: [], details: {} };
     };
-    (inquirer as any).prompt = async (question: any) => {
-        if (question.name === 'route') return { route: 'new' };
-        if (question.name === 'amount') return { amount: 'max' };
-        if (question.name === 'destination') return { destination: DESTINATION };
+    const ui = new PromptUi(question => {
+        if (question.name === 'route') return 'new';
+        if (question.name === 'amount') return 'max';
+        if (question.name === 'destination') return DESTINATION;
         selected = true;
-        return { quoteId: 'cancel' };
-    };
+        return 'cancel';
+    });
     try {
-        await startSwapMenu(f.service);
+        await swapMenu(ui, f.service);
         assert.equal(quoted, true);
         assert.equal(selected, false);
         assert.equal(f.chain.signs, 0);
-    } finally { inquirer.prompt = prompt; await f.close(); }
+    } finally { await f.close(); }
 });
 
 test('tracking refreshes a stale deposit before showing the selector and refunded detail', async () => {
     const f = await fixture();
-    const prompt = inquirer.prompt;
-    const log = console.log;
     try {
         const quote = (await f.service.quote('100')).quotes[0];
         const operation = await f.service.execute(quote.quoteId, 'stale-tracking');
@@ -1270,22 +1220,18 @@ test('tracking refreshes a stale deposit before showing the selector and refunde
             reads++;
             return { ...operation, state: 'refunded', message: 'THORChain refund: trading halted.' };
         };
-        const output: string[] = [];
-        console.log = (message: string) => { output.push(message); };
-        (inquirer as any).prompt = async (question: { choices: Array<{ name: string }> }) => {
+        const ui = new PromptUi(question => {
+            if (question.name === 'route') return 'track';
             assert.equal(reads, 1);
-            assert.match(question.choices[0].name, /Swap refunded/);
-            assert.doesNotMatch(question.choices[0].name, /waiting for confirmation/);
-            return { requestId: operation.requestId };
-        };
-        await trackSwapsMenu(f.service);
+            assert.match(question.choices![0].name, /Swap refunded/);
+            assert.doesNotMatch(question.choices![0].name, /waiting for confirmation/);
+            return operation.requestId;
+        });
+        await swapMenu(ui, f.service);
         assert.equal(reads, 1);
-        assert.ok(output.every(line => !line.startsWith('\nSwap ')), 'selector already shows the swap heading');
-        assert.ok(output.some(line => line.startsWith('deposit:')));
-        assert.ok(output.some(line => line.includes('trading halted')));
+        assert.ok(ui.output.every(line => !line.startsWith('Swap ')), 'selector already shows the swap heading');
+        assert.ok(ui.output.some(line => line.startsWith('deposit:')));
+        assert.ok(ui.output.some(line => line.includes('trading halted')));
         assert.equal(f.chain.broadcasts.length, 1);
-    } finally {
-        inquirer.prompt = prompt; console.log = log;
-        await f.close();
-    }
+    } finally { await f.close(); }
 });

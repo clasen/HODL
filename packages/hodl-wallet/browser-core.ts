@@ -5,6 +5,7 @@ export { default as BitcoinNetwork, signBitcoinTransaction } from './network/lib
 export { TransferService } from './transfer-service.js';
 export { SwapService } from './swap/service.js';
 export { swapConfig } from './swap/config.js';
+export { routeForNetwork } from './swap/routes.js';
 export { clearSensitiveData } from './sensitive-data.js';
 export { walletConfig } from './config.js';
 export {

@@ -9,9 +9,9 @@ import { NetworkRegistry, byRecentUse, isNetworkUsageEntry, networkStorageName, 
 import { ProfileLock } from './profile-lock.js';
 import { SwapService } from './swap/service.js';
 import { routeForNetwork } from './swap/routes.js';
-import { startSwapMenu } from './swap/ui.js';
 import { errorMessage } from './app/format.js';
 import { showError } from './app/output.js';
+import { swapMenu } from './app/swap.js';
 import { isTransferSnapshot, recentTransferRows, recordedTransferKeys, rescanTransfers, sentTransfers, type RecordedTransfer } from './app/history.js';
 import type {
     AccountDetails, Contact, ContactsPort, HostAction, NewAccount, PendingTransfer, RecentTransfers, SentTransfer,
@@ -234,7 +234,7 @@ export class NodeSession implements WalletSession {
     }
 
     menuActions(): HostAction[] {
-        return routeForNetwork(this.selectedNetwork.id) ? [{ name: 'Swap', run: () => this.swapFunds() }] : [];
+        return routeForNetwork(this.selectedNetwork.id) ? [{ name: 'Swap', run: ui => this.swapFunds(ui) }] : [];
     }
 
     async close(): Promise<void> {
@@ -318,10 +318,10 @@ export class NodeSession implements WalletSession {
         }
     }
 
-    private async swapFunds(): Promise<void> {
+    private async swapFunds(ui: Ui): Promise<void> {
         const route = routeForNetwork(this.selectedNetwork.id);
         if (!route) throw new Error('No swap route for the selected network.');
-        await startSwapMenu(new SwapService(this.db, { routeId: route.id }));
+        await swapMenu(ui, new SwapService(this.db, { routeId: route.id }));
     }
 
     private securePersistFile(): void {

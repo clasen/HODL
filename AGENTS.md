@@ -24,21 +24,21 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 ## Shared Flows (TUI and Web)
 
 - `app/` holds every interactive flow the TUI and the web share: startup, main menu,
-  account settings, balance, transfer and transfers. It imports no Node or DOM
+  account settings, balance, transfer, transfers and swaps. It imports no Node or DOM
   modules. Change a menu, prompt, validation or message there and both interfaces change.
   `index.ts` only wires the CLI: password prompt, profile lock, `NodeSession`, `InquirerUi`.
 - Flows talk to a `Ui` (`app/ui.ts`: select, input, password, confirm, autocomplete, table,
-  print, spinner) and a `WalletSession` (`app/session.ts`). `ui-inquirer.ts` renders `Ui`
+  print, spinner, and watch: a spinner over polling that Enter leaves) and a `WalletSession` (`app/session.ts`). `ui-inquirer.ts` renders `Ui`
   with inquirer, cli-table3 and ora; `apps/web/src/terminal/` renders it in the DOM.
 - Whatever only one host can do goes through the session, never into a flow: `capabilities`,
-  the optional `contacts` port and `transfers.review`, and `HostAction` menu entries (Swap in the
-  TUI; HODL file export and import in both, each host with its own
-  file access). Sessions never prompt
+  the optional `contacts` port and `transfers.review`, and `HostAction` menu entries (Swap on the
+  networks `routeForNetwork` covers, each host building `SwapService` on its own store; HODL file
+  export and import, each host with its own file access). Sessions never prompt
   except through the `Ui` they are given. New prompts belong in a flow.
 - Prompt text, choice names and their order are the TUI's behavior. `test/test-app.ts`
   (scripted `Ui`, fake session) and `test/test-transfer.ts` (drives `runCli` with mocked
-  inquirer, identifying prompts by message) cover them. `swap/ui.ts` still uses inquirer
-  directly; the web does not offer swaps yet.
+  inquirer, identifying prompts by message) cover them; `swap/test/` drives `app/swap.ts` through
+  `PromptUi`, which fails on output or prompts while a spinner runs.
 - `app/index.ts` is re-exported by `hodl-wallet/browser`; `dist/app` is published.
 
 ## Web Terminal
@@ -69,8 +69,8 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   constructor names intact because account keys use them. Browser probes compare
   addresses, signatures and recovery with Node.
 - `pnpm run build:web` builds the existing package, the terminal wallet and the static
-  diagnostic in `apps/web/dist/`. The web wallet covers the flows above, address book included;
-  swaps are TUI-only. The web has no backup format of its own: it exports and imports the CLI's
+  diagnostic in `apps/web/dist/`. The web wallet covers the flows above, address book and swaps
+  included; it keeps swaps in the vault but does not export them. The web has no backup format of its own: it exports and imports the CLI's
   v3 `.HODL` files and still reads v2 (format in `hodl-file.ts`, crypto per host in
   `src/hodl-file.ts` and `persist.ts`). Web exports hold `account`, `mnemonic`, `contact`,
   `transactions` and `sendRequest` and, in both hosts, accept only the wallet password; imports keep
@@ -102,7 +102,8 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 ## Swap Module
 
 - `swap/service.ts` coordinates encrypted quotes, idempotent funding and progress;
-  both the interactive menu and JSON CLI use it under the profile lock.
+  the shared menu (`app/swap.ts`) and JSON CLI use it under the profile lock, the web under the
+  vault lock. What it stores must be plain JSON: the web vault rejects `undefined`.
 - `swap/routes.ts` defines USDT on BSC ↔ native Bitcoin. `swap/providers.ts`
   adapts Chainflip deposit channels, THORChain deposits and NEAR Intents 1Click
   deposit addresses to each route. THORChain uses automatic streaming; Chainflip and

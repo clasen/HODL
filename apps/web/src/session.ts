@@ -1,5 +1,5 @@
 import {
-    AgentError, NetworkRegistry, byRecentUse, clearSensitiveData, recentTransferRows, sentTransfers, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
+    AgentError, NetworkRegistry, byRecentUse, clearSensitiveData, recentTransferRows, routeForNetwork, sentTransfers, showError, swapMenu, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
     type HostAction, type NetworkPlugin, type NetworkUsage, type NewAccount, type RecentTransfers, type SentTransfer, type SessionCapabilities, type TransferDraft,
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
@@ -189,7 +189,8 @@ export class BrowserSession implements WalletSession {
     }
 
     menuActions(): HostAction[] {
-        return [];
+        const route = routeForNetwork(this.selected.id);
+        return route ? [{ name: 'Swap', run: ui => swapMenu(ui, this.wallet.swaps(route.id)) }] : [];
     }
 
     private async importHodlFile(): Promise<boolean> {

@@ -5,7 +5,6 @@ import path from 'node:path';
 import test from 'node:test';
 import * as bitcoin from 'bitcoinjs-lib';
 import { keccak256, toBytes } from 'viem';
-import inquirer from 'inquirer';
 import BitcoinNetwork from '../../network/lib/BitcoinNetwork.js';
 import Persist from '../../persist.js';
 import { WalletService } from '../../wallet-service.js';
@@ -15,7 +14,9 @@ import { swapConfig as config } from '../config.js';
 import { ChainflipSwapProvider, NearIntentsSwapProvider, ThorchainSwapProvider } from '../providers.js';
 import { swapRoutes } from '../routes.js';
 import { SwapService } from '../service.js';
-import { startSwapMenu } from '../ui.js';
+import { swapMenu } from '../../app/swap.js';
+import { PromptUi } from './prompt-ui.js';
+import { jsonOnly } from './json-store.js';
 import type { SwapOperation, SwapProviderId, SwapQuote } from '../types.js';
 
 const destination = '0x1111111111111111111111111111111111111111';
@@ -36,7 +37,7 @@ async function withReverse(providerId: SwapProviderId, work: (f: Awaited<ReturnT
 
 async function reverseFixture(providerId: SwapProviderId) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-reverse-test-'));
-    const db = new Persist({ path: directory, encryptionKey: 'fixture-password' });
+    const db = jsonOnly(new Persist({ path: directory, encryptionKey: 'fixture-password' }));
     await db.connect();
     const network = new BitcoinNetwork(config.destination);
     const account = await network.createAccount();
@@ -366,26 +367,22 @@ test('CLI selects reverse route with --network btc and status uses the stored ro
 
 test('reverse menu shows direction, source network fee and Bitcoin refund before cancellation', async () => {
     await withReverse('thorchain', async f => {
-        const prompt = inquirer.prompt; const log = console.log; const lines: string[] = [];
-        console.log = (...args) => lines.push(args.join(' '));
-        (inquirer as any).prompt = async (question: any) => {
+        const ui = new PromptUi(question => {
             if (question.name === 'route') {
-                assert.equal(question.choices[0].name, 'BTC (Bitcoin) → USDT (BSC)'); return { route: 'new' };
+                assert.equal(question.choices![0].name, 'BTC (Bitcoin) → USDT (BSC)'); return 'new';
             }
-            if (question.name === 'amount') return { amount: '0.01' };
-            if (question.name === 'destination') return { destination };
-            if (question.name === 'quoteId') return { quoteId: question.choices[0].value };
-            assert.equal(question.name, 'confirmed'); return { confirmed: false };
-        };
-        try {
-            await startSwapMenu(f.service);
-            const summary = lines.join('\n');
-            assert.ok(summary.includes('BTC (Bitcoin) → USDT (BSC)'));
-            assert.ok(summary.includes('BTC extra on BTC'));
-            assert.ok(summary.includes('15 USDT confirmations'));
-            assert.ok(summary.includes('BTC (Bitcoin) → sender above, minus fees'));
-            assert.equal(f.broadcasts.length, 0);
-        } finally { inquirer.prompt = prompt; console.log = log; }
+            if (question.name === 'amount') return '0.01';
+            if (question.name === 'destination') return destination;
+            if (question.name === 'quoteId') return question.choices![0].value;
+            assert.equal(question.name, 'confirmed'); return false;
+        });
+        await swapMenu(ui, f.service);
+        const summary = ui.output.join('\n');
+        assert.ok(summary.includes('BTC (Bitcoin) → USDT (BSC)'));
+        assert.ok(summary.includes('BTC extra on BTC'));
+        assert.ok(summary.includes('15 USDT confirmations'));
+        assert.ok(summary.includes('BTC (Bitcoin) → sender above, minus fees'));
+        assert.equal(f.broadcasts.length, 0);
     });
 });
 
@@ -426,51 +423,45 @@ test('THORChain rechecks Bitcoin fee and dust requirements before funding', asyn
 
 test('swap amount validates available BTC and precision before requesting a destination or quotes', async () => {
     await withReverse('thorchain', async f => {
-        const prompt = inquirer.prompt;
         let checked = false;
-        (inquirer as any).prompt = async (question: any) => {
-            if (question.name === 'route') return { route: 'new' };
+        const ui = new PromptUi(question => {
+            if (question.name === 'route') return 'new';
             assert.equal(question.name, 'amount');
-            assert.match(question.validate('0.1'), /Insufficient BTC/);
-            assert.match(question.validate('0.000000001'), /8 decimal places/);
-            assert.equal(question.validate('0.01'), true);
-            assert.equal(question.validate(' MAX '), true);
+            assert.match(String(question.validate!('0.1')), /Insufficient BTC/);
+            assert.match(String(question.validate!('0.000000001')), /8 decimal places/);
+            assert.equal(question.validate!('0.01'), true);
+            assert.equal(question.validate!(' MAX '), true);
             checked = true;
-            return { amount: '' };
-        };
-        try {
-            await startSwapMenu(f.service);
-            assert.equal(checked, true);
-            assert.equal(f.quoteRequests.length, 0);
-            assert.equal(f.broadcasts.length, 0);
-        } finally { inquirer.prompt = prompt; }
+            return '';
+        });
+        await swapMenu(ui, f.service);
+        assert.equal(checked, true);
+        assert.equal(f.quoteRequests.length, 0);
+        assert.equal(f.broadcasts.length, 0);
     });
 });
 
 test('BTC max requotes after reserving funding fees and required refund change', async () => {
     await withReverse('thorchain', async f => {
-        const prompt = inquirer.prompt;
         let confirmed = false;
-        (inquirer as any).prompt = async (question: any) => {
-            if (question.name === 'route') return { route: 'new' };
-            if (question.name === 'amount') return { amount: 'max' };
-            if (question.name === 'destination') return { destination };
+        const ui = new PromptUi(async question => {
+            if (question.name === 'route') return 'new';
+            if (question.name === 'amount') return 'max';
+            if (question.name === 'destination') return destination;
             if (question.name === 'quoteId') {
-                const quote = await f.db.get('swapQuote', question.choices[0].value) as SwapQuote;
+                const quote = await f.db.get('swapQuote', question.choices![0].value as string) as SwapQuote;
                 assert.equal(BigInt(quote.amountBaseUnits) + BigInt(quote.funding.budgetBaseUnits) + BigInt(config.bitcoin.changeDustSats), 2_000_000n);
                 assert.ok(BigInt(quote.amountBaseUnits) < 2_000_000n);
-                return { quoteId: quote.id };
+                return quote.id;
             }
             assert.equal(question.name, 'confirmed');
             confirmed = true;
-            return { confirmed: false };
-        };
-        try {
-            await startSwapMenu(f.service);
-            assert.equal(confirmed, true);
-            assert.equal(f.quoteRequests.length, 2);
-            assert.equal(f.broadcasts.length, 0);
-        } finally { inquirer.prompt = prompt; }
+            return false;
+        });
+        await swapMenu(ui, f.service);
+        assert.equal(confirmed, true);
+        assert.equal(f.quoteRequests.length, 2);
+        assert.equal(f.broadcasts.length, 0);
     });
 });
 

@@ -1,6 +1,6 @@
-import { NetworkRegistry, clearSensitiveData, walletConfig, isNetworkUsageEntry, isRecordedTransfer, isTransferSnapshot, networkStorageName, recordNetworkUse, recordedTransferKeys,
+import { NetworkRegistry, SwapService, clearSensitiveData, walletConfig, isNetworkUsageEntry, isRecordedTransfer, isTransferSnapshot, networkStorageName, recordNetworkUse, recordedTransferKeys,
     rescanTransfers, type AccountDetails, type Contact, type ChainTransfer, type NetworkUsage, type RecordedTransfer, type TransferSnapshot, type WalletAccount,
-    type AssetBalance } from 'hodl-wallet/browser';
+    type AssetBalance, type SwapRouteId } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { openHodlFile, sealHodlFile, type HodlFile } from './hodl-file.js';
 import { BrowserVault, type VaultData } from './vault.js';
@@ -457,6 +457,11 @@ export class BrowserWallet {
             await store.flush();
         }
         return { transfers: snapshot?.transfers ?? [], ...(error ? { error } : {}) };
+    }
+
+    /** Swaps on the open wallet; locking ends them like any other vault operation. */
+    swaps(routeId: SwapRouteId): SwapService {
+        return new SwapService(this.vault.scope().store, { routeId });
     }
 
     async address(networkId: string): Promise<string | undefined> {

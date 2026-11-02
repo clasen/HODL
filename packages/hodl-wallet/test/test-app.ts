@@ -59,6 +59,10 @@ class ScriptedUi implements Ui {
             stop: () => {}
         };
     }
+    watch(text: string) {
+        this.spinners.push(text);
+        return { update: (message: string) => { this.spinners.push(message); }, pause: () => {}, stop: () => {}, left: new Promise<void>(() => {}) };
+    }
     readonly rejected: string[] = [];
     done(): void { assert.deepEqual(this.answers, [], 'Unused answers'); }
 }

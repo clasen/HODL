@@ -1,6 +1,7 @@
 /** Callers hold an exclusive wallet lock for the entire operation.
  * Reads return detached values; clearing secrets must not mutate stored data.
- * set stages a write; flush resolves only once every preceding write is durable.
+ * set stages a write of plain JSON: no undefined, bigint or functions.
+ * flush resolves only once every preceding write is durable.
  * A rejected flush must prevent broadcast.
  */
 export interface WalletStore {

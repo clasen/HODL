@@ -1,4 +1,4 @@
-import { PromptAborted, type Cell, type Choice, type Spinner, type TableSpec, type Ui, type Validation } from 'hodl-wallet/browser';
+import { PromptAborted, type Cell, type Choice, type Spinner, type TableSpec, type Ui, type Validation, type Watch } from 'hodl-wallet/browser';
 import { webConfig } from '../../config.mjs';
 import type { Sound } from './sound.js';
 
@@ -9,7 +9,7 @@ const passwordEcho = '********';
 interface Active {
     onKey(event: KeyboardEvent): void;
     focus(): void;
-    /** A menu answers touch: a swipe moves its highlight and a tap on the screen picks it. */
+    /** A menu answers touch: a swipe moves its highlight and a tap on the screen picks it. A watch is left by a tap. */
     swipe?(step: number): void;
     tap?(): void;
     /** Drops whatever the prompt holds, secrets included. */
@@ -120,7 +120,7 @@ export class DomTerminal implements Ui {
         let gesture: { x: number; y: number; anchor: number; moved: boolean; menu: boolean; onMenu: boolean } | undefined;
         screen.addEventListener('touchstart', event => {
             const touch = event.touches[0];
-            const menu = Boolean(this.active?.swipe);
+            const menu = Boolean(this.active?.tap);
             const onMenu = menu && touch.clientY >= (this.activeBlock?.getBoundingClientRect().top ?? Infinity);
             gesture = event.touches.length === 1
                 ? { x: touch.clientX, y: touch.clientY, anchor: touch.clientY, moved: false, menu, onMenu }
@@ -290,6 +290,42 @@ export class DomTerminal implements Ui {
         };
     }
 
+    /** A spinner left with Enter, Escape or a tap. Locking rejects it like a prompt. */
+    watch(text: string): Watch {
+        let spinner: Spinner | undefined;
+        let ended = false;
+        let leave!: () => void;
+        let abort!: (error: Error) => void;
+        const left = new Promise<void>((resolve, reject) => { leave = resolve; abort = reject; });
+        const end = (): void => {
+            ended = true;
+            spinner?.stop();
+            spinner = undefined;
+            if (this.active === active) this.active = undefined;
+        };
+        const active: Active = {
+            focus: () => {},
+            dispose: () => { end(); abort(new PromptAborted()); },
+            tap: () => { end(); leave(); },
+            onKey: event => {
+                if ((event.key !== 'Enter' && event.key !== 'Escape') || event.repeat) return;
+                event.preventDefault();
+                end();
+                leave();
+            }
+        };
+        const show = (message: string): void => {
+            spinner?.stop();
+            spinner = ended ? undefined : this.spinner(message);
+        };
+        if (this.aborted) active.dispose();
+        else {
+            this.active = active;
+            show(text);
+        }
+        return { update: show, pause: () => { spinner?.stop(); spinner = undefined; }, stop: end, left };
+    }
+
     // ---- prompts
 
     private ask<T>(kind: string, message: string, build: (finish: (value: T, echo: string) => void, body: HTMLElement) => Active): Promise<T> {
@@ -324,15 +360,18 @@ export class DomTerminal implements Ui {
         return line;
     }
 
+    /** Disabled choices are shown with their reason; the highlight skips them and they cannot be picked. */
     private wire<T>(items: Array<Choice<T>>, list: HTMLElement, start: number, pick: (index: number) => void): ChoiceView {
-        let index = start;
+        const enabled = (position: number): boolean => items[position]?.disabled === undefined;
+        let index = enabled(start) ? start : Math.max(0, items.findIndex((_, position) => enabled(position)));
         const prefix = `c${++this.choiceIds}-`;
         const rows = items.map((item, position) => {
-            const row = node('li', 'choice');
+            const row = node('li', item.disabled === undefined ? 'choice' : 'choice dim');
             row.id = `${prefix}${position}`;
             row.setAttribute('role', 'option');
-            row.append(node('span', 'ptr', '  '), item.name);
-            row.addEventListener('click', () => pick(position));
+            row.append(node('span', 'ptr', '  '), item.disabled === undefined ? item.name : `${item.name} (${item.disabled})`);
+            if (item.disabled === undefined) row.addEventListener('click', () => pick(position));
+            else row.setAttribute('aria-disabled', 'true');
             list.append(row);
             return row;
         });
@@ -349,8 +388,17 @@ export class DomTerminal implements Ui {
         };
         paint();
         return {
-            move: step => { if (!rows.length) return; index = ((index + step) % rows.length + rows.length) % rows.length; this.sound.move(); paint(); },
-            jump: position => { if (position >= 0 && position < rows.length) { index = position; this.sound.move(); paint(); } },
+            move: step => {
+                if (!items.some((_, position) => enabled(position))) return;
+                const direction = Math.sign(step);
+                for (let moves = Math.abs(step); moves > 0;) {
+                    index = ((index + direction) % rows.length + rows.length) % rows.length;
+                    if (enabled(index)) moves--;
+                }
+                this.sound.move();
+                paint();
+            },
+            jump: position => { if (enabled(position)) { index = position; this.sound.move(); paint(); } },
             index: () => index
         };
     }
@@ -364,7 +412,9 @@ export class DomTerminal implements Ui {
             list.setAttribute('aria-label', message);
             list.tabIndex = 0;
             block.append(list);
-            const chosen = (position: number): void => finish(choices[position].value, choices[position].name);
+            const chosen = (position: number): void => {
+                if (choices[position].disabled === undefined) finish(choices[position].value, choices[position].name);
+            };
             const start = Math.max(0, choices.findIndex(choice => choice.value === question.default));
             const view = this.wire(choices, list, start, chosen);
             return {
@@ -474,11 +524,14 @@ export class DomTerminal implements Ui {
             block.append(row, list);
             let items: Array<Choice<string>> = [];
             let view: ChoiceView;
+            const pick = (position: number): void => {
+                if (items[position].disabled === undefined) finish(items[position].value, items[position].name);
+            };
             const refresh = (): void => {
                 // Blank suggestions are how the shared flow echoes an empty input; there is nothing to show.
                 items = source(field.value).filter(item => item.name !== '');
                 list.replaceChildren();
-                view = this.wire(items, list, 0, position => finish(items[position].value, items[position].name));
+                view = this.wire(items, list, 0, pick);
             };
             field.addEventListener('input', refresh);
             refresh();
@@ -489,7 +542,7 @@ export class DomTerminal implements Ui {
                     if (event.key === 'ArrowDown') view.move(1);
                     else if (event.key === 'ArrowUp') view.move(-1);
                     else if (event.key === 'Enter' && !event.repeat) {
-                        if (items.length) finish(items[view.index()].value, items[view.index()].name);
+                        if (items.length) pick(view.index());
                         else finish(field.value, field.value);
                     } else if (event.key === 'Escape') finish('', '');
                     else return;

@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { NetworkRegistry } from 'hodl-wallet/dist/network-registry.js';
+import { swapConfig } from 'hodl-wallet/dist/swap/config.js';
 
 const require = createRequire(import.meta.url);
 const polyfills = {
@@ -29,9 +30,11 @@ export default defineConfig({
     },
     plugins: [
         {
-            name: 'wallet-network-content-policy',
+            name: 'wallet-content-policy',
             transformIndexHtml(html) {
-                const origins = [...new Set(new NetworkRegistry().list().flatMap(network => [network.url, network.history?.url].filter(Boolean).map(url => new URL(url).origin)))];
+                const networks = new NetworkRegistry().list().flatMap(network => [network.url, network.history?.url].filter(Boolean));
+                const swaps = [swapConfig.chainflip.url, swapConfig.thorchain.url, swapConfig.thorchain.midgardUrl, swapConfig.nearIntents.url, swapConfig.pricesUrl];
+                const origins = [...new Set([...networks, ...swaps].map(url => new URL(url).origin))];
                 return html.replace("connect-src 'self';", `connect-src 'self' ${origins.join(' ')};`);
             }
         },

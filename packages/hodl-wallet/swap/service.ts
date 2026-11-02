@@ -413,7 +413,8 @@ export class SwapService {
     private transition(operation: SwapOperation, state: SwapState, message?: string): void {
         if (operation.state !== state) operation.history.push({ state, at: Date.now() });
         operation.state = state;
-        operation.message = message;
+        if (message === undefined) delete operation.message;
+        else operation.message = message;
     }
 
     private async save(operation: SwapOperation): Promise<void> {

@@ -1,8 +1,9 @@
+import readline from 'node:readline';
 import inquirer from 'inquirer';
 import Table from 'cli-table3';
 import ora from 'ora';
 import { isPromptAborted } from './app/ui.js';
-import type { Choice, Spinner, TableSpec, Ui, Validation } from './app/ui.js';
+import type { Choice, Spinner, TableSpec, Ui, Validation, Watch } from './app/ui.js';
 
 const AnyTable: any = Table;
 
@@ -79,6 +80,22 @@ export class InquirerUi implements Ui {
             succeed: message => { spinner.succeed(message); },
             fail: message => { spinner.fail(message); },
             stop: () => { spinner.stop(); }
+        };
+    }
+
+    watch(text: string): Watch {
+        const spinner = ora({ text, spinner: 'dots', discardStdin: false }).start();
+        const input = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const left = new Promise<void>(resolve => {
+            const leave = (): void => { spinner.stop(); resolve(); };
+            input.once('line', leave);
+            input.once('close', leave);
+        });
+        return {
+            update: message => { spinner.start(message); },
+            pause: () => { spinner.stop(); },
+            stop: () => { spinner.stop(); input.close(); },
+            left
         };
     }
 }

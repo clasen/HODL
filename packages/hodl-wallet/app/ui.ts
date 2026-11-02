@@ -16,12 +16,25 @@ export interface Choice<T> {
     value: T;
     /** Selected by Escape in hosts that have one. */
     back?: boolean;
+    /** Shown with this reason, never picked. */
+    disabled?: string;
 }
 
 export interface Spinner {
     succeed(text: string): void;
     fail(text: string): void;
     stop(): void;
+}
+
+/** A spinner over work that goes on until the person leaves it with Enter. */
+export interface Watch {
+    /** Shows the spinner again with this text, below any output since it paused. */
+    update(text: string): void;
+    /** Hides the spinner so output can follow. */
+    pause(): void;
+    stop(): void;
+    /** Settles when the person leaves; rejects like a prompt when the host aborts. */
+    readonly left: Promise<void>;
 }
 
 export type Validation = true | string;
@@ -37,6 +50,7 @@ export interface Ui {
     confirm(question: { message: string; default: boolean }): Promise<boolean>;
     autocomplete(question: { message: string; source: (input: string) => Array<Choice<string>> }): Promise<string>;
     spinner(text: string): Spinner;
+    watch(text: string): Watch;
 }
 
 /** Thrown by a pending prompt when the user exits or the wallet locks. Named like inquirer's Ctrl+C error. */
