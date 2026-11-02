@@ -6,7 +6,7 @@ import { swapConfig as config } from './config.js';
 import { integer, list, record, swapJson, swapText, SwapHttpError, textField, transactionHash, units } from './http.js';
 import type { BitcoinInput, ChainReceipt, FundingEstimate, ProviderQuote, SwapChain, SwapInput, SwapPlan, SwapQuote, SwapStep } from './types.js';
 
-type Output = { script: Buffer; value: number };
+type Output = { script: Uint8Array; value: number };
 
 export function bitcoinMemoOutputs(memo?: string): Output[] {
     if (memo === undefined) return [];
@@ -84,7 +84,7 @@ export class BitcoinSwapChain extends BitcoinPayments implements SwapChain {
     }
 
     async assertAvailable(address: string): Promise<void> {
-        const script = bitcoin.address.toOutputScript(address).toString('hex');
+        const script = Buffer.from(bitcoin.address.toOutputScript(address)).toString('hex');
         const pending = list(await swapJson(`${config.destination.url}/address/${address}/txs/mempool`)).map(record);
         if (pending.some(tx => list(tx.vin).some(input => record(record(input).prevout).scriptpubkey === script))) {
             throw new Error('An outgoing Bitcoin transaction is still pending.');
@@ -125,7 +125,7 @@ export class BitcoinSwapChain extends BitcoinPayments implements SwapChain {
             const raw = await swapText(`${config.destination.url}/tx/${input.txid}/hex`);
             const parent = bitcoin.Transaction.fromHex(raw.trim());
             const output = parent.outs[input.vout];
-            if (parent.getId() !== input.txid || !output || output.value !== input.value || !output.script.equals(script)) {
+            if (parent.getId() !== input.txid || !output || output.value !== BigInt(input.value) || !Buffer.from(output.script).equals(script)) {
                 throw new Error('Bitcoin funding input does not match the source wallet.');
             }
             if (quote.provider === 'thorchain' && parent.outs.length > config.bitcoin.maxOutputs) {
@@ -141,9 +141,9 @@ export class BitcoinSwapChain extends BitcoinPayments implements SwapChain {
         }
         const memo = bitcoinMemoOutputs(quote.provider === 'thorchain' ? textField(plan.memo) : undefined);
         const memoCost = memo.reduce((sum, output) => sum + BigInt(output.value), 0n);
-        psbt.addOutput({ address: plan.depositAddress, value: Number(amount) });
-        psbt.addOutput({ address: quote.from, value: Number(change) });
-        for (const output of memo) psbt.addOutput(output);
+        psbt.addOutput({ address: plan.depositAddress, value: amount });
+        psbt.addOutput({ address: quote.from, value: change });
+        for (const output of memo) psbt.addOutput({ script: output.script, value: BigInt(output.value) });
         signBitcoinTransaction(psbt, account.privateKey, bitcoin.networks.bitcoin);
         const transaction = psbt.extractTransaction();
         const minerFee = BigInt(quote.funding.budgetBaseUnits) - memoCost;

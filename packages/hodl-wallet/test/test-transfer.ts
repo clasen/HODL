@@ -391,16 +391,16 @@ test('Bitcoin max spends all inputs with one output and subtracts the fee', asyn
     const previous = [100000, 200000].map((value, index) => {
         const tx = new bitcoin.Transaction();
         tx.addInput(Buffer.alloc(32, index + 1), 0);
-        tx.addOutput(bitcoin.address.toOutputScript(from.address), value);
+        tx.addOutput(bitcoin.address.toOutputScript(from.address), BigInt(value));
         return tx;
     });
-    network.getUTXOs = async () => previous.map(tx => ({ txid: tx.getId(), vout: 0, value: tx.outs[0].value }));
+    network.getUTXOs = async () => previous.map(tx => ({ txid: tx.getId(), vout: 0, value: Number(tx.outs[0].value) }));
     network.getTransaction = async id => previous.find(tx => tx.getId() === id)!.toHex();
     const result = await network.prepareTransfer(from, FROM, 'max', 'BTC', { feeRate: 2 });
     const tx = bitcoin.Transaction.fromHex(result.rawTransaction);
     assert.equal(tx.ins.length, 2);
     assert.equal(tx.outs.length, 1);
-    assert.equal(tx.outs[0].value, 300000 - network.estimateTxSize(2, 1) * 2);
+    assert.equal(tx.outs[0].value, BigInt(300000 - network.estimateTxSize(2, 1) * 2));
     assert.equal(BigInt(result.amountBaseUnits) + BigInt(result.fee.baseUnits), 300000n);
     const resolved = await network.prepareTransfer(from, FROM, result.amount, 'BTC', { feeRate: 2, maxFeeBaseUnits: result.fee.baseUnits });
     assert.equal(resolved.rawTransaction, result.rawTransaction);
@@ -474,7 +474,7 @@ test('Bitcoin estimation matches the signed transfer and enforces the fee cap be
     const from = await network.createAccount();
     const previous = new bitcoin.Transaction();
     previous.addInput(Buffer.alloc(32, 1), 0);
-    previous.addOutput(bitcoin.address.toOutputScript(from.address), 100000);
+    previous.addOutput(bitcoin.address.toOutputScript(from.address), 100000n);
     network.getUTXOs = async () => [{ txid: previous.getId(), vout: 0, value: 100000 }];
     network.getTransaction = async () => previous.toHex();
     const quote = await network.estimateTransfer(from.address, FROM, '0.0001', 'BTC', { feeRate: 2 });

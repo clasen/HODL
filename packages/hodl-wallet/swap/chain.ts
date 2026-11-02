@@ -85,7 +85,7 @@ export class BitcoinPayments {
         const id = transactionHash(hash);
         const tx = record(await swapJson(`${config.destination.url}/tx/${id}`));
         if (transactionHash(tx.txid) !== id) throw new Error('Bitcoin transaction hash mismatch.');
-        const script = bitcoin.address.toOutputScript(address, bitcoin.networks.bitcoin).toString('hex');
+        const script = Buffer.from(bitcoin.address.toOutputScript(address, bitcoin.networks.bitcoin)).toString('hex');
         let sats = 0n;
         for (const entry of list(tx.vout)) {
             const output = record(entry);

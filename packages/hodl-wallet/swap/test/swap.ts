@@ -456,7 +456,7 @@ test('provider blocks explain missing assets, paused operations and unverified s
 test('Bitcoin verification checks actual output script and canonical block, not provider status alone', async () => {
     const chain = new BscSwapChain();
     const bitcoin = await import('bitcoinjs-lib');
-    const script = bitcoin.address.toOutputScript(DESTINATION).toString('hex');
+    const script = Buffer.from(bitcoin.address.toOutputScript(DESTINATION)).toString('hex');
     await mockedFetch(url => {
         if (url.endsWith('/blocks/tip/height')) return new Response('102');
         if (url.endsWith('/block-height/100')) return new Response('c'.repeat(64));

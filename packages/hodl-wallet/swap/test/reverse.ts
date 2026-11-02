@@ -45,7 +45,7 @@ async function reverseFixture(providerId: SwapProviderId) {
     await db.set('account', config.source.NetworkClass.name, { address: destination, privateKey: 'unused-fixture-key' });
     const parent = new bitcoin.Transaction();
     parent.addInput(Buffer.alloc(32, 1), 0);
-    parent.addOutput(bitcoin.address.toOutputScript(account.address), 2_000_000);
+    parent.addOutput(bitcoin.address.toOutputScript(account.address), 2_000_000n);
     const provider = providerId === 'thorchain' ? new ThorchainSwapProvider(route) :
         providerId === 'near-intents' ? new NearIntentsSwapProvider(route) : new ChainflipSwapProvider(route);
     const options = { routeId: route.id, providers: [provider], prices };
@@ -103,7 +103,7 @@ async function reverseFixture(providerId: SwapProviderId) {
                 return new Response(transaction.getId());
             } else if (url.includes(`${config.destination.url}/tx/`)) {
                 const hash = url.split('/').at(-1)!;
-                if (hash === refundHash) result = { txid: refundHash, vout: [{ scriptpubkey: bitcoin.address.toOutputScript(account.address).toString('hex'), value: f.refundAmount }], status: { confirmed: f.refundConfirmations > 0, block_height: 100, block_hash: blockHash } };
+                if (hash === refundHash) result = { txid: refundHash, vout: [{ scriptpubkey: Buffer.from(bitcoin.address.toOutputScript(account.address)).toString('hex'), value: f.refundAmount }], status: { confirmed: f.refundConfirmations > 0, block_height: 100, block_hash: blockHash } };
                 else if (!f.depositKnown) return new Response('', { status: 404 });
                 else result = { txid: hash, status: { confirmed: f.depositConfirmed, block_height: 90, block_hash: blockHash } };
             } else if (url.endsWith('/api/networkInfo')) result = { assets: [
@@ -193,16 +193,16 @@ for (const provider of ['chainflip', 'thorchain', 'near-intents'] as const) {
             assert.equal(started.quote.destination.asset, 'USDT');
             assert.equal(started.quote.funding.asset, 'BTC');
             const tx = bitcoin.Transaction.fromHex(f.broadcasts[0]);
-            assert.equal(tx.outs[0].value, 1_000_000);
-            assert.ok(tx.outs[0].script.equals(bitcoin.address.toOutputScript(f.vault)));
-            assert.ok(tx.outs[1].script.equals(bitcoin.address.toOutputScript(f.account.address)));
+            assert.equal(tx.outs[0].value, 1_000_000n);
+            assert.ok(Buffer.from(tx.outs[0].script).equals(bitcoin.address.toOutputScript(f.vault)));
+            assert.ok(Buffer.from(tx.outs[1].script).equals(bitcoin.address.toOutputScript(f.account.address)));
             const debit = 2_000_000n - BigInt(tx.outs[1].value) - 1_000_000n;
             assert.equal(debit, BigInt(f.quote!.funding.budgetBaseUnits));
             assert.ok(tx.ins[0].witness.length > 0, 'locally signed');
             if (provider === 'thorchain') {
                 assert.equal(f.quoteRequests[0].searchParams.get('extended'), 'true');
                 const chunks = bitcoin.script.decompile(tx.outs[2].script)!;
-                const head = (chunks[1] as Buffer).toString('ascii');
+                const head = Buffer.from(chunks[1] as Uint8Array).toString('ascii');
                 assert.equal(head.at(-1), '^');
                 const tail = Buffer.concat(tx.outs.slice(3).map(output => output.script.subarray(2))).toString('ascii').replace(/\0+$/, '');
                 assert.equal(head.slice(0, -1) + tail, f.operation!.plan!.memo);

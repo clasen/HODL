@@ -48,6 +48,6 @@ export function sameAssetAddress(asset: SwapAsset, left: unknown, right: string)
         const a = assetAddress(asset, left);
         const b = assetAddress(asset, right);
         return asset.network.family === 'evm' ? a.toLowerCase() === b.toLowerCase() :
-            bitcoin.address.toOutputScript(a).equals(bitcoin.address.toOutputScript(b));
+            Buffer.from(bitcoin.address.toOutputScript(a)).equals(bitcoin.address.toOutputScript(b));
     } catch { return false; }
 }

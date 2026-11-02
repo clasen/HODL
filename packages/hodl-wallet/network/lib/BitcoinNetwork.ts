@@ -167,14 +167,14 @@ export default class BitcoinNetwork extends BaseNetwork {
 
             psbt.addOutput({
                 address: to,
-                value: satoshis
+                value: BigInt(satoshis)
             });
 
             let returnedChange = 0;
             if (changeValue > 546) {
                 psbt.addOutput({
                     address: from,
-                    value: changeValue
+                    value: BigInt(changeValue)
                 });
                 returnedChange = changeValue;
             }

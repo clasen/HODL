@@ -58,7 +58,7 @@ export const sendTransfer = page => confirm(page, 'Confirm transfer of');
 export async function mockNetworks(context, page) {
     const previous = new bitcoin.Transaction();
     previous.addInput(Buffer.alloc(32, 1), 0);
-    previous.addOutput(bitcoin.address.toOutputScript(BTC_FROM), 2000000);
+    previous.addOutput(bitcoin.address.toOutputScript(BTC_FROM), 2000000n);
     const state = { page, gasPrice: 1000000000n, balance: 10000000000000000000n, status: 'confirmed', mode: 'success',
         hashes: [], methods: [], unexpected: [], gate: undefined, beforeBroadcast: undefined };
     const inspect = async (raw, hash) => {
