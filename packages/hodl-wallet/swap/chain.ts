@@ -157,7 +157,7 @@ export class BscSwapChain extends BscPayments implements SwapChain {
         if (kind !== 'deposit') {
             if (quote.provider !== 'thorchain' || plan.router !== config.thorchain.router) throw new Error('Invalid approval router.');
             data = encodeFunctionData({ abi, functionName: 'approve', args: [plan.router as Address, kind === 'approve' ? BigInt(quote.amountBaseUnits) : 0n] });
-        } else if (quote.provider === 'chainflip') {
+        } else if (quote.provider !== 'thorchain') {
             data = encodeFunctionData({ abi, functionName: 'transfer', args: [evmAddress(plan.depositAddress) as Address, BigInt(quote.amountBaseUnits)] });
             limit = config.gas.transfer;
         } else {
@@ -224,7 +224,7 @@ export class BscSwapChain extends BscPayments implements SwapChain {
             if (allowance < BigInt(quote.amountBaseUnits)) kind = allowance > 0n ? 'reset_approval' : 'approve';
         }
         const spent = steps.reduce((sum, step) => sum + (step.kind === 'deposit' ? config.gas.deposit : config.gas.approval), 0);
-        const next = kind === 'deposit' ? (quote.provider === 'chainflip' ? config.gas.transfer : config.gas.deposit) : config.gas.approval;
+        const next = kind === 'deposit' ? (quote.provider === 'thorchain' ? config.gas.deposit : config.gas.transfer) : config.gas.approval;
         if (spent + next > quote.funding.units) throw new Error('Funding requirements exceed the accepted gas budget.');
         return kind;
     }

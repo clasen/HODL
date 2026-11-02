@@ -21,7 +21,7 @@ const labels: Record<SwapState, string> = {
 };
 
 type SwapView = Awaited<ReturnType<SwapService['status']>>;
-const providerNames = { chainflip: 'Chainflip', thorchain: 'THORChain' };
+const providerNames = { chainflip: 'Chainflip', thorchain: 'THORChain', 'near-intents': 'NEAR Intents' };
 
 async function withSpinner<T>(text: string, work: () => Promise<T>): Promise<T> {
     const spinner = ora({ text, spinner: 'dots' }).start();
@@ -83,7 +83,7 @@ export async function startSwapMenu(service: SwapService): Promise<void> {
         });
         if (!to) return;
         const maximum = amount.trim().toLowerCase() === 'max';
-        let comparison = await withSpinner('Comparing Chainflip and THORChain, including network fees…', () => service.quote(maximum ? balance : amount.trim(), to));
+        let comparison = await withSpinner('Comparing Chainflip, THORChain and NEAR Intents, including network fees…', () => service.quote(maximum ? balance : amount.trim(), to));
         if (maximum && source.asset === 'BTC' && comparison.quotes.length) {
             const reserve = comparison.quotes.reduce((largest, quote) => {
                 const fee = parseDecimalToUnits(quote.funding.budget, source.decimals);

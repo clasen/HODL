@@ -42,5 +42,11 @@ export const swapConfig = {
         router: '0xb30ec53f98ff5947ede720d32ac2da7e52a5f56b',
         asset: `BSC.USDT-${bsc.tokens.USDT.address.toUpperCase()}`
     },
+    nearIntents: {
+        url: 'https://1click.chaindefuser.com',
+        sourceAsset: 'nep245:v2_1.omni.hot.tg:56_2CMMyVTGZkeyNZTSvS5sarzfir6g',
+        platformFeeBps: 20,
+        refundDeadlineMs: 7_200_000
+    },
     pricesUrl: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,binancecoin,tether&vs_currencies=usd&include_last_updated_at=true&precision=8'
 } as const;

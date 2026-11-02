@@ -1,7 +1,7 @@
 import type { WalletAccount } from '../network/types.js';
 
 export type SwapRouteId = 'bsc-btc' | 'btc-bsc';
-export type SwapProviderId = 'chainflip' | 'thorchain';
+export type SwapProviderId = 'chainflip' | 'thorchain' | 'near-intents';
 export type SwapState = 'quoted' | 'preparing' | 'approval_pending' | 'deposit_pending' |
     'deposit_confirmed' | 'swapping' | 'payout_pending' | 'btc_pending' | 'btc_confirming' | 'output_pending' | 'output_confirming' |
     'completed' | 'partial_pending' | 'partial_completed' | 'refund_pending' | 'refunded' | 'failed' | 'needs_attention';
@@ -35,6 +35,8 @@ export type SwapPlan = {
     memo?: string;
     expirySeconds?: number;
     channelExpiryBlock?: string;
+    /** The provider-signed quote behind the deposit address, kept to resolve disputes. */
+    providerQuote?: Record<string, unknown>;
 };
 export type SwapStep = {
     kind: 'reset_approval' | 'approve' | 'deposit';

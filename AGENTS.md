@@ -95,8 +95,10 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 - `swap/service.ts` coordinates encrypted quotes, idempotent funding and progress;
   both the interactive menu and JSON CLI use it under the profile lock.
 - `swap/routes.ts` defines USDT on BSC ↔ native Bitcoin. `swap/providers.ts`
-  adapts Chainflip deposit channels and THORChain deposits to each route.
-  THORChain uses automatic streaming; Chainflip uses a single execution. No DCA
+  adapts Chainflip deposit channels, THORChain deposits and NEAR Intents 1Click
+  deposit addresses to each route. THORChain uses automatic streaming; Chainflip and
+  NEAR Intents use a single execution. NEAR Intents is keyless, so its 0.2% platform
+  fee is accepted up to `nearIntents.platformFeeBps` and its signed quote is kept in the plan. No DCA
   or boosts. Quotes bind the original source sender as refund destination. Partial streaming results require verified
   BTC and USDT payouts before `partial_completed`; never report them as a full swap.
 - `swap/chain.ts` handles BSC funding and payment verification; `swap/bitcoin.ts`

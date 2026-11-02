@@ -385,6 +385,161 @@ export class ChainflipSwapProvider implements SwapProvider {
     }
 }
 
+export class NearIntentsSwapProvider implements SwapProvider {
+    readonly id = 'near-intents' as const;
+    constructor(private readonly route: SwapRoute = swapRoutes['bsc-btc']) {}
+
+    private async available(): Promise<void> {
+        const tokens = list(await swapJson(`${config.nearIntents.url}/v0/tokens`)).map(record);
+        for (const asset of [this.route.source, this.route.destination]) {
+            const entry = tokens.find(token => token.assetId === asset.nearIntents.id);
+            if (!entry) throw new Error(`NEAR Intents ${asset.label} is currently unavailable: asset not listed by the provider API.`);
+            if (entry.blockchain !== asset.nearIntents.blockchain || entry.decimals !== asset.decimals ||
+                (asset.network.family === 'evm' && !sameAddress(entry.contractAddress, config.token))) {
+                throw new Error(`NEAR Intents lists a different ${asset.label} asset; integration must be reviewed.`);
+            }
+        }
+    }
+
+    private request(input: SwapInput, dry: boolean, deadline: string) {
+        return {
+            dry, swapType: 'EXACT_INPUT', slippageTolerance: config.slippageBps,
+            originAsset: this.route.source.nearIntents.id, depositType: 'ORIGIN_CHAIN',
+            destinationAsset: this.route.destination.nearIntents.id, amount: input.amountBaseUnits,
+            refundTo: input.from, refundType: 'ORIGIN_CHAIN', recipient: input.to, recipientType: 'DESTINATION_CHAIN', deadline
+        };
+    }
+
+    private async requestQuote(input: SwapInput, dry: boolean): Promise<{ data: Record<string, unknown>; terms: Record<string, unknown> }> {
+        const deadline = new Date(Date.now() + config.nearIntents.refundDeadlineMs).toISOString();
+        let data: Record<string, unknown>;
+        try { data = record(await swapJson(`${config.nearIntents.url}/v0/quote`, this.request(input, dry, deadline))); }
+        catch (error) {
+            if (error instanceof SwapHttpError && error.status === 400 && error.detail) throw new Error(`NEAR Intents rejected the quote: ${error.detail}`);
+            throw error;
+        }
+        return { data, terms: this.check(data, input, dry, deadline) };
+    }
+
+    /** Binds a quote response to the requested swap and returns its terms. */
+    private check(response: Record<string, unknown>, input: SwapInput, dry: boolean, deadline: string): Record<string, unknown> {
+        const { source, destination } = this.route;
+        const request = record(response.quoteRequest);
+        for (const [field, value] of Object.entries(this.request(input, dry, deadline))) {
+            const same = field === 'refundTo' ? sameAssetAddress(source, request[field], String(value)) :
+                field === 'recipient' ? sameAssetAddress(destination, request[field], String(value)) : request[field] === value;
+            if (!same) throw new Error('NEAR Intents quote does not match the requested swap.');
+        }
+        if (request.depositMode !== undefined && request.depositMode !== 'SIMPLE') throw new Error('NEAR Intents deposit memos are not supported.');
+        const feeBps = (request.appFees == null ? [] : list(request.appFees)).reduce<number>((sum, fee) => sum + integer(record(fee).fee), 0);
+        if (feeBps > config.nearIntents.platformFeeBps) throw new Error('NEAR Intents quote includes an unapproved fee.');
+        const quote = record(response.quote);
+        if (units(quote.amountIn) !== BigInt(input.amountBaseUnits) || units(quote.minAmountIn) !== BigInt(input.amountBaseUnits)) {
+            throw new Error('NEAR Intents quote amount mismatch.');
+        }
+        const expected = units(quote.amountOut);
+        const minimum = units(quote.minAmountOut);
+        if (expected <= 0n || minimum > expected || minimum < expected * BigInt(10_000 - config.slippageBps) / 10_000n) {
+            throw new Error('NEAR Intents quote exceeds the accepted slippage.');
+        }
+        if (!dry) {
+            assetAddress(source, quote.depositAddress);
+            if (quote.depositMemo !== undefined) throw new Error('NEAR Intents deposit memos are not supported.');
+        }
+        return { ...quote, feeBps };
+    }
+
+    private async execution(quote: SwapQuote, plan: SwapPlan): Promise<Record<string, unknown>> {
+        const data = record(await swapJson(`${config.nearIntents.url}/v0/status?${new URLSearchParams({ depositAddress: plan.depositAddress })}`));
+        const accepted = record(plan.providerQuote);
+        const response = record(data.quoteResponse);
+        const offer = this.check(response, quote, false, textField(record(accepted.quoteRequest).deadline));
+        if (textField(response.signature) !== textField(accepted.signature) || !sameAssetAddress(this.route.source, offer.depositAddress, plan.depositAddress) ||
+            units(offer.minAmountOut) < BigInt(quote.minimumBaseUnits)) {
+            throw new Error('NEAR Intents deposit address does not match the accepted swap.');
+        }
+        return data;
+    }
+
+    async quote(input: SwapInput): Promise<ProviderQuote> {
+        if (input.routeId !== this.route.id) throw new Error('Swap route mismatch.');
+        const { source, destination } = this.route;
+        await this.available();
+        const quote = (await this.requestQuote(input, true)).terms;
+        const fees: SwapFee[] = [{
+            label: 'Platform', asset: source.asset, decimals: source.decimals,
+            amountBaseUnits: (BigInt(input.amountBaseUnits) * BigInt(integer(quote.feeBps)) / 10_000n).toString()
+        }];
+        if (quote.withdrawFee !== undefined) {
+            fees.push({ label: `${destination.asset} payout`, asset: destination.asset, amountBaseUnits: units(quote.withdrawFee).toString(), decimals: destination.decimals });
+        }
+        return {
+            provider: this.id, expectedBaseUnits: units(quote.amountOut).toString(), minimumBaseUnits: units(quote.minAmountOut).toString(),
+            expiresAt: Date.now() + config.quoteLifetimeMs,
+            estimatedSeconds: typeof quote.timeEstimate === 'number' ? integer(Math.ceil(quote.timeEstimate)) : null,
+            fees, details: {}
+        };
+    }
+
+    async prepare(quote: SwapQuote): Promise<SwapPlan> {
+        assertTime(quote.expiresAt);
+        await this.available();
+        const { data, terms: offer } = await this.requestQuote(quote, false);
+        if (units(offer.minAmountOut) < BigInt(quote.minimumBaseUnits)) throw new Error('NEAR Intents price moved below the accepted minimum; obtain a new quote.');
+        const plan: SwapPlan = {
+            depositAddress: assetAddress(this.route.source, offer.depositAddress), providerId: textField(data.correlationId),
+            expiresAt: Math.min(quote.expiresAt, Date.parse(textField(record(data.quoteRequest).deadline))), providerQuote: data
+        };
+        assertTime(plan.expiresAt);
+        return plan;
+    }
+
+    async validate(quote: SwapQuote, plan: SwapPlan): Promise<void> {
+        assertTime(Math.min(quote.expiresAt, plan.expiresAt));
+        await this.available();
+        if ((await this.execution(quote, plan)).status !== 'PENDING_DEPOSIT') throw new Error('NEAR Intents deposit address is no longer waiting for this deposit.');
+    }
+
+    async status(operation: SwapOperation): Promise<ProviderProgress> {
+        const { source, destination } = this.route;
+        if (operation.quote.routeId !== this.route.id) throw new Error('Swap route mismatch.');
+        if (!operation.plan) return { state: 'deposit_pending' };
+        const data = await this.execution(operation.quote, operation.plan);
+        const details = record(data.swapDetails);
+        const deposit = operation.steps.find(step => step.kind === 'deposit');
+        const depositHash = deposit && transactionHash(deposit.hash, source.network.family === 'evm');
+        const origin = list(details.originChainTxHashes).map(item => transactionHash(record(item).hash, source.network.family === 'evm'));
+        if (origin.length && (!depositHash || !origin.includes(depositHash))) throw new Error('NEAR Intents deposit transaction mismatch.');
+        const progress: ProviderProgress = { state: 'deposit_confirmed' };
+        if (data.status === 'PENDING_DEPOSIT' || data.status === 'KNOWN_DEPOSIT_TX') return progress;
+        if (data.status === 'INCOMPLETE_DEPOSIT') {
+            return { state: 'refund_pending', message: 'NEAR Intents received less than the accepted amount; it refunds the deposit after the deadline.' };
+        }
+        if (details.depositedAmount != null && units(details.depositedAmount) !== BigInt(operation.quote.amountBaseUnits)) {
+            throw new Error('NEAR Intents deposit amount mismatch.');
+        }
+        if (data.status === 'PROCESSING') progress.state = 'swapping';
+        else if (data.status === 'SUCCESS') {
+            const payouts = list(details.destinationChainTxHashes).map(item => transactionHash(record(item).hash, destination.network.family === 'evm'));
+            if (payouts.length > 1) throw new Error('Unexpected multiple payouts.');
+            progress.state = 'payout_pending';
+            if (payouts.length) { progress.payoutHash = payouts[0]; progress.payoutBaseUnits = units(details.amountOut).toString(); }
+        } else if (data.status === 'REFUNDED') {
+            const refunds = origin.filter(hash => hash !== depositHash);
+            if (refunds.length > 1) throw new Error('Unexpected multiple refunds.');
+            progress.state = 'refund_pending';
+            if (refunds.length) { progress.refundHash = refunds[0]; progress.refundBaseUnits = units(details.refundedAmount).toString(); }
+            if (typeof details.refundReason === 'string' && details.refundReason) {
+                progress.message = `NEAR Intents refund: ${details.refundReason.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 240)}.`;
+            }
+        } else if (data.status === 'FAILED') {
+            progress.state = 'needs_attention';
+            progress.message = 'Provider reports a failure. Funds are not marked refunded until the source-asset refund is verified.';
+        } else throw new Error('Unknown NEAR Intents swap state.');
+        return progress;
+    }
+}
+
 export function createSwapProviders(route: SwapRoute = swapRoutes['bsc-btc']): SwapProvider[] {
-    return [new ChainflipSwapProvider(route), new ThorchainSwapProvider(route)];
+    return [new ChainflipSwapProvider(route), new ThorchainSwapProvider(route), new NearIntentsSwapProvider(route)];
 }

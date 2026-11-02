@@ -8,14 +8,16 @@ const usdt = {
     price: 'usdt' as const, confirmations: config.bscConfirmations,
     pendingState: 'output_pending' as const, confirmingState: 'output_confirming' as const,
     label: 'USDT (BSC)', chainflip: { chain: 'Bsc', asset: 'USDT', id: config.chainflip.sourceAsset },
-    thorchain: { chain: 'BSC', asset: config.thorchain.asset, scale: 10n ** BigInt(config.decimals - 8) }
+    thorchain: { chain: 'BSC', asset: config.thorchain.asset, scale: 10n ** BigInt(config.decimals - 8) },
+    nearIntents: { blockchain: 'bsc', id: config.nearIntents.sourceAsset }
 };
 const btc = {
     network: config.destination, asset: 'BTC', decimals: 8,
     price: 'btc' as const, confirmations: config.bitcoinConfirmations,
     pendingState: 'btc_pending' as const, confirmingState: 'btc_confirming' as const,
     label: 'BTC (Bitcoin)', chainflip: { chain: 'Bitcoin', asset: 'BTC', id: 'Btc' },
-    thorchain: { chain: 'BTC', asset: 'BTC.BTC', scale: 1n }
+    thorchain: { chain: 'BTC', asset: 'BTC.BTC', scale: 1n },
+    nearIntents: { blockchain: 'btc', id: 'nep141:btc.omft.near' }
 };
 
 export const swapRoutes = {

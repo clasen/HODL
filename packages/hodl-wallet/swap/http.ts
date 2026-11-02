@@ -1,7 +1,7 @@
 import { swapConfig } from './config.js';
 
 export class SwapHttpError extends Error {
-    constructor(readonly status: number, message: string) { super(message); }
+    constructor(readonly status: number, message: string, readonly detail?: string) { super(message); }
 }
 
 export async function swapText(url: string): Promise<string> {
@@ -19,7 +19,9 @@ export async function swapJson(url: string, body?: unknown): Promise<unknown> {
         redirect: 'error'
     });
     if (!response.ok) {
-        throw new SwapHttpError(response.status, `Provider request failed (HTTP ${response.status}).`);
+        const error = await response.json().catch(() => null) as { message?: unknown } | null;
+        throw new SwapHttpError(response.status, `Provider request failed (HTTP ${response.status}).`,
+            typeof error?.message === 'string' ? error.message : undefined);
     }
     return response.json();
 }

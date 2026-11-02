@@ -12,7 +12,7 @@ import { WalletService } from '../../wallet-service.js';
 import { runAgentCli } from '../../agent-cli.js';
 import { bitcoinMemoOutputs } from '../bitcoin.js';
 import { swapConfig as config } from '../config.js';
-import { ChainflipSwapProvider, ThorchainSwapProvider } from '../providers.js';
+import { ChainflipSwapProvider, NearIntentsSwapProvider, ThorchainSwapProvider } from '../providers.js';
 import { swapRoutes } from '../routes.js';
 import { SwapService } from '../service.js';
 import { startSwapMenu } from '../ui.js';
@@ -46,7 +46,8 @@ async function reverseFixture(providerId: SwapProviderId) {
     const parent = new bitcoin.Transaction();
     parent.addInput(Buffer.alloc(32, 1), 0);
     parent.addOutput(bitcoin.address.toOutputScript(account.address), 2_000_000);
-    const provider = providerId === 'thorchain' ? new ThorchainSwapProvider(route) : new ChainflipSwapProvider(route);
+    const provider = providerId === 'thorchain' ? new ThorchainSwapProvider(route) :
+        providerId === 'near-intents' ? new NearIntentsSwapProvider(route) : new ChainflipSwapProvider(route);
     const options = { routeId: route.id, providers: [provider], prices };
     const service = new SwapService(db, options);
     const f = {
@@ -57,6 +58,7 @@ async function reverseFixture(providerId: SwapProviderId) {
         reasonUnavailable: false, reasonWrongTransaction: false,
         wrongToken: false, wrongRecipient: false, reorg: false, failStatus: false,
         mutation: '', broadcasts: [] as string[], channelRequests: [] as Record<string, any>[], quoteRequests: [] as URL[],
+        intentRequests: [] as Record<string, any>[], intentQuote: undefined as Record<string, any> | undefined,
         quote: undefined as SwapQuote | undefined, operation: undefined as SwapOperation | undefined,
         async start(id = 'reverse') {
             const comparison = await service.quote('0.01');
@@ -144,6 +146,32 @@ async function reverseFixture(providerId: SwapProviderId) {
                 result = { tx: { id: f.operation!.steps[0].hash, chain: 'BTC', from_address: account.address, memo: f.operation!.plan!.memo, coins: [{ asset: 'BTC.BTC', amount: '1000000' }] },
                     out_txs: outputs, planned_out_txs: outputs,
                     stages: { swap_status: { pending: !f.settlementComplete }, outbound_signed: { completed: f.settlementComplete } } };
+            } else if (url === `${config.nearIntents.url}/v0/tokens`) result = [
+                { assetId: route.source.nearIntents.id, blockchain: 'btc', decimals: 8 },
+                { assetId: route.destination.nearIntents.id, blockchain: 'bsc', decimals: 18, contractAddress: config.token }
+            ];
+            else if (url === `${config.nearIntents.url}/v0/quote`) {
+                const request = JSON.parse(String(init?.body));
+                f.intentRequests.push(request);
+                result = { correlationId: `intent-${f.intentRequests.length}`, timestamp: new Date().toISOString(), signature: `ed25519:fixture-${f.intentRequests.length}`,
+                    quoteRequest: { ...request, depositMode: 'SIMPLE', appFees: [{ recipient: 'fixture.near', fee: 20 }] },
+                    quote: { amountIn: request.amount, minAmountIn: request.amount, amountOut: (600n * tokenScale).toString(), minAmountOut: (597n * tokenScale).toString(),
+                        timeEstimate: 600, withdrawFee: tokenScale.toString(), ...(request.dry ? {} : { depositAddress: vault, deadline: request.deadline }) } };
+                if (!request.dry) f.intentQuote = result as Record<string, any>;
+            } else if (url.startsWith(`${config.nearIntents.url}/v0/status?`)) {
+                if (f.failStatus) throw new Error('Provider unavailable');
+                const deposit = f.depositConfirmed ? f.operation!.steps[0].hash : '';
+                result = {
+                    correlationId: 'status', updatedAt: new Date().toISOString(),
+                    status: f.refund ? 'REFUNDED' : f.payout ? 'SUCCESS' : f.depositConfirmed ? 'PROCESSING' : 'PENDING_DEPOSIT',
+                    quoteResponse: f.mutation === 'vault' ? { ...f.intentQuote, quote: { ...f.intentQuote!.quote, depositAddress: account.address } } : f.intentQuote,
+                    swapDetails: {
+                        depositedAmount: f.depositConfirmed ? '1000000' : null, amountOut: f.payout ? f.payoutAmount.toString() : null,
+                        refundedAmount: f.refund ? String(f.refundAmount) : '0', refundReason: f.refund ? 'price moved' : null,
+                        originChainTxHashes: [...(f.depositConfirmed ? [{ hash: deposit }] : []), ...(f.refund ? [{ hash: refundHash }] : [])],
+                        destinationChainTxHashes: f.payout ? [{ hash: payoutHash }] : []
+                    }
+                };
             } else if (url.startsWith(`${config.thorchain.midgardUrl}/v2/actions?`)) {
                 if (f.reasonUnavailable) return new Response('', { status: 503 });
                 result = { actions: [{ type: 'refund', in: [{ txID: f.reasonWrongTransaction ? refundHash : f.operation!.steps[0].hash }],
@@ -155,7 +183,7 @@ async function reverseFixture(providerId: SwapProviderId) {
     return f;
 }
 
-for (const provider of ['chainflip', 'thorchain'] as const) {
+for (const provider of ['chainflip', 'thorchain', 'near-intents'] as const) {
     test(`${provider}: reverse deposit uses exact BTC outputs, fee budget and persisted transaction`, async () => {
         await withReverse(provider, async f => {
             const started = await f.start();
@@ -181,6 +209,12 @@ for (const provider of ['chainflip', 'thorchain'] as const) {
                 assert.ok(tail.length > 0);
                 assert.ok(f.operation!.plan!.memo!.includes(`/${f.account.address}:`));
                 assert.ok(f.operation!.plan!.memo!.endsWith(':59700000000/1/0'));
+            } else if (provider === 'near-intents') {
+                assert.equal(tx.outs.length, 2);
+                assert.deepEqual(f.intentRequests.map(request => request.dry), [true, false]);
+                assert.equal(f.intentRequests[1].refundTo, f.account.address);
+                assert.equal(f.intentRequests[1].recipient, destination);
+                assert.equal(f.operation!.plan!.providerQuote!.signature, 'ed25519:fixture-2');
             } else {
                 assert.equal(tx.outs.length, 2);
                 assert.equal(f.channelRequests[0].fillOrKillParams.refundAddress, f.account.address);
@@ -211,6 +245,23 @@ for (const provider of ['chainflip', 'thorchain'] as const) {
         });
     });
 }
+
+test('NEAR Intents reverse refund is verified on Bitcoin and a changed deposit address blocks funding', async () => {
+    await withReverse('near-intents', async f => {
+        await f.start(); f.depositConfirmed = true; f.refund = true; f.refundConfirmations = config.bitcoinConfirmations;
+        const refunded = await f.service.status('reverse');
+        assert.equal(refunded.state, 'refunded', refunded.updateError || '');
+        assert.equal(refunded.refund!.hash, refundHash);
+        assert.equal(f.broadcasts.length, 1);
+    });
+    await withReverse('near-intents', async f => {
+        f.mutation = 'vault';
+        const started = await f.start();
+        assert.equal(started.state, 'failed');
+        assert.match(started.updateError || '', /does not match the accepted swap/);
+        assert.equal(f.broadcasts.length, 0);
+    });
+});
 
 test('reverse quote never signs or opens channels and rejects BTC precision and invalid BSC destinations', async () => {
     await withReverse('thorchain', async f => {

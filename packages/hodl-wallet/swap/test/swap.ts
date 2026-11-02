@@ -12,7 +12,7 @@ import { runAgentCli } from '../../agent-cli.js';
 import { WalletService } from '../../wallet-service.js';
 import { assertNoActiveSwap, SwapService } from '../service.js';
 import { BscSwapChain } from '../chain.js';
-import { ChainflipSwapProvider, ThorchainSwapProvider } from '../providers.js';
+import { ChainflipSwapProvider, NearIntentsSwapProvider, ThorchainSwapProvider } from '../providers.js';
 import { swapConfig as config } from '../config.js';
 import { swapRoutes } from '../routes.js';
 import inquirer from 'inquirer';
@@ -685,6 +685,137 @@ test('Chainflip channel request binds refund, disables partial fills, and reject
             await assert.rejects(provider.validate(quote, plan), /parameters/);
         });
     } finally { await f.close(); }
+});
+
+function intentTokens(source: Record<string, unknown> = {}) {
+    return [
+        { assetId: config.nearIntents.sourceAsset, blockchain: 'bsc', decimals: 18, contractAddress: config.token, ...source },
+        { assetId: swapRoutes['bsc-btc'].destination.nearIntents.id, blockchain: 'btc', decimals: 8 }
+    ];
+}
+
+test('NEAR Intents binds refund, recipient, price and the platform fee cap from quote to deposit address', async () => {
+    const provider = new NearIntentsSwapProvider();
+    const input: SwapInput = { routeId: 'bsc-btc', from: SOURCE, to: DESTINATION, amount: '1100', amountBaseUnits: (1100n * 10n ** 18n).toString() };
+    const requests: Array<Record<string, any>> = [];
+    let feeBps = 20;
+    let expected = '160000';
+    let minimum = '159200';
+    let signature = 'ed25519:live';
+    let live: Record<string, any> | undefined;
+    await mockedFetch((url, init) => {
+        if (url.endsWith('/v0/tokens')) return intentTokens();
+        if (url.endsWith('/v0/quote')) {
+            const request = JSON.parse(String(init?.body));
+            requests.push(request);
+            const result = {
+                correlationId: `intent-${requests.length}`, timestamp: new Date().toISOString(), signature: request.dry ? 'ed25519:dry' : 'ed25519:live',
+                quoteRequest: { ...request, depositMode: 'SIMPLE', appFees: [{ recipient: 'fixture.near', fee: feeBps }] },
+                quote: { amountIn: request.amount, minAmountIn: request.amount, amountOut: expected, minAmountOut: minimum, timeEstimate: 480, withdrawFee: '1900',
+                    ...(request.dry ? {} : { depositAddress: VAULT, deadline: request.deadline }) }
+            };
+            if (!request.dry) live = result;
+            return result;
+        }
+        assert.ok(url.endsWith(`/v0/status?depositAddress=${VAULT}`));
+        return { status: 'PENDING_DEPOSIT', quoteResponse: { ...live, signature }, swapDetails: { originChainTxHashes: [], destinationChainTxHashes: [] } };
+    }, async () => {
+        const offer = await provider.quote(input);
+        assert.equal(offer.minimumBaseUnits, '159200');
+        assert.deepEqual(offer.fees.map(fee => [fee.label, fee.amountBaseUnits]), [['Platform', (22n * 10n ** 17n).toString()], ['BTC payout', '1900']]);
+        const quote = { ...input, ...offer } as SwapQuote;
+        const plan = await provider.prepare(quote);
+        assert.equal(requests[1].dry, false);
+        assert.equal(requests[1].refundTo, SOURCE);
+        assert.equal(requests[1].recipient, DESTINATION);
+        assert.equal(requests[1].slippageTolerance, config.slippageBps);
+        assert.equal(plan.depositAddress, VAULT);
+        assert.equal(plan.providerQuote!.signature, 'ed25519:live');
+        assert.ok(plan.expiresAt <= quote.expiresAt);
+        await provider.validate(quote, plan);
+        signature = 'ed25519:other';
+        await assert.rejects(provider.validate(quote, plan), /does not match the accepted swap/);
+        expected = '159900'; minimum = '159101';
+        await assert.rejects(provider.prepare(quote), /below the accepted minimum/);
+        expected = '160000'; minimum = '150000';
+        await assert.rejects(provider.quote(input), /accepted slippage/);
+        minimum = '159200'; feeBps = 30;
+        await assert.rejects(provider.quote(input), /unapproved fee/);
+    });
+    await mockedFetch(url => url.endsWith('/v0/tokens') ? intentTokens() :
+        new Response(JSON.stringify({ message: 'Temporary swap limits: minimum swap amount is $1,000' }), { status: 400 }), async () => {
+        await assert.rejects(provider.quote(input), { message: 'NEAR Intents rejected the quote: Temporary swap limits: minimum swap amount is $1,000' });
+    });
+    await mockedFetch(() => intentTokens().slice(0, 1), async () => {
+        await assert.rejects(provider.quote(input), { message: 'NEAR Intents BTC (Bitcoin) is currently unavailable: asset not listed by the provider API.' });
+    });
+    await mockedFetch(() => intentTokens({ contractAddress: VAULT }), async () => {
+        await assert.rejects(provider.quote(input), /lists a different USDT \(BSC\) asset/);
+    });
+});
+
+test('NEAR Intents status requires the funded transaction and maps payouts, refunds and failures', async () => {
+    const provider = new NearIntentsSwapProvider();
+    const amount = (1100n * 10n ** 18n).toString();
+    const request = {
+        dry: false, swapType: 'EXACT_INPUT', slippageTolerance: config.slippageBps, originAsset: config.nearIntents.sourceAsset, depositType: 'ORIGIN_CHAIN',
+        destinationAsset: swapRoutes['bsc-btc'].destination.nearIntents.id, amount, refundTo: SOURCE, refundType: 'ORIGIN_CHAIN',
+        recipient: DESTINATION, recipientType: 'DESTINATION_CHAIN', deadline: new Date(Date.now() + 3_600_000).toISOString()
+    };
+    const accepted = { signature: 'ed25519:live', quoteRequest: request, quote: { amountIn: amount, minAmountIn: amount, amountOut: '160000', minAmountOut: '159200', depositAddress: VAULT } };
+    const deposit = `0x${'d'.repeat(64)}`;
+    const operation = {
+        quote: { routeId: 'bsc-btc', from: SOURCE, to: DESTINATION, amountBaseUnits: amount, minimumBaseUnits: '159200' },
+        plan: { depositAddress: VAULT, expiresAt: Date.now(), providerQuote: accepted }, steps: [{ kind: 'deposit', hash: deposit }]
+    } as unknown as SwapOperation;
+    let status = 'SUCCESS';
+    let origin = [deposit];
+    let payouts = [PAYOUT];
+    await mockedFetch(() => ({
+        status, quoteResponse: accepted,
+        swapDetails: { depositedAmount: amount, amountOut: '160100', refundedAmount: status === 'REFUNDED' ? '1000' : '0', refundReason: 'price moved',
+            originChainTxHashes: origin.map(hash => ({ hash })), destinationChainTxHashes: payouts.map(hash => ({ hash })) }
+    }), async () => {
+        assert.deepEqual(await provider.status(operation), { state: 'payout_pending', payoutHash: PAYOUT, payoutBaseUnits: '160100' });
+        status = 'REFUNDED'; payouts = []; origin = [deposit, REFUND];
+        assert.deepEqual(await provider.status(operation), { state: 'refund_pending', refundHash: REFUND, refundBaseUnits: '1000', message: 'NEAR Intents refund: price moved.' });
+        status = 'FAILED';
+        assert.equal((await provider.status(operation)).state, 'needs_attention');
+        status = 'PROCESSING'; origin = [REFUND];
+        await assert.rejects(provider.status(operation), /deposit transaction mismatch/);
+        origin = [deposit]; status = 'LOST';
+        await assert.rejects(provider.status(operation), /Unknown NEAR Intents swap state/);
+    });
+});
+
+test('NEAR Intents deposits are plain USDT transfers within the transfer gas budget', async () => {
+    const chain = new BscSwapChain();
+    const privateKey = generatePrivateKey();
+    const account = { address: privateKeyToAccount(privateKey).address, privateKey };
+    const f = await fixture('near-intents');
+    try {
+        const quoteId = (await f.service.quote('100')).quotes[0].quoteId;
+        const quote = await f.db.get('swapQuote', quoteId) as SwapQuote;
+        quote.from = account.address;
+        assert.equal(quote.funding.units, config.gas.transfer);
+        const plan: SwapPlan = { depositAddress: VAULT, expiresAt: quote.expiresAt };
+        let request: Record<string, unknown> | undefined;
+        await mockedFetch((_url, init) => {
+            const body = JSON.parse(String(init?.body));
+            if (body.method === 'eth_estimateGas') request = body.params[0];
+            const values: Record<string, unknown> = { eth_chainId: '0x38', eth_getTransactionCount: '0x0', eth_estimateGas: '0x10000' };
+            return { result: values[body.method] };
+        }, async () => {
+            assert.equal(await chain.nextStep(quote, plan, []), 'deposit');
+            const deposit = await chain.sign(quote, plan, 'deposit', account);
+            assert.equal(parseTransaction(deposit.rawTransaction as Hex).gas, BigInt(config.gas.transfer));
+            assert.equal(String(request!.to).toLowerCase(), config.token.toLowerCase());
+            assert.equal(String(request!.data).slice(0, 10), '0xa9059cbb');
+            const decoded = decodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], `0x${String(request!.data).slice(10)}`);
+            assert.equal(String(decoded[0]).toLowerCase(), VAULT);
+            assert.equal(decoded[1], BigInt(quote.amountBaseUnits));
+        });
+    } finally { Persist.clearSensitiveData(account); await f.close(); }
 });
 
 

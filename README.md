@@ -125,10 +125,11 @@ transaction. The destination account is offered by default; you can also type
 an external address for the destination network. Importing only an EVM private
 key does not create a Bitcoin account.
 
-HODL compares single-execution Chainflip with automatic THORChain streaming,
-which divides the exchange into smaller swaps to reduce price impact. Unavailable,
+HODL compares single-execution Chainflip and NEAR Intents with automatic THORChain
+streaming, which divides the exchange into smaller swaps to reduce price impact. Unavailable,
 paused, or unsupported routes are shown separately. DCA, boosts and HODL affiliate
-commissions are not enabled. Streaming and its estimated duration are shown
+commissions are not enabled. NEAR Intents charges its own 0.2% platform fee, shown
+with the quote and included in the comparison; quotes with any higher fee are rejected. Streaming and its estimated duration are shown
 before confirmation. The best available quote is ranked by estimated destination value after accounting for the separate source-network fee: BNB for BSC, or BTC for Bitcoin.
 Total cost includes fees and price impact against a recent CoinGecko reference;
 it is an estimate, not a guaranteed execution price. There is no fixed cost cap:
