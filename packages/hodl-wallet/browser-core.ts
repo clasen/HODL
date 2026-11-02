@@ -6,9 +6,14 @@ export { TransferService } from './transfer-service.js';
 export { SwapService } from './swap/service.js';
 export { swapConfig } from './swap/config.js';
 export { clearSensitiveData } from './sensitive-data.js';
+export {
+    HODL_FILE_IV_BYTES, HODL_FILE_KEY_BYTES, HODL_FILE_SALT_BYTES, HODL_FILE_SCRYPT, HODL_FILE_TAG_BYTES,
+    formatHodlFile, hodlFileHeader, isHodlFile, parseHodlFile
+} from './hodl-file.js';
 export * from './app/index.js';
 export { AgentError } from './agent-errors.js';
 export type { WalletStore } from './wallet-store.js';
+export type { HodlFile, ScryptCost } from './hodl-file.js';
 export type { TransferResult } from './transfer-service.js';
 export type { SwapServiceOptions } from './swap/service.js';
 export type * from './network/types.js';

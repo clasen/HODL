@@ -4,13 +4,15 @@ import { encryptedDocument } from 'deepbase/plugins/encryption';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+    HODL_FILE_IV_BYTES, HODL_FILE_KEY_BYTES, HODL_FILE_SALT_BYTES, HODL_FILE_SCRYPT,
+    formatHodlFile, hodlFileHeader, isHodlFile, parseHodlFile, scryptMemory, type ScryptCost
+} from './hodl-file.js';
 import { clearSensitiveData } from './sensitive-data.js';
 import type { WalletStore } from './wallet-store.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
-const IV_LENGTH = 12;
-const SALT_LENGTH = 16;
 
 type PersistOptions = {
     path: string;
@@ -100,22 +102,24 @@ class Persist extends Deepbase implements WalletStore {
         clearSensitiveData(value);
     }
 
+    /** A .HODL file in the current format, v3. */
     static encrypt(obj: unknown, encryptionKey: EncryptionKey): string {
-        const salt = crypto.randomBytes(SALT_LENGTH);
-        const iv = crypto.randomBytes(IV_LENGTH);
-        const key = crypto.scryptSync(encryptionKey, salt, KEY_LENGTH);
+        const salt = crypto.randomBytes(HODL_FILE_SALT_BYTES);
+        const iv = crypto.randomBytes(HODL_FILE_IV_BYTES);
+        const header = hodlFileHeader(salt);
+        const key = Persist.fileKey(encryptionKey, salt, HODL_FILE_SCRYPT);
         let serialized: Buffer | undefined;
 
         try {
             serialized = Buffer.from(JSON.stringify(obj), 'utf8');
             const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+            cipher.setAAD(Buffer.from(header, 'utf8'));
             const encrypted = Buffer.concat([
                 cipher.update(serialized),
                 cipher.final()
             ]);
-            const authTag = cipher.getAuthTag();
 
-            return `v2:${salt.toString('hex')}:${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
+            return formatHodlFile(header, iv, cipher.getAuthTag(), encrypted);
         } finally {
             key.fill(0);
             serialized?.fill(0);
@@ -126,31 +130,24 @@ class Persist extends Deepbase implements WalletStore {
         return /^v\d+:/.test(text);
     }
 
+    /** Whether the text is a v2 or v3 .HODL file. */
     static isCurrentFormat(encryptedData: string): boolean {
-        const parts = encryptedData.split(':');
-        return parts[0] === 'v2' && parts.length === 5;
+        return isHodlFile(encryptedData);
     }
 
-    /** Only the current format. Profiles saved before it are read with decryptProfile. */
+    /** A v2 or v3 .HODL file. Profiles saved before v2 are read with decryptProfile. */
     static decrypt(encryptedData: string, encryptionKey: EncryptionKey): unknown {
-        if (!Persist.isCurrentFormat(encryptedData)) {
-            throw new Error('Unsupported encrypted payload format');
-        }
-
-        const [, saltHex, ivHex, authTagHex, encryptedHex] = encryptedData.split(':');
-        const salt = Buffer.from(saltHex, 'hex');
-        const iv = Buffer.from(ivHex, 'hex');
-        const authTag = Buffer.from(authTagHex, 'hex');
-        const encrypted = Buffer.from(encryptedHex, 'hex');
-        const key = crypto.scryptSync(encryptionKey, salt, KEY_LENGTH);
+        const file = parseHodlFile(encryptedData);
+        const key = Persist.fileKey(encryptionKey, file.salt, file.cost);
         let decrypted: Buffer | undefined;
 
         try {
-            const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-            decipher.setAuthTag(authTag);
+            const decipher = crypto.createDecipheriv(ALGORITHM, key, file.iv);
+            if (file.additionalData) decipher.setAAD(file.additionalData);
+            decipher.setAuthTag(file.tag);
 
             decrypted = Buffer.concat([
-                decipher.update(encrypted),
+                decipher.update(file.ciphertext),
                 decipher.final()
             ]);
 
@@ -159,6 +156,10 @@ class Persist extends Deepbase implements WalletStore {
             key.fill(0);
             decrypted?.fill(0);
         }
+    }
+
+    private static fileKey(encryptionKey: EncryptionKey, salt: Uint8Array, cost: ScryptCost): Buffer {
+        return crypto.scryptSync(encryptionKey, salt, HODL_FILE_KEY_BYTES, { ...cost, maxmem: scryptMemory(cost) });
     }
 
     /** A profile saved as a v2 or older string, before the encrypted document format. */

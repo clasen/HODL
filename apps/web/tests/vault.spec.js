@@ -42,6 +42,11 @@ async function hodlFile(profile, password = HODL_PASSWORD) {
     const { default: Persist } = await import('hodl-wallet/dist/persist.js');
     return Persist.encrypt(profile, password);
 }
+/** A .HODL file as the CLI wrote it before v3. */
+async function hodlFileV2(profile, password = HODL_PASSWORD) {
+    const { sealV2HodlFile } = await import('hodl-wallet/dist/test/hodl-file-v2.js');
+    return sealV2HodlFile(profile, password);
+}
 async function networks() {
     const [evm, btc] = await Promise.all(['eth', 'btc'].map(async id => (await import(`hodl-wallet/dist/network/${id}.js`)).default));
     return { evm: new evm.NetworkClass(evm), btc: new btc.NetworkClass(btc), evmKey: evm.NetworkClass.name, btcKey: btc.NetworkClass.name };
@@ -83,8 +88,9 @@ test('encrypted roundtrip, authentication, reload and fresh IVs', async ({ page,
     const first = await exportHodl(page);
     const { name, text: second } = await exportHodl(page);
     expect(name).toBe(BTC_FROM.slice(-6).toUpperCase());
-    const [, firstSalt, firstIv] = first.text.split(':');
-    const [, secondSalt, secondIv] = second.split(':');
+    const [, , , , firstSalt, firstIv] = first.text.split(':');
+    const [version, N, r, p, secondSalt, secondIv] = second.split(':');
+    expect([version, N, r, p]).toEqual(['v3', String(2 ** 17), '8', '1']);
     expect([secondSalt, secondIv]).not.toEqual([firstSalt, firstIv]);
     for (const secret of [PHRASE, PASSWORD, HODL_PASSWORD, EVM_FROM, BTC_FROM]) {
         expect(second.includes(secret)).toBe(false);
@@ -285,7 +291,7 @@ test('CLI .HODL files import on first run and replace an open wallet keeping its
     const fromPhrase = { [evmKey]: await evm.accountFromMnemonic(PHRASE), [btcKey]: await btc.accountFromMnemonic(PHRASE) };
     const phraseFile = await hodlFile({ account: fromPhrase, mnemonic: PHRASE, networkUsage: { '[ETH] Ethereum': { count: 1, lastUsed: 1 } } });
     const key = await evm.createAccount();
-    const keyFile = await hodlFile({ account: { [evmKey]: key } });
+    const keyFile = await hodlFileV2({ account: { [evmKey]: key } });
     const mixedFile = await hodlFile({ account: { ...fromPhrase, [btcKey]: await btc.createAccount() }, mnemonic: PHRASE });
 
     await firstRun(page);

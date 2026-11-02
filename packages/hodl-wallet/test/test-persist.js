@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Persist from '../persist.js';
+import { sealV2HodlFile } from './hodl-file-v2.js';
 
 const PASSWORD = 'test-password';
 const PRIVATE_KEY = '0x0123456789abcdef';
@@ -140,7 +141,7 @@ async function testEncryptedDocumentAndRoundTrip() {
 }
 
 async function testLegacyMigration() {
-    for (const [format, encrypt] of /** @type {const} */ ([['v1', encryptLegacy], ['v2', Persist.encrypt]])) {
+    for (const [format, encrypt] of /** @type {const} */ ([['v1', encryptLegacy], ['v2', sealV2HodlFile], ['v3', Persist.encrypt]])) {
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-legacy-'));
         const filePath = path.join(directory, 'persist.json');
         fs.writeFileSync(filePath, encrypt({ mnemonic: MNEMONIC }, PASSWORD));
@@ -175,6 +176,26 @@ async function testLegacyMigration() {
     assert.throws(() => Persist.decrypt(encryptLegacy({ mnemonic: MNEMONIC }, PASSWORD), PASSWORD), /Unsupported encrypted payload format/);
 }
 
+function testHodlFiles() {
+    const profile = { mnemonic: MNEMONIC };
+    const file = Persist.encrypt(profile, PASSWORD);
+    const [version, N, r, p, salt] = file.split(':');
+    assert.deepEqual([version, N, r, p], ['v3', String(2 ** 17), '8', '1']);
+    assert.equal(file.includes(MNEMONIC), false);
+    assert.deepEqual(Persist.decrypt(file, PASSWORD), profile);
+    assert.deepEqual(Persist.decrypt(sealV2HodlFile(profile, PASSWORD), PASSWORD), profile);
+    assert.notEqual(Persist.encrypt(profile, PASSWORD).split(':')[4], salt);
+    assert.throws(() => Persist.decrypt(file, 'wrong-password'));
+
+    const parts = file.split(':');
+    const withHeader = (/** @type {Record<number, string>} */ changes) => parts.map((part, index) => changes[index] ?? part).join(':');
+    assert.throws(() => Persist.decrypt(withHeader({ 2: '9' }), PASSWORD), /Unsupported state or unable to authenticate data/);
+    for (const forged of /** @type {Array<Record<number, string>>} */ ([{ 1: String(2 ** 30) }, { 1: '131071' }, { 1: '8192' }, { 3: '17' }, { 1: '0131072' }])) {
+        assert.throws(() => Persist.decrypt(withHeader(forged), PASSWORD), /Unsupported encrypted payload format/);
+    }
+}
+
+testHodlFiles();
 await testEncryptedDocumentAndRoundTrip();
 await testLegacyMigration();
 console.log('Persist encrypted document tests passed');

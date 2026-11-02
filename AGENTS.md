@@ -71,7 +71,8 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 - `pnpm run build:web` builds the existing package, the terminal wallet and the static
   diagnostic in `apps/web/dist/`. The web wallet covers the flows above, address book included;
   swaps are TUI-only. The web has no backup format of its own: it exports and imports the CLI's
-  v2 `.HODL` files (`src/hodl-file.ts`). Web exports hold `account`, `mnemonic`, `contact`,
+  v3 `.HODL` files and still reads v2 (format in `hodl-file.ts`, crypto per host in
+  `src/hodl-file.ts` and `persist.ts`). Web exports hold `account`, `mnemonic`, `contact`,
   `transactions` and `sendRequest` and, in both hosts, accept only the wallet password; imports keep
   one recovery phrase or one private key plus the file's address book and that account's sent
   transfers (journal entries still awaiting a broadcast decision stay behind), and replacing an
