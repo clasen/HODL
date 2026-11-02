@@ -95,8 +95,7 @@
         "cli-table3": "0.6.5",
         "deepbase": "3.8.2",
         "ecpair": "2.1.0",
-        "inquirer": "9.3.7",
-        "inquirer-autocomplete-prompt": "3.0.1",
+        "inquirer": "14.2.3",
         "ora": "8.1.1",
         "viem": "2.57.7"
     },

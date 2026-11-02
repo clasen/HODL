@@ -368,7 +368,7 @@ test('reverse menu shows direction, source network fee and Bitcoin refund before
     await withReverse('thorchain', async f => {
         const prompt = inquirer.prompt; const log = console.log; const lines: string[] = [];
         console.log = (...args) => lines.push(args.join(' '));
-        inquirer.prompt = async (question: any) => {
+        (inquirer as any).prompt = async (question: any) => {
             if (question.name === 'route') {
                 assert.equal(question.choices[0].name, 'BTC (Bitcoin) → USDT (BSC)'); return { route: 'new' };
             }
@@ -428,7 +428,7 @@ test('swap amount validates available BTC and precision before requesting a dest
     await withReverse('thorchain', async f => {
         const prompt = inquirer.prompt;
         let checked = false;
-        inquirer.prompt = async (question: any) => {
+        (inquirer as any).prompt = async (question: any) => {
             if (question.name === 'route') return { route: 'new' };
             assert.equal(question.name, 'amount');
             assert.match(question.validate('0.1'), /Insufficient BTC/);
@@ -451,7 +451,7 @@ test('BTC max requotes after reserving funding fees and required refund change',
     await withReverse('thorchain', async f => {
         const prompt = inquirer.prompt;
         let confirmed = false;
-        inquirer.prompt = async (question: any) => {
+        (inquirer as any).prompt = async (question: any) => {
             if (question.name === 'route') return { route: 'new' };
             if (question.name === 'amount') return { amount: 'max' };
             if (question.name === 'destination') return { destination };

@@ -9,6 +9,7 @@ import { swapConfig } from './config.js';
 import { terminalSwapStates } from './types.js';
 import type { SwapState } from './types.js';
 import { SwapService } from './service.js';
+import { exitOnAbort } from '../ui-inquirer.js';
 
 const labels: Record<SwapState, string> = {
     quoted: 'Quote ready', preparing: 'Preparing deposit', approval_pending: 'Waiting for token approval',
@@ -32,14 +33,14 @@ async function withSpinner<T>(text: string, work: () => Promise<T>): Promise<T> 
 export async function startSwapMenu(service: SwapService): Promise<void> {
     try {
         const { source, destination } = service.route;
-        const { route } = await inquirer.prompt({
-            type: 'list', name: 'route', message: 'Swap:',
+        const { route } = await exitOnAbort(inquirer.prompt({
+            type: 'select', name: 'route', message: 'Swap:',
             choices: [
                 { name: `${source.label} → ${destination.label}`, value: 'new' },
                 { name: 'Track Swaps', value: 'track' },
                 { name: 'Go Back', value: 'back' }
             ]
-        });
+        }));
         if (route === 'back') return;
         if (route === 'track') {
             await trackSwapsMenu(service);
@@ -53,7 +54,7 @@ export async function startSwapMenu(service: SwapService): Promise<void> {
         const available = await withSpinner('Checking available balance…', () => service.availableBalance());
         if (available <= 0n) { console.log(`No ${source.label} available to swap.`); return; }
         const balance = formatUnits(available, source.decimals);
-        const { amount }: { amount: string } = await inquirer.prompt({
+        const { amount }: { amount: string } = await exitOnAbort(inquirer.prompt({
             type: 'input', name: 'amount', message: `${source.label} to exchange (max, empty to cancel):`,
             validate(value: string) {
                 if (!value.trim() || value.trim().toLowerCase() === 'max') return true;
@@ -62,14 +63,14 @@ export async function startSwapMenu(service: SwapService): Promise<void> {
                         || `Insufficient ${source.label}. Available: ${balance}.`;
                 } catch (error) { return (error as Error).message; }
             }
-        });
+        }));
         if (!amount.trim()) return;
         const ownAddress = await withSpinner(`Loading ${destination.label} account…`, () => service.destination());
         const addresses = ownAddress ? [{ name: 'My account', address: ownAddress }] : [];
         if (!ownAddress) console.log(`No ${destination.label} account is configured in this profile. Create or import an account on that network, then return to Swap; or enter an external address.`);
-        const { destination: to }: { destination: string } = await inquirer.prompt({
-            type: 'autocomplete', name: 'destination', message: `Receive ${destination.label} at:`,
-            source: (_answers: Record<string, unknown>, input = '') => {
+        const { destination: to }: { destination: string } = await exitOnAbort(inquirer.prompt({
+            type: 'search', name: 'destination', message: `Receive ${destination.label} at:`,
+            source: (input?: string) => {
                 const search = (input || '').trim();
                 const matches = addresses.filter(entry =>
                     entry.name.toLowerCase().includes(search.toLowerCase()) || entry.address.toLowerCase().includes(search.toLowerCase())
@@ -80,7 +81,7 @@ export async function startSwapMenu(service: SwapService): Promise<void> {
                     ...matches, { name: 'Go Back', value: '' }
                 ];
             }
-        });
+        }));
         if (!to) return;
         const maximum = amount.trim().toLowerCase() === 'max';
         let comparison = await withSpinner('Comparing Chainflip, THORChain and NEAR Intents, including network fees…', () => service.quote(maximum ? balance : amount.trim(), to));
@@ -102,15 +103,15 @@ export async function startSwapMenu(service: SwapService): Promise<void> {
         });
         if (!comparison.quotes.length) { console.log('No executable quote available. No funds were sent.'); return; }
         comparison.recommendedQuoteId = comparison.quotes[0].quoteId;
-        const { quoteId }: { quoteId: string } = await inquirer.prompt({
-            type: 'list', name: 'quoteId', message: 'Choose a quote:',
+        const { quoteId }: { quoteId: string } = await exitOnAbort(inquirer.prompt({
+            type: 'select', name: 'quoteId', message: 'Choose a quote:',
             choices: [
                 ...comparison.quotes.map(quote => ({
                     name: `${providerNames[quote.provider]} · ≈ ${quote.destination.estimated} ${quote.destination.asset} · ≈ ${quote.estimatedTotalCost.percent}% cost${quote.quoteId === comparison.recommendedQuoteId ? ' · best after gas' : ''}`,
                     value: quote.quoteId
                 })), { name: 'Cancel', value: 'cancel' }
             ]
-        });
+        }));
         if (quoteId === 'cancel') return;
         const quote = comparison.quotes.find(item => item.quoteId === quoteId)!;
         console.log(`\n  ${quote.source.amount} ${quote.source.asset} → ≈ ${quote.destination.estimated} ${quote.destination.asset}`);
@@ -134,9 +135,9 @@ export async function startSwapMenu(service: SwapService): Promise<void> {
         console.log(`\n  Provider fees already deducted from estimated ${destination.asset}. Source network fee is extra.`);
         if (quote.refund.partialResultPossible) console.log(`  Partial fill possible: ${destination.asset} received + remaining ${source.asset} refunded minus fees.\n  The minimum above applies only to a full swap.`);
         console.log(`  Once exchanged, delayed ${destination.asset} cannot auto-refund to ${source.asset}.\n`);
-        const { confirmed }: { confirmed: boolean } = await inquirer.prompt({
+        const { confirmed }: { confirmed: boolean } = await exitOnAbort(inquirer.prompt({
             type: 'confirm', name: 'confirmed', default: false, message: 'Accept destination, cost and minimum, and swap?'
-        });
+        }));
         if (!confirmed) return;
         const operation = await withSpinner('Preparing and submitting swap…', () => service.execute(quoteId, crypto.randomUUID()));
         showSwap(operation);
@@ -158,13 +159,13 @@ export async function trackSwapsMenu(service: SwapService): Promise<void> {
             return entries;
         });
         if (!swaps.length) { console.log('No swaps recorded.'); return; }
-        const { requestId }: { requestId: string } = await inquirer.prompt({
-            type: 'list', name: 'requestId', message: 'Select a swap:',
+        const { requestId }: { requestId: string } = await exitOnAbort(inquirer.prompt({
+            type: 'select', name: 'requestId', message: 'Select a swap:',
             choices: [
                 ...swaps.map(swap => ({ name: `${swap.createdAt} · ${swap.quote.source.amount} ${swap.quote.source.asset} (${swap.quote.source.network}) → ${swap.quote.destination.asset} (${swap.quote.destination.network}) · ${labels[swap.state]}${swap.updateError ? ' · Status update unavailable' : ''} · ${swap.requestId}`, value: swap.requestId })),
                 { name: 'Go back', value: 'back' }
             ]
-        });
+        }));
         if (requestId === 'back') return;
         const current = refreshed.has(requestId) ? swaps.find(swap => swap.requestId === requestId)! :
             await withSpinner('Checking swap status…', () => service.status(requestId));

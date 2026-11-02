@@ -40,7 +40,7 @@ class ComprehensiveTester {
         ];
 
         const { testType } = await inquirer.prompt({
-            type: 'list',
+            type: 'select',
             name: 'testType',
             message: 'What type of tests would you like to run?',
             choices

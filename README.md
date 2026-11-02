@@ -214,7 +214,7 @@ We're as transparent as your ex's excuses. Our code is open-source, and we encou
 We've carefully selected trusted and well-maintained dependencies for this project. Our goal is to balance functionality with security. Here's a brief overview of our main dependencies:
 
 - Common
-  - **inquirer** and **inquirer-autocomplete-prompt**: For interactive command-line interfaces.
+  - **inquirer**: For interactive command-line interfaces.
   - **cli-table3**: For creating formatted CLI tables.
   - **ora**: For displaying progress bars.
   - **deepbase**: For persistent storage.

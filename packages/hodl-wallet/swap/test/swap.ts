@@ -564,7 +564,7 @@ for (const provider of ['thorchain', 'chainflip'] as const) {
             const quote = (await f.service.quote('100')).quotes[0];
             f.service.quote = async () => ({ quotes: [quote], recommendedQuoteId: quote.quoteId, unavailable: [] });
             console.log = (...values: unknown[]) => { output.push(values.join(' ')); };
-            inquirer.prompt = async (question: { name: string; default?: boolean; choices?: Array<{ value: string }> }) => {
+            (inquirer as any).prompt = async (question: { name: string; default?: boolean; choices?: Array<{ value: string }> }) => {
                 switch (question.name) {
                     case 'route': return { route: 'usdt-btc' };
                     case 'amount': return { amount: '100' };
@@ -826,19 +826,19 @@ test('destination autocomplete offers only own account and typed addresses, excl
         await f.db.set('contact', config.destination.name, 'bc1-other-contact', { name: 'Savings' });
         await f.db.set('contact', config.destination.name, DESTINATION, { name: 'Duplicate own account' });
         await f.db.set('contact', config.source.name, SOURCE, { name: 'BSC contact' });
-        inquirer.prompt = async (question: { name: string; type: string; source: (answers: object, input?: string) => Array<{ name: string; value: string }> }) => {
+        (inquirer as any).prompt = async (question: { name: string; type: string; source: (input?: string) => Array<{ name: string; value: string }> }) => {
             if (question.name === 'route') return { route: 'usdt-btc' };
             if (question.name === 'amount') return { amount: '100' };
             assert.equal(question.name, 'destination');
-            assert.equal(question.type, 'autocomplete');
-            const choices = question.source({});
+            assert.equal(question.type, 'search');
+            const choices = question.source();
             assert.equal(choices[0].value, DESTINATION);
             assert.match(choices[0].name, /My account/);
             assert.equal(choices.filter(choice => choice.value === DESTINATION).length, 1);
             assert.deepEqual(choices.map(choice => choice.value), [DESTINATION, '']);
             assert.ok(!choices.some(choice => choice.value === SOURCE));
-            assert.ok(!question.source({}, 'savings').some(choice => choice.value === 'bc1-other-contact'));
-            assert.equal(question.source({}, 'bc1-external')[0].value, 'bc1-external');
+            assert.ok(!question.source('savings').some(choice => choice.value === 'bc1-other-contact'));
+            assert.equal(question.source('bc1-external')[0].value, 'bc1-external');
             return { destination: '' };
         };
         await startSwapMenu(f.service);
@@ -870,7 +870,7 @@ test('quote spinner runs during lookup and stops before prompts or errors', asyn
             if (fail) throw new Error('Quote unavailable');
             return quote(...args);
         };
-        inquirer.prompt = async (question: { name: string }) => {
+        (inquirer as any).prompt = async (question: { name: string }) => {
             assert.equal(spinning, false);
             if (question.name === 'route') return { route: 'usdt-btc' };
             if (question.name === 'amount') return { amount: '100' };
@@ -901,14 +901,14 @@ test('missing Bitcoin account is explained instead of silently hiding My account
     try {
         await f.db.del('account', config.destination.NetworkClass.name);
         console.log = (...values: unknown[]) => { output.push(values.join(' ')); };
-        inquirer.prompt = async (question: { name: string; source: (answers: object, input?: string) => Array<{ name: string; value: string; disabled?: string }> }) => {
+        (inquirer as any).prompt = async (question: { name: string; source: (input?: string) => Array<{ name: string; value: string; disabled?: string }> }) => {
             if (question.name === 'route') return { route: 'usdt-btc' };
             if (question.name === 'amount') return { amount: '100' };
             assert.equal(question.name, 'destination');
-            const choices = question.source({});
+            const choices = question.source();
             assert.equal(choices[0].name, 'My account');
             assert.equal(choices[0].disabled, 'BTC (Bitcoin) account not configured');
-            const manual = question.source({}, DESTINATION);
+            const manual = question.source(DESTINATION);
             assert.equal(manual[0].value, DESTINATION);
             assert.equal(manual[0].disabled, undefined);
             return { destination: '' };
@@ -1065,7 +1065,7 @@ test('tracking spinners cover read-only updates, and stop on completion, failure
             if (message.startsWith('\nSwap ')) summaries++;
         };
         console.error = () => { assert.equal(spinning, false); };
-        inquirer.prompt = async (question: { name: string }) => {
+        (inquirer as any).prompt = async (question: { name: string }) => {
             assert.equal(spinning, false);
             assert.equal(question.name, 'requestId');
             return { requestId: operation.requestId };
@@ -1120,7 +1120,7 @@ test('submission spinner stops before displaying a preparation error', async () 
         prototype.stop = function () { spinning = false; return this; };
         console.log = () => { assert.equal(spinning, false); };
         console.error = (message: string) => { assert.equal(spinning, false); reported = message; };
-        inquirer.prompt = async (question: { name: string; choices?: Array<{ value: string }> }) => {
+        (inquirer as any).prompt = async (question: { name: string; choices?: Array<{ value: string }> }) => {
             assert.equal(spinning, false);
             switch (question.name) {
                 case 'route': return { route: 'usdt-btc' };
@@ -1155,7 +1155,7 @@ test('tracking every pending stage is read-only, while finished swaps only show 
         const quote = (await f.service.quote('100')).quotes[0];
         const operation = await f.service.execute(quote.quoteId, 'funded-tracking');
         console.log = () => {};
-        inquirer.prompt = async (question: { name: string }) => {
+        (inquirer as any).prompt = async (question: { name: string }) => {
             assert.equal(question.name, 'requestId', 'tracking only asks which swap to view');
             return { requestId: operation.requestId };
         };
@@ -1220,7 +1220,7 @@ test('USDT max quotes the entire token balance and still requires BNB for fees',
         return { provider: 'chainflip', expectedBaseUnits: '160000', minimumBaseUnits: '159200',
             expiresAt: Date.now() + config.quoteLifetimeMs, estimatedSeconds: 60, fees: [], details: {} };
     };
-    inquirer.prompt = async (question: any) => {
+    (inquirer as any).prompt = async (question: any) => {
         if (question.name === 'route') return { route: 'new' };
         if (question.name === 'amount') return { amount: 'max' };
         if (question.name === 'destination') return { destination: DESTINATION };
@@ -1250,7 +1250,7 @@ test('tracking refreshes a stale deposit before showing the selector and refunde
         };
         const output: string[] = [];
         console.log = (message: string) => { output.push(message); };
-        inquirer.prompt = async (question: { choices: Array<{ name: string }> }) => {
+        (inquirer as any).prompt = async (question: { choices: Array<{ name: string }> }) => {
             assert.equal(reads, 1);
             assert.match(question.choices[0].name, /Swap refunded/);
             assert.doesNotMatch(question.choices[0].name, /waiting for confirmation/);
