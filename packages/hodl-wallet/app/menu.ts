@@ -1,5 +1,5 @@
 import { loadAccount } from './account.js';
-import { errorMessage, formatAmount } from './format.js';
+import { errorMessage, formatTokenAmount } from './format.js';
 import { transferRows } from './history.js';
 import { showAddress, showError, transfersTable } from './output.js';
 import type { HostAction, RecentTransfers, SentTransfer, WalletSession } from './session.js';
@@ -27,8 +27,7 @@ export async function showBalance(ui: Ui, session: WalletSession): Promise<void>
         head: ['Token', 'Balance'],
         tone: 'blue',
         colWidths: [21, 22],
-        rows: balances.map(([token, balance]) => [token,
-            token === 'USDT' ? Number(balance).toFixed(2) : formatAmount(balance)])
+        rows: balances.map(([token, balance]) => [token, formatTokenAmount(token, balance)])
     });
 }
 

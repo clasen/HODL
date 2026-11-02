@@ -76,13 +76,13 @@ test('transfers list what came in and went out, on Bitcoin and as tokens on EVM 
     await ready(page);
     await choose(page, MAIN, 'Show Transfers');
     let table = page.locator('#out .tbl').last();
-    await expect(table.locator('tr').nth(1)).toContainText(`${sender.scriptpubkey_address}-BTC0.00007✔`);
-    await expect(table.locator('tr').nth(3)).toHaveText(`-${sender.scriptpubkey_address}-BTC+0.00025…`);
+    await expect(table.locator('tr').nth(1)).toContainText(`${sender.scriptpubkey_address}-BTC0.00007 ✔`);
+    await expect(table.locator('tr').nth(3)).toHaveText(`-${sender.scriptpubkey_address}-BTC+0.00025 …`);
     await expect(table).toContainText(`https://btcscan.org/tx/${'a'.repeat(64)}`);
     await switchNetwork(page, 'bsc');
     await choose(page, MAIN, 'Show Transfers');
     table = page.locator('#out .tbl').last();
-    await expect(table.locator('tr').nth(1)).toContainText('0x1111111111111111111111111111111111111111-USDT+5.00✔');
+    await expect(table.locator('tr').nth(1)).toContainText('0x1111111111111111111111111111111111111111-USDT+5.00 ✔');
     await expect(table).toContainText(`https://bscscan.com/tx/0x${'d'.repeat(64)}`);
 
     // What a scan found is saved, so it still shows when the network cannot be reached.
@@ -90,5 +90,5 @@ test('transfers list what came in and went out, on Bitcoin and as tokens on EVM 
     await choose(page, MAIN, 'Show Transfers');
     await shown(page, 'Could not check recent transfers');
     table = page.locator('#out .tbl').last();
-    await expect(table.locator('tr').nth(1)).toContainText('0x1111111111111111111111111111111111111111-USDT+5.00✔');
+    await expect(table.locator('tr').nth(1)).toContainText('0x1111111111111111111111111111111111111111-USDT+5.00 ✔');
 });

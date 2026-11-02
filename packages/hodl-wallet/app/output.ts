@@ -1,4 +1,4 @@
-import { errorMessage, formatAmount, formatDate } from './format.js';
+import { errorMessage, formatDate, formatTokenAmount } from './format.js';
 import type { TransferRow, SentTransfer, WalletSession } from './session.js';
 import type { Cell, TableSpec, Tone, Ui } from './ui.js';
 
@@ -84,8 +84,8 @@ export function sentTransfersTable(
         rows.push([
             formatDate(tx.timestamp), tx.recipient,
             ...(withContact ? [tx.contact ?? '-'] : []),
-            tx.token, formatAmount(tx.amount),
-            ...(withBalance ? [tx.balance !== undefined ? formatAmount(tx.balance) : '-'] : []),
+            tx.token, formatTokenAmount(tx.token, tx.amount),
+            ...(withBalance ? [tx.balance !== undefined ? formatTokenAmount(tx.token, tx.balance) : '-'] : []),
             ...(options.status ? [tx.status || '-'] : [])
         ]);
         rows.push([{ colSpan: head.length, content: tx.url }]);
@@ -93,30 +93,33 @@ export function sentTransfersTable(
     return { head, rows, tone: options.tone };
 }
 
-/** A transfer's state as one character: done, failed, still on its way, or not known after broadcasting. */
+/** A transfer's state as one character: done, failed, still on its way, or not known after broadcasting. Empty when unrecorded. */
 function statusIcon(status: string | undefined): string {
-    if (status === undefined || status === '') return '-';
+    if (status === undefined || status === '') return '';
     return ({ confirmed: '✔', failed: '✖', broadcast_unknown: '?' } as Record<string, string | undefined>)[status] ?? '…';
 }
 
-/** Transfers in and out laid out as sent transfers, incoming amounts marked with +, one row each followed by its explorer link. */
+/**
+ * Transfers in and out laid out as sent transfers, one row each followed by its explorer link. Incoming
+ * amounts are marked with +; the state icon follows the balance, or the amount where no balance is shown.
+ */
 export function transfersTable(
     session: Pick<WalletSession, 'capabilities' | 'contacts'>,
     transfers: TransferRow[]
 ): TableSpec {
     const withContact = Boolean(session.contacts);
     const withBalance = session.capabilities.balanceHistory;
-    const head = ['Date', 'Address', ...(withContact ? ['Contact'] : []), 'Token', 'Amount',
-        ...(withBalance ? ['Balance'] : []), 'Status'];
+    const head = ['Date', 'Address', ...(withContact ? ['Contact'] : []), 'Token', 'Amount', ...(withBalance ? ['Balance'] : [])];
     const rows: Cell[][] = [];
     if (transfers.length === 0) rows.push([{ colSpan: head.length, content: 'No transaction history available.' }]);
     for (const tx of transfers) {
+        const amount = (tx.direction === 'In' ? '+' : '') + formatTokenAmount(tx.token, tx.amount);
+        const balance = tx.balance !== undefined ? formatTokenAmount(tx.token, tx.balance) : '';
+        const withStatus = (value: string) => [value, statusIcon(tx.status)].filter(Boolean).join(' ') || '-';
         rows.push([
             tx.timestamp !== undefined ? formatDate(tx.timestamp) : '-', tx.counterparty,
             ...(withContact ? [tx.contact ?? '-'] : []),
-            tx.token, (tx.direction === 'In' ? '+' : '') + formatAmount(tx.amount),
-            ...(withBalance ? [tx.balance !== undefined ? formatAmount(tx.balance) : '-'] : []),
-            statusIcon(tx.status)
+            tx.token, ...(withBalance ? [amount, withStatus(balance)] : [withStatus(amount)])
         ]);
         rows.push([{ colSpan: head.length, content: tx.url }]);
     }
