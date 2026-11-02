@@ -10,8 +10,9 @@ export function formatAmount(num: number | string): string {
         return num.toString() + '.00';
     }
 
-    // Decimals: at most 3 places, trailing zeros removed, at least 2 kept
-    let formatted = num.toFixed(3);
+    // Decimals: at most 3 places, or as many as the first two significant digits need,
+    // so a nonzero amount never shows as zero; trailing zeros removed, at least 2 kept
+    let formatted = num.toFixed(Math.max(3, 1 - Math.floor(Math.log10(Math.abs(num)))));
 
     while (formatted.endsWith('0') && formatted.split('.')[1].length > 2) {
         formatted = formatted.slice(0, -1);

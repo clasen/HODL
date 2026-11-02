@@ -1,6 +1,6 @@
 import {
     AgentError, NetworkRegistry, byRecentUse, clearSensitiveData, recentTransferRows, sentTransfers, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
-    type HostAction, type NetworkPlugin, type NetworkUsage, type NewAccount, type RecentTransferRow, type SentTransfer, type SessionCapabilities, type TransferDraft,
+    type HostAction, type NetworkPlugin, type NetworkUsage, type NewAccount, type RecentTransfers, type SentTransfer, type SessionCapabilities, type TransferDraft,
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
@@ -166,7 +166,7 @@ export class BrowserSession implements WalletSession {
 
     async sentTransfers(): Promise<SentTransfer[]> {
         const address = await this.address();
-        const history = await this.protect('Checking saved transfers…', () => this.wallet.transferHistory(true, this.selected.id));
+        const history = await this.wallet.transferHistory(true, this.selected.id);
         const failed = history.find(entry => entry.error);
         if (failed) this.terminal.print(`Could not update every transfer: ${failed.error}`);
         const contacts = new Map((await this.contacts.list()).map(contact => [contact.address, contact.name]));
@@ -174,10 +174,10 @@ export class BrowserSession implements WalletSession {
             async recipient => contacts.get(recipient));
     }
 
-    async recentTransfers(): Promise<RecentTransferRow[]> {
-        const transfers = await this.protect('Checking recent transfers…', () => this.wallet.recentTransfers(this.selected.id));
+    async recentTransfers(): Promise<RecentTransfers> {
+        const { transfers, error } = await this.wallet.recentTransfers(this.selected.id);
         const contacts = new Map((await this.contacts.list()).map(contact => [contact.address, contact.name]));
-        return recentTransferRows(this.selected, transfers, async address => contacts.get(address));
+        return { transfers: await recentTransferRows(this.selected, transfers, async address => contacts.get(address)), ...(error ? { error } : {}) };
     }
 
     importActions(): HostAction[] {

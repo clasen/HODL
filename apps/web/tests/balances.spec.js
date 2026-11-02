@@ -44,7 +44,7 @@ test('balances use shared networks and distinguish cached from unavailable data'
     expect(errors).toEqual([]);
 });
 
-test('recent transfers list what came in and went out, on Bitcoin and as tokens on EVM networks', async ({ page }) => {
+test('transfers list what came in and went out, on Bitcoin and as tokens on EVM networks', async ({ page }) => {
     const own = Buffer.from(bitcoin.address.toOutputScript(BTC_FROM)).toString('hex');
     const sender = { scriptpubkey: '0014' + '11'.repeat(20), scriptpubkey_address: 'bc1qzygsszygsszygsszygsszygsszygszrqkfm8t', value: 1 };
     const transactions = [
@@ -57,9 +57,11 @@ test('recent transfers list what came in and went out, on Bitcoin and as tokens 
         data: '0x' + (5n * 10n ** 18n).toString(16).padStart(64, '0'), blockNumber: '0x64', blockHash: '0x' + 'c'.repeat(64), transactionHash: '0x' + 'd'.repeat(64),
         transactionIndex: '0x0', logIndex: '0x0', removed: false, blockTimestamp: '0x6553f100'
     };
+    let offline = false;
     await page.route('**/*', async route => {
         const url = new URL(route.request().url());
         if (url.hostname === '127.0.0.1') return route.continue();
+        if (offline) return route.abort();
         if (url.hostname === 'blockstream.info' && url.pathname === `/api/address/${BTC_FROM}/txs`) return route.fulfill({ json: transactions });
         if (url.hostname === 'bsc-rpc.publicnode.com') {
             const { id, method, params } = route.request().postDataJSON();
@@ -72,14 +74,21 @@ test('recent transfers list what came in and went out, on Bitcoin and as tokens 
     });
     await importPhrase(page);
     await ready(page);
-    await choose(page, MAIN, 'Show Recent Transfers');
+    await choose(page, MAIN, 'Show Transfers');
     let table = page.locator('#out .tbl').last();
-    await expect(table.locator('tr').nth(1)).toHaveText(`-In${sender.scriptpubkey_address}-BTC0.00025pending`);
+    await expect(table.locator('tr').nth(1)).toContainText(`${sender.scriptpubkey_address}-BTC0.00007✔`);
+    await expect(table.locator('tr').nth(3)).toHaveText(`-${sender.scriptpubkey_address}-BTC+0.00025…`);
     await expect(table).toContainText(`https://btcscan.org/tx/${'a'.repeat(64)}`);
-    await expect(table.locator('tr').nth(3)).toContainText(`Out${sender.scriptpubkey_address}-BTC0.00007confirmed`);
     await switchNetwork(page, 'bsc');
-    await choose(page, MAIN, 'Show Recent Token Transfers');
+    await choose(page, MAIN, 'Show Transfers');
     table = page.locator('#out .tbl').last();
-    await expect(table.locator('tr').nth(1)).toContainText('In0x1111111111111111111111111111111111111111-USDT5confirmed');
+    await expect(table.locator('tr').nth(1)).toContainText('0x1111111111111111111111111111111111111111-USDT+5.00✔');
     await expect(table).toContainText(`https://bscscan.com/tx/0x${'d'.repeat(64)}`);
+
+    // What a scan found is saved, so it still shows when the network cannot be reached.
+    offline = true;
+    await choose(page, MAIN, 'Show Transfers');
+    await shown(page, 'Could not check recent transfers');
+    table = page.locator('#out .tbl').last();
+    await expect(table.locator('tr').nth(1)).toContainText('0x1111111111111111111111111111111111111111-USDT+5.00✔');
 });

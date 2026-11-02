@@ -84,6 +84,8 @@ export type TransactionStatus = {
 
 /** A transfer into or out of an address, as the chain records it. */
 export type ChainTransfer = {
+    /** Unique per transfer: one transaction can hold several. */
+    id: string;
     hash: string;
     direction: 'in' | 'out';
     /** The sender of an incoming transfer, the recipient of an outgoing one. */
@@ -93,6 +95,12 @@ export type ChainTransfer = {
     /** Absent while unconfirmed. */
     timestamp?: string;
     state: 'pending' | 'confirmed';
+};
+
+/** One read of an address's transfers; `cursor` lets the next read start after them. */
+export type TransferScan = {
+    transfers: ChainTransfer[];
+    cursor?: string;
 };
 
 export type NetworkUsageEntry = {
@@ -147,8 +155,11 @@ export interface BaseNetworkContract {
         options?: TransferOptions
     ): Promise<PreparedTransfer>;
     getTransactionStatus(transactionHash: string): Promise<TransactionStatus>;
-    /** Optional. Up to `limit` of the address's latest transfers in and out, newest first. */
-    recentTransfers?(address: string, limit: number): Promise<ChainTransfer[]>;
+    /**
+     * Optional. The address's transfers in and out, newest first: without a cursor the latest ones, stopping once
+     * `limit` are found; with the cursor of an earlier scan, all of those since that scan.
+     */
+    recentTransfers?(address: string, limit: number, cursor?: string): Promise<TransferScan>;
     sendSignedTransaction(signedTx: SignedTransaction | string): Promise<unknown>;
     handleNativeTransfer?(
         from: WalletAccount,

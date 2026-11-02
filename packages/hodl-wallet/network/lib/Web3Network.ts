@@ -31,6 +31,7 @@ import type {
     TransactionStatus,
     TransferHistoryConfig,
     TransferOptions,
+    TransferScan,
     TransferEstimate,
     WalletAccount
 } from '../types.js';
@@ -146,42 +147,55 @@ export default class Web3Network extends BaseNetwork {
     }
 
     /** Listed only where an endpoint serves the logs. Token transfers only: a standard RPC cannot look up native transfers by address. */
-    get recentTransfers(): ((address: string, limit: number) => Promise<ChainTransfer[]>) | undefined {
+    get recentTransfers(): ((address: string, limit: number, cursor?: string) => Promise<TransferScan>) | undefined {
         const { history } = this.config;
-        return history ? (address, limit) => this.recentTokenTransfers(history, address, limit) : undefined;
+        return history ? (address, limit, cursor) => this.recentTokenTransfers(history, address, limit, cursor) : undefined;
     }
 
-    private async recentTokenTransfers(history: TransferHistoryConfig, address: string, limit: number): Promise<ChainTransfer[]> {
+    /** The cursor is the last block a later scan need not read again. Scans reach back at most `lookbackBlocks`. */
+    private async recentTokenTransfers(history: TransferHistoryConfig, address: string, limit: number, cursor?: string): Promise<TransferScan> {
+        if (cursor !== undefined && !/^\d+$/.test(cursor)) throw new Error('Invalid transfer cursor.');
         const owner = this.address(address);
         const client = history.url ? createPublicClient({ transport: http(history.url) }) : this.client;
         const tokens = new Map(Object.entries(this.config.tokens).map(([symbol, token]) => [this.address(token.address), symbol]));
-        if (tokens.size === 0) return [];
+        if (tokens.size === 0) return { transfers: [] };
 
         const head = await client.getBlockNumber();
         const range = BigInt(history.blockRange);
         const oldest = head >= BigInt(history.lookbackBlocks) ? head - BigInt(history.lookbackBlocks) + 1n : 0n;
-        const logs = (args: { from: Address } | { to: Address }, fromBlock: bigint, toBlock: bigint) =>
+        // A cursor within reach means everything after it is wanted; otherwise the latest `limit` are.
+        const since = cursor !== undefined && BigInt(cursor) + 1n >= oldest ? BigInt(cursor) + 1n : undefined;
+        const floor = since ?? oldest;
+        const logs = (args: { from: Address } | { to: Address }, fromBlock: bigint, toBlock: bigint | 'latest') =>
             client.getLogs({ address: [...tokens.keys()], event: TRANSFER_EVENT, args, fromBlock, toBlock, strict: true });
         const found = new Map<string, Awaited<ReturnType<typeof logs>>[number]>();
-        for (let toBlock = head; toBlock >= oldest && found.size < limit; toBlock -= range) {
-            const fromBlock = toBlock - range + 1n > oldest ? toBlock - range + 1n : oldest;
+        // Nodes behind one endpoint disagree on the head: the newest chunk ends at each node's own head
+        // and spans half a range, so a node up to half a range ahead of this one stays within it. Being read
+        // on every scan, it is where the next one picks up.
+        const newest = head - range / 2n + 1n > 0n ? head - range / 2n + 1n : 0n;
+        let toBlock: bigint | 'latest' = 'latest';
+        let fromBlock = newest;
+        for (;;) {
+            if (toBlock !== 'latest' && fromBlock < floor) fromBlock = floor;
             const chunk = await Promise.all([logs({ to: owner }, fromBlock, toBlock), logs({ from: owner }, fromBlock, toBlock)]);
             for (const log of chunk.flat()) found.set(`${log.transactionHash}:${log.logIndex}`, log);
+            if (fromBlock <= floor || (since === undefined && found.size >= limit)) break;
+            toBlock = fromBlock - 1n;
+            fromBlock = toBlock - range + 1n;
         }
 
-        const latest = [...found.values()]
-            .sort((a, b) => Number(b.blockNumber - a.blockNumber) || b.logIndex - a.logIndex)
-            .slice(0, limit);
+        const latest = [...found.values()].sort((a, b) => Number(b.blockNumber - a.blockNumber) || b.logIndex - a.logIndex);
         const decimals = new Map(await Promise.all([...new Set(latest.map(log => getAddress(log.address)))].map(async token =>
             [token, Number(await client.readContract({ address: token, abi: ERC20_ABI, functionName: 'decimals' }))] as const)));
         // Some endpoints omit blockTimestamp from logs or report it as zero.
         const blocks = new Map(await Promise.all([...new Set(latest.filter(log => !log.blockTimestamp).map(log => log.blockNumber))]
             .map(async blockNumber => [blockNumber, (await client.getBlock({ blockNumber })).timestamp] as const)));
-        return latest.map(log => {
+        const transfers = latest.map((log): ChainTransfer => {
             const token = getAddress(log.address);
             const outgoing = getAddress(log.args.from) === owner;
             const timestamp = log.blockTimestamp || blocks.get(log.blockNumber)!;
             return {
+                id: `${log.transactionHash}:${log.logIndex}`,
                 hash: log.transactionHash,
                 direction: outgoing ? 'out' : 'in',
                 counterparty: getAddress(outgoing ? log.args.to : log.args.from),
@@ -191,6 +205,7 @@ export default class Web3Network extends BaseNetwork {
                 state: 'confirmed'
             };
         });
+        return { transfers, ...(newest > 0n ? { cursor: String(newest - 1n) } : {}) };
     }
 
     async getAssetBalance(address: string, asset: string): Promise<AssetBalance> {

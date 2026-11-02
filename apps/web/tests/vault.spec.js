@@ -375,7 +375,7 @@ test('sent transfers travel in CLI .HODL files and survive replacing the wallet 
         sendRequest: { sent: saved('confirmed', '2'), undecided: saved('prepared', '6'), foreign: saved('confirmed', '7', stranger) } });
     const sentTransfers = async () => {
         await ready(page);
-        await choose(page, MAIN, 'Show Sent Transfers');
+        await choose(page, MAIN, 'Show Transfers');
         await ready(page);
         const rows = page.locator('#out .tbl tbody').last();
         for (const digit of ['1', '2']) await expect(rows).toContainText(hash(digit));

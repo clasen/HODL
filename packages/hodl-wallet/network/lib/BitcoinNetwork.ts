@@ -9,6 +9,7 @@ import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
 import type {
     AssetBalance,
     ChainTransfer,
+    TransferScan,
     NetworkConfig,
     PreparedTransfer,
     SignedTransaction,
@@ -418,13 +419,16 @@ export default class BitcoinNetwork extends BaseNetwork {
         };
     }
 
-    async recentTransfers(address: string, limit: number): Promise<ChainTransfer[]> {
+    /** The cursor is the newest confirmed transaction read. */
+    async recentTransfers(address: string, limit: number, cursor?: string): Promise<TransferScan> {
         if (!this.validateAddress(address)) throw new Error('Invalid Bitcoin address.');
         const script = Buffer.from(bitcoin.address.toOutputScript(address, this.network)).toString('hex');
         const transfers: ChainTransfer[] = [];
         let page = await this.fetchFromApi<EsploraTransaction[]>(`/address/${address}/txs`);
+        const next = page.find(tx => tx.status.confirmed)?.txid ?? cursor;
         for (;;) {
             for (const tx of page) {
+                if (tx.txid === cursor) return { transfers, ...(next ? { cursor: next } : {}) };
                 const spent = tx.vin.some(input => input.prevout?.scriptpubkey === script);
                 const others = tx.vout.filter(output => output.scriptpubkey !== script);
                 const kept = tx.vout.filter(output => output.scriptpubkey === script);
@@ -434,6 +438,7 @@ export default class BitcoinNetwork extends BaseNetwork {
                 if (amount === 0n) continue;
                 const first = tx.vin[0];
                 transfers.push({
+                    id: tx.txid,
                     hash: tx.txid,
                     direction: spent ? 'out' : 'in',
                     counterparty: spent ? others[0]?.scriptpubkey_address ?? address
@@ -445,7 +450,9 @@ export default class BitcoinNetwork extends BaseNetwork {
                 });
             }
             const confirmed = page.filter(tx => tx.status.confirmed);
-            if (transfers.length >= limit || confirmed.length < ESPLORA_PAGE) return transfers.slice(0, limit);
+            if ((cursor === undefined && transfers.length >= limit) || confirmed.length < ESPLORA_PAGE) {
+                return { transfers, ...(next ? { cursor: next } : {}) };
+            }
             page = await this.fetchFromApi<EsploraTransaction[]>(`/address/${address}/txs/chain/${confirmed.at(-1)!.txid}`);
         }
     }

@@ -24,17 +24,24 @@ export interface SentTransfer {
     url: string;
 }
 
-export interface RecentTransferRow {
+export interface TransferRow {
     /** Absent while unconfirmed. */
-    timestamp?: string;
+    timestamp?: string | number | Date;
     direction: 'In' | 'Out';
     /** The sender of an incoming transfer, the recipient of an outgoing one. */
     counterparty: string;
     contact?: string;
     token: string;
-    amount: string;
-    status: string;
+    amount: string | number;
+    balance?: string | number;
+    status?: string;
     url: string;
+}
+
+/** A failed scan leaves the transfers as saved and says why in `error`. */
+export interface RecentTransfers {
+    transfers: TransferRow[];
+    error?: string;
 }
 
 export interface TransferDraft {
@@ -115,8 +122,8 @@ export interface WalletSession {
     accountDetails(): Promise<AccountDetails | null>;
     tokenBalances(): Promise<Array<[string, string]>>;
     sentTransfers(): Promise<SentTransfer[]>;
-    /** Only called when the selected network lists recent transfers. */
-    recentTransfers(): Promise<RecentTransferRow[]>;
+    /** The network's transfers in and out saved so far, after adding what a scan finds. Only called when the selected network lists them. */
+    recentTransfers(): Promise<RecentTransfers>;
     importActions(): HostAction[];
     exportActions(): HostAction[];
     menuActions(): HostAction[];

@@ -37,7 +37,7 @@ for (const [network, asset, amount, expected] of [
         const stored = await storedTransfers(page);
         expect(stored).toHaveLength(1);
         expect(await page.locator('body').textContent()).not.toContain(stored[0].rawTransaction);
-        await choose(page, MAIN, 'Show Sent Transfers');
+        await choose(page, MAIN, 'Show Transfers');
         await expect(page.locator('#out .tbl tbody').last()).toContainText('Alice');
         expect(errors).toEqual([]);
     });
@@ -183,8 +183,8 @@ test('closing after broadcast recovers from the durable journal without retransm
     state.page = reopened;
     await reopened.goto('http://127.0.0.1:4173/');
     await unlockFixture(reopened);
-    await choose(reopened, MAIN, 'Show Sent Transfers');
-    await expect(reopened.locator('#out .tbl tbody').last()).toContainText('confirmed');
+    await choose(reopened, MAIN, 'Show Transfers');
+    await expect(reopened.locator('#out .tbl tbody').last()).toContainText('✔');
     await expect(reopened.locator('#out .tbl tbody').last().locator('a')).toHaveAttribute('href', /^https:\/\/btcscan\.org\/tx\/\w+$/);
     expect(state.hashes).toHaveLength(1);
     expect((await storedTransfers(reopened))[0].state).toBe('confirmed');

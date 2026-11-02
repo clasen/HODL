@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AgentError } from '../agent-errors.js';
-import { formatDate, initialize, isPromptAborted, loadAccount, mainMenu, PromptAborted, recentTransferRows, recordedTransferKeys, sentTransfers, showAccountDetails, showBalance, showTransactions, transferFunds } from '../app/index.js';
+import { formatAmount, formatDate, initialize, isPromptAborted, loadAccount, mainMenu, PromptAborted, isTransferSnapshot, mergeTransferScan, recentTransferRows, recordedTransferKeys, rescanTransfers, sentTransfers, transferRows, showAccountDetails, showBalance, showTransactions, transferFunds } from '../app/index.js';
 import type { Cell, HostAction, JournalTransfer, SentTransfer, SessionCapabilities, TableSpec, TransferPort, Ui, WalletSession } from '../app/index.js';
 import type { NetworkPlugin } from '../network/types.js';
 import type { TransferResult } from '../transfer-service.js';
@@ -112,7 +112,7 @@ function fakeSession(
         accountDetails: async () => ({ address: 'my-address', privateKey: 'secret-key', mnemonic: 'secret words' }),
         tokenBalances: async () => [['ETH', '1.5'], ['USDT', '20']],
         sentTransfers: async () => [],
-        recentTransfers: async () => [],
+        recentTransfers: async () => ({ transfers: [] }),
         importActions: () => [],
         exportActions: () => [],
         menuActions: () => [],
@@ -128,34 +128,85 @@ test('main menu offers host actions before Exit and runs them', async () => {
     const swap: HostAction = { name: 'Swap', run: async () => { ran.push('swap'); } };
     const ui = new ScriptedUi(['Swap', 'Exit']);
     await mainMenu(ui, fakeSession({ menuActions: () => [swap] }));
-    assert.deepEqual(ui.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Account Settings', 'Swap', 'Exit']);
+    assert.deepEqual(ui.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Transfers', 'Account Settings', 'Swap', 'Exit']);
     assert.deepEqual(ran, ['swap']);
     ui.done();
 });
 
-test('recent transfers appear only on networks that list them, in and out, with the other party contact', async () => {
+test('transfers merge what was sent with the network\'s in and out, oldest first, sent rows standing for their transaction', async () => {
     const transfers = [
-        { hash: 'pending', direction: 'in' as const, counterparty: 'friend-address', asset: 'BTC', amount: '0.0002', state: 'pending' as const },
-        { hash: 'mined', direction: 'out' as const, counterparty: 'stranger', asset: 'BTC', amount: '0.5', timestamp: '2026-01-02T03:04:00Z', state: 'confirmed' as const }
+        { id: 'pending', hash: 'pending', direction: 'in' as const, counterparty: 'friend-wallet', asset: 'BTC', amount: '0.25', state: 'pending' as const },
+        { id: 'mine', hash: 'mine', direction: 'out' as const, counterparty: 'stranger', asset: 'BTC', amount: '0.5', timestamp: '2026-01-03T00:00:00Z', state: 'confirmed' as const },
+        { id: 'gift', hash: 'gift', direction: 'in' as const, counterparty: 'stranger', asset: 'BTC', amount: '2', timestamp: '2026-01-01T00:00:00Z', state: 'confirmed' as const }
     ];
-    const rows = await recentTransferRows(bitcoin, transfers, async address => address === 'friend-address' ? 'Friend' : undefined);
-    const ui = new ScriptedUi(['Show Recent Transfers', 'Exit']);
-    await mainMenu(ui, fakeSession({ plugin: bitcoin, network: { recentTransfers: async () => transfers } as never, recentTransfers: async () => rows }));
-    assert.deepEqual(ui.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Show Recent Transfers', 'Account Settings', 'Exit']);
-    assert.deepEqual(ui.tables[0].head, ['Date', 'Direction', 'Address', 'Token', 'Amount', 'Status']);
-    assert.deepEqual(ui.tables[0].rows, [
-        ['-', 'In', 'friend-address', 'BTC', '0.0002', 'pending'], [{ colSpan: 6, content: 'https://explorer.invalid/tx/pending' }],
-        [formatDate('2026-01-02T03:04:00Z'), 'Out', 'stranger', 'BTC', '0.5', 'confirmed'], [{ colSpan: 6, content: 'https://explorer.invalid/tx/mined' }]
-    ]);
+    const rows = await recentTransferRows(bitcoin, transfers, async address => address === 'friend-wallet' ? 'Friend' : undefined);
     assert.equal(rows[0].contact, 'Friend');
+    const sent: SentTransfer = { timestamp: '2026-01-02T00:00:00Z', recipient: 'stranger', token: 'BTC', amount: '0.5', balance: '1.5', status: 'confirmed', url: 'https://explorer.invalid/tx/mine' };
+    const ui = new ScriptedUi(['Show Transfers', 'Exit']);
+    await mainMenu(ui, fakeSession({ plugin: bitcoin, network: { recentTransfers: async () => ({ transfers }) } as never, sentTransfers: async () => [sent], recentTransfers: async () => ({ transfers: rows }) }));
+    assert.deepEqual(ui.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Transfers', 'Account Settings', 'Exit']);
+    assert.deepEqual(ui.tables[0].head, ['Date', 'Address', 'Token', 'Amount', 'Balance', 'Status']);
+    assert.deepEqual(ui.tables[0].rows, [
+        [formatDate('2026-01-01T00:00:00Z'), 'stranger', 'BTC', '+2.00', '-', '✔'], [{ colSpan: 6, content: 'https://explorer.invalid/tx/gift' }],
+        [formatDate('2026-01-02T00:00:00Z'), 'stranger', 'BTC', '0.50', '1.50', '✔'], [{ colSpan: 6, content: 'https://explorer.invalid/tx/mine' }],
+        ['-', 'friend-wallet', 'BTC', '+0.25', '-', '…'], [{ colSpan: 6, content: 'https://explorer.invalid/tx/pending' }]
+    ]);
+    assert.deepEqual(ui.printed, []);
+    assert.deepEqual(ui.spinners, ['Checking transfers...']);
     ui.done();
 
-    const evm = new ScriptedUi(['Exit']);
-    await mainMenu(evm, fakeSession({ network: { recentTransfers: async () => [] } as never }));
-    assert.deepEqual(evm.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Show Recent Token Transfers', 'Account Settings', 'Exit']);
-    const without = new ScriptedUi(['Exit']);
-    await mainMenu(without, fakeSession());
-    assert.deepEqual(without.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Account Settings', 'Exit']);
+    const offline = new ScriptedUi(['Show Transfers', 'Exit']);
+    await mainMenu(offline, fakeSession({ network: { recentTransfers: async () => ({ transfers: [] }) } as never, sentTransfers: async () => [sent],
+        recentTransfers: async () => ({ transfers: rows.slice(2), error: 'RPC unavailable' }) }));
+    assert.deepEqual(offline.printed, ['Could not check recent transfers: RPC unavailable']);
+    assert.deepEqual(offline.tables[0].rows!.map(row => row[3]), ['+2.00', undefined, '0.50', undefined]);
+    offline.done();
+
+    let asked = false;
+    const without = new ScriptedUi(['Show Transfers', 'Exit']);
+    await mainMenu(without, fakeSession({ recentTransfers: async () => { asked = true; return { transfers: [] }; } }));
+    assert.equal(asked, false);
+    assert.deepEqual(without.tables[0].rows, [[{ colSpan: 6, content: 'No transaction history available.' }]]);
+});
+
+test('transfers worth nothing and incoming ones from look-alikes of paid or known addresses are hidden as address poisoning', () => {
+    const nexo = '0x6D60d68E9aEB31DbF1aaB43b6C009b6E31c82Ff8';
+    const paid = '0x2902aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabfc8';
+    const row = (counterparty: string, amount: string, direction: 'In' | 'Out' = 'In') =>
+        ({ timestamp: '2026-01-01T00:00:00Z', direction, counterparty, token: 'USDT', amount, status: 'confirmed', url: `https://x/${counterparty}${amount}` });
+    const sent: SentTransfer = { timestamp: '2026-01-02T00:00:00Z', recipient: paid, token: 'USDT', amount: '300', url: 'https://x/sent' };
+    const { rows, hidden } = transferRows([sent], [
+        row('0x6d60907ad5925B8EC4aE97f69d9b9bE2Aa7c2FF8', '0.00001'),
+        row('0x64A6D9BaB02Cb0cD9578cCAA10a25AD220c82fF8', '0.000001'),
+        row('0x2902bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', '0.00001'),
+        row('0x3333333333333333333333333333333333333333', '0'),
+        row(nexo, '500'),
+        row('0x1111111111111111111111111111111111111111', '5'),
+        row('0x07be000000000000000000000000000000000001', '1', 'Out'),
+        // Moving zero on the wallet's behalf needs no signature, so a zero outgoing one is not a payment either.
+        row('0x4444000000000000000000000000000000000ff1', '0', 'Out'),
+        row('0x9999000000000000000000000000000000000ff1', '0.00001'),
+        row('0x07be0000000000000000000000000000000000ff', '0.00001')
+    ], [nexo]);
+    assert.equal(hidden, 6);
+    assert.deepEqual(rows.map(tx => `${tx.direction} ${tx.counterparty.slice(0, 6)} ${tx.amount}`),
+        ['Out 0x07be 1', 'In 0x6D60 500', 'In 0x1111 5', 'In 0x9999 0.00001', 'Out 0x2902 300']);
+});
+
+test('saved transfers take what scans add; unconfirmed ones last only while scans report them, and a failed scan keeps them', async () => {
+    const tx = (id: string, state: 'pending' | 'confirmed', timestamp?: string) =>
+        ({ id, hash: id, direction: 'in' as const, counterparty: 'a', asset: 'BTC', amount: '1', state, ...(timestamp ? { timestamp } : {}) });
+    const saved = { cursor: 'c1', transfers: [tx('old', 'confirmed', '2026-01-01T00:00:00Z'), tx('gone', 'pending'), tx('mined', 'pending')] };
+    const merged = mergeTransferScan(saved, { cursor: 'c2', transfers: [tx('mined', 'confirmed', '2026-01-03T00:00:00Z'), tx('new', 'pending')] });
+    assert.deepEqual(merged, { cursor: 'c2', transfers: [tx('new', 'pending'), tx('mined', 'confirmed', '2026-01-03T00:00:00Z'), tx('old', 'confirmed', '2026-01-01T00:00:00Z')] });
+    assert.equal(mergeTransferScan(saved, { transfers: [] }).cursor, 'c1');
+    assert.ok(isTransferSnapshot(merged));
+    assert.ok(!isTransferSnapshot({ transfers: [{ ...tx('x', 'confirmed'), direction: 'sideways' }] }));
+
+    const cursors: Array<string | undefined> = [];
+    assert.deepEqual(await rescanTransfers(saved, async cursor => { cursors.push(cursor); throw new Error('offline'); }), { snapshot: saved, error: 'offline' });
+    assert.deepEqual(await rescanTransfers(undefined, async cursor => { cursors.push(cursor); return { cursor: 'c3', transfers: [] }; }), { snapshot: { cursor: 'c3', transfers: [] } });
+    assert.deepEqual(cursors, ['c1', undefined]);
 });
 
 test('account menus follow the host capabilities', async () => {
@@ -233,17 +284,27 @@ test('balance uses two decimals for USDT and the shared amount format elsewhere'
     assert.deepEqual(ui.tables[0].rows, [['ETH', '1.50'], ['USDT', '20.00']]);
 });
 
-test('sent transfers show only the columns the host records', async () => {
+test('amounts keep at most 3 decimals but never show a nonzero amount as zero', () => {
+    assert.deepEqual(['20', '1.5', '12.3456', '1.0002', '0.0123', '0.00025', '0.0002', '0.000012345', '0.000995'].map(formatAmount),
+        ['20.00', '1.50', '12.346', '1.00', '0.012', '0.00025', '0.0002', '0.000012', '0.001']);
+});
+
+test('transfers show only the columns the host records', async () => {
     const sent: SentTransfer = { timestamp: new Date(2026, 0, 2, 3, 4), recipient: 'to', contact: 'Bob', token: 'ETH', amount: '1', balance: '5', status: 'confirmed', url: 'https://x/1' };
     const terminal = new ScriptedUi([]);
     await showTransactions(terminal, fakeSession({ sentTransfers: async () => [sent], contacts: { list: async () => [], get: async () => undefined, set: async () => {}, delete: async () => {}, clear: async () => {} } }));
-    assert.deepEqual(terminal.tables[0].head, ['Date', 'Recipient', 'Contact', 'Token', 'Amount', 'Balance', 'Status']);
-    assert.deepEqual(terminal.tables[0].rows![0], ['2026-01-02 03:04', 'to', 'Bob', 'ETH', '1.00', '5.00', 'confirmed']);
+    assert.deepEqual(terminal.tables[0].head, ['Date', 'Address', 'Contact', 'Token', 'Amount', 'Balance', 'Status']);
+    assert.deepEqual(terminal.tables[0].rows![0], ['2026-01-02 03:04', 'to', 'Bob', 'ETH', '1.00', '5.00', '✔']);
     assert.deepEqual(terminal.tables[0].rows![1], [{ colSpan: 7, content: 'https://x/1' }]);
+
+    const states = new ScriptedUi([]);
+    await showTransactions(states, fakeSession({ sentTransfers: async () => ['failed', 'submitted', 'broadcast_unknown', undefined]
+        .map((status, index) => ({ ...sent, ...(status ? { status } : { status: undefined }), url: `https://x/${index}` })) }));
+    assert.deepEqual(states.tables[0].rows!.filter((_, index) => index % 2 === 0).map(row => row.at(-1)), ['✖', '…', '?', '-']);
 
     const browser = new ScriptedUi([]);
     await showTransactions(browser, fakeSession({ capabilities: browserCapabilities, sentTransfers: async () => [] }));
-    assert.deepEqual(browser.tables[0].head, ['Date', 'Recipient', 'Token', 'Amount', 'Status']);
+    assert.deepEqual(browser.tables[0].head, ['Date', 'Address', 'Token', 'Amount', 'Status']);
     assert.deepEqual(browser.tables[0].rows, [[{ colSpan: 5, content: 'No transaction history available.' }]]);
 });
 

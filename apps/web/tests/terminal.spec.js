@@ -38,7 +38,7 @@ test('menus follow the keyboard model of the terminal wallet', async ({ page }) 
     await page.keyboard.press('End');
     expect(await selected()).toBe('Exit');
     await page.keyboard.press('Home');
-    await page.keyboard.press('5');
+    await page.keyboard.press('4');
     expect(await selected()).toBe('Account Settings');
     await page.keyboard.press('Enter');
     await expect(prompt(page, 'Select an account option:')).toBeVisible();
@@ -204,10 +204,10 @@ test.describe('on a touch screen', () => {
         };
         expect(await selected()).toBe('Transfer Funds');
         await swipe(80);
-        expect(await selected()).toBe('Show Sent Transfers');
+        expect(await selected()).toBe('Show Transfers');
         await swipe(-40);
         expect(await selected()).toBe('Show Balance');
-        await swipe(120);
+        await swipe(80);
         expect(await selected()).toBe('Account Settings');
         const pages = [];
         page.context().on('page', opened => pages.push(opened));
@@ -223,7 +223,7 @@ test.describe('on a touch screen', () => {
         expect(pages).toHaveLength(0);
         await page.keyboard.press('Escape');
         await ready(page);
-        await swipe(150);
+        await swipe(110);
         expect(await selected()).toBe('Account Settings');
         const scroller = page.locator('#term');
         await page.locator('#out').evaluate(out => { for (let i = 0; i < 80; i++) out.prepend(Object.assign(document.createElement('div'), { className: 'l', textContent: `line ${i}` })); });
@@ -296,7 +296,7 @@ test('a phone fits the terminal without sideways scrolling', async ({ page }) =>
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await expect(page.locator('.status')).toBeVisible();
     await expect(page.locator('#preset')).toBeVisible();
-    await choose(page, MAIN, 'Show Sent Transfers');
+    await choose(page, MAIN, 'Show Transfers');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await ready(page);
 });

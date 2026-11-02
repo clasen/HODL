@@ -4,6 +4,8 @@ export const webConfig = {
     serverTimeoutMs: 120_000,
     transfer: {
         requestTimeoutMs: 15_000,
+        /** A first scan of an address's transfers reads many log ranges. */
+        historyTimeoutMs: 60_000,
         reviewTtlMs: 60_000
     },
     terminal: {

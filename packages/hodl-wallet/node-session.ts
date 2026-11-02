@@ -12,9 +12,9 @@ import { routeForNetwork } from './swap/routes.js';
 import { startSwapMenu } from './swap/ui.js';
 import { errorMessage } from './app/format.js';
 import { showError } from './app/output.js';
-import { recentTransferRows, recordedTransferKeys, sentTransfers, type RecordedTransfer } from './app/history.js';
+import { isTransferSnapshot, recentTransferRows, recordedTransferKeys, rescanTransfers, sentTransfers, type RecordedTransfer } from './app/history.js';
 import type {
-    AccountDetails, Contact, ContactsPort, HostAction, NewAccount, PendingTransfer, RecentTransferRow, SentTransfer,
+    AccountDetails, Contact, ContactsPort, HostAction, NewAccount, PendingTransfer, RecentTransfers, SentTransfer,
     SessionCapabilities, TransferDraft, TransferPort, WalletSession
 } from './app/session.js';
 import type { Ui } from './app/ui.js';
@@ -212,9 +212,17 @@ export class NodeSession implements WalletSession {
             recipient => this.contactName(recipient));
     }
 
-    async recentTransfers(): Promise<RecentTransferRow[]> {
-        const transfers = await this.network.recentTransfers!(await this.address(), walletConfig.history.recentTransfers);
-        return recentTransferRows(this.selectedNetwork, transfers, address => this.contactName(address));
+    /** Saved under `chainTransfers`, then the address and the network's storage name. */
+    async recentTransfers(): Promise<RecentTransfers> {
+        const address = await this.address();
+        // Deepbase reads a missing key as null.
+        const saved = await this.db.get('chainTransfers', address, this.storageNetworkName) ?? undefined;
+        if (saved !== undefined && !isTransferSnapshot(saved)) throw new Error('Invalid saved transfers.');
+        const { snapshot, error } = await rescanTransfers(saved,
+            cursor => this.network.recentTransfers!(address, walletConfig.history.recentTransfers, cursor));
+        if (!error && snapshot) await this.db.set('chainTransfers', address, this.storageNetworkName, snapshot);
+        const transfers = await recentTransferRows(this.selectedNetwork, snapshot?.transfers ?? [], contact => this.contactName(contact));
+        return { transfers, ...(error ? { error } : {}) };
     }
 
     importActions(): HostAction[] {

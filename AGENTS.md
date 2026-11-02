@@ -24,7 +24,7 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 ## Shared Flows (TUI and Web)
 
 - `app/` holds every interactive flow the TUI and the web share: startup, main menu,
-  account settings, balance, transfer, sent transfers and recent transfers. It imports no Node or DOM
+  account settings, balance, transfer and transfers. It imports no Node or DOM
   modules. Change a menu, prompt, validation or message there and both interfaces change.
   `index.ts` only wires the CLI: password prompt, profile lock, `NodeSession`, `InquirerUi`.
 - Flows talk to a `Ui` (`app/ui.ts`: select, input, password, confirm, autocomplete, table,
@@ -77,9 +77,13 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   one recovery phrase or one private key plus the file's address book and that account's sent
   transfers (journal entries still awaiting a broadcast decision stay behind), and replacing an
   open wallet keeps its password. Replacing it with a phrase or key keeps its address book and
-  sent transfers, as in the TUI. Both hosts list sent transfers through `app/history.ts`.
-  Recent transfers in and out come from the network (`recentTransfers`) and are not stored: Bitcoin from
-  Esplora, EVM tokens from `eth_getLogs` over each network's `history` window (no native EVM transfers).
+  sent transfers, as in the TUI. Both hosts list transfers through `app/history.ts`: the sent ones
+  plus the network's in and out, merged by transaction. Scans (`recentTransfers`) are saved under
+  `chainTransfers` (address, network storage name) with a cursor, so the next scan only reads what is
+  new and a failed one shows what was saved; the web does not export them. Bitcoin reads Esplora, EVM
+  tokens `eth_getLogs` over each network's `history` window; native EVM transfers appear only when sent
+  from this wallet. The network's transfers worth nothing, and incoming ones from look-alikes of paid or
+  known addresses, are hidden as address poisoning.
   Neither side imports legacy-format `.HODL` files; only `~/.HODL` profiles still migrate.
 - `pnpm run preview:web` serves the built wallet and diagnostic locally.
 - `pnpm run typecheck:web` builds the package, then checks browser TypeScript using the existing compiler

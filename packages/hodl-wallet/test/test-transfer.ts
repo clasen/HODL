@@ -287,6 +287,10 @@ test('interactive transfers survive lost responses and do not report post-send e
                     return { transactionHash: 'a'.repeat(64) };
                 };
                 BitcoinNetwork.prototype.getTransactionStatus = async transactionHash => ({ state: status, transactionHash });
+                BitcoinNetwork.prototype.recentTransfers = async () => ({ cursor: 'b'.repeat(64), transfers: [
+                    { id: 'a'.repeat(64), hash: 'a'.repeat(64), direction: 'out', counterparty: ${JSON.stringify(FROM)}, asset: 'BTC', amount: '0.001', state: 'pending' },
+                    { id: 'b'.repeat(64), hash: 'b'.repeat(64), direction: 'in', counterparty: 'bc1qsender', asset: 'BTC', amount: '0.5', timestamp: '2026-01-01T00:00:00Z', state: 'confirmed' }
+                ] });
                 BitcoinNetwork.prototype.getAssetBalance = async () => {
                     if (scenario === 'balance-error') throw new Error('Balance RPC unavailable');
                     return { asset: 'BTC', amount: '1', baseUnits: '100000000', decimals: 8 };
@@ -317,6 +321,8 @@ test('interactive transfers survive lost responses and do not report post-send e
                 const read = new Persist({ path: root, encryptionKey: 'fixture-password' });
                 await read.connect();
                 const requests = await read.values('sendRequest');
+                const snapshot = await read.get('chainTransfers', ${JSON.stringify(FROM)}, btc.storageName ?? btc.name);
+                assert.deepEqual([snapshot.cursor, snapshot.transfers.map(tx => tx.state)], ['b'.repeat(64), ['pending', 'confirmed']]);
                 assert.equal(requests.length, 1);
                 assert.equal(requests[0].state, scenario === 'lost-response' ? 'confirmed' : 'submitted');
                 if (scenario === 'lost-response') assert.equal((await read.values('transactions', ${JSON.stringify(FROM)}, 'BTC')).length, 1);
@@ -326,6 +332,8 @@ test('interactive transfers survive lost responses and do not report post-send e
             assert.equal(child.status, 0, output);
             assert.match(output, /Transaction submitted; awaiting confirmation/);
             assert.doesNotMatch(output, /Transaction failed/);
+            assert.match(output, /bc1qsender/);
+            assert.doesNotMatch(output, /Could not check recent transfers/);
             if (scenario === 'balance-error') {
                 assert.match(output, /Transfer recorded; could not update/);
                 assert.doesNotMatch(output, /Transaction confirmed!/);
@@ -540,21 +548,30 @@ test('bitcoin recent transfers list the latest in and out, paging only when more
         return new Response(JSON.stringify(pages[route]));
     };
     try {
-        assert.deepEqual(await network.recentTransfers(FROM, 3), [
-            { hash: 'mempool', direction: 'in', counterparty: sender, asset: 'BTC', amount: '0.0002', state: 'pending' },
-            { hash: 'sent', direction: 'out', counterparty: sender, asset: 'BTC', amount: '0.00001', timestamp: new Date(1_700_000_300_000).toISOString(), state: 'confirmed' },
-            { hash: 'confirmed-0', direction: 'in', counterparty: sender, asset: 'BTC', amount: '0.00000003', timestamp: new Date(1_700_000_200_000).toISOString(), state: 'confirmed' }
+        const first = await network.recentTransfers(FROM, 3);
+        assert.deepEqual(first.transfers.slice(0, 3), [
+            { id: 'mempool', hash: 'mempool', direction: 'in', counterparty: sender, asset: 'BTC', amount: '0.0002', state: 'pending' },
+            { id: 'sent', hash: 'sent', direction: 'out', counterparty: sender, asset: 'BTC', amount: '0.00001', timestamp: new Date(1_700_000_300_000).toISOString(), state: 'confirmed' },
+            { id: 'confirmed-0', hash: 'confirmed-0', direction: 'in', counterparty: sender, asset: 'BTC', amount: '0.00000003', timestamp: new Date(1_700_000_200_000).toISOString(), state: 'confirmed' }
         ]);
+        // Everything read is kept, since a later scan resumes after the newest confirmed transaction.
+        assert.equal(first.transfers.length, 26);
+        assert.equal(first.cursor, 'sent');
         assert.deepEqual(requested, [`/address/${FROM}/txs`]);
 
         requested.length = 0;
         const all = await network.recentTransfers(FROM, 50);
         assert.deepEqual(requested, Object.keys(pages));
-        assert.equal(all.length, 28);
-        assert.deepEqual(all.slice(-2), [
-            { hash: 'self', direction: 'out', counterparty: FROM, asset: 'BTC', amount: '0.000007', timestamp: new Date(1_600_000_100_000).toISOString(), state: 'confirmed' },
-            { hash: 'coinbase', direction: 'in', counterparty: 'coinbase', asset: 'BTC', amount: '6.25', timestamp: new Date(1_600_000_000_000).toISOString(), state: 'confirmed' }
+        assert.equal(all.transfers.length, 28);
+        assert.deepEqual(all.transfers.slice(-2), [
+            { id: 'self', hash: 'self', direction: 'out', counterparty: FROM, asset: 'BTC', amount: '0.000007', timestamp: new Date(1_600_000_100_000).toISOString(), state: 'confirmed' },
+            { id: 'coinbase', hash: 'coinbase', direction: 'in', counterparty: 'coinbase', asset: 'BTC', amount: '6.25', timestamp: new Date(1_600_000_000_000).toISOString(), state: 'confirmed' }
         ]);
+
+        requested.length = 0;
+        assert.deepEqual((await network.recentTransfers(FROM, 1, 'confirmed-1')).transfers.map(tx => tx.id), ['mempool', 'sent', 'confirmed-0']);
+        assert.deepEqual(await network.recentTransfers(FROM, 1, 'sent'), { transfers: [first.transfers[0]], cursor: 'sent' });
+        assert.deepEqual(requested, [`/address/${FROM}/txs`, `/address/${FROM}/txs`]);
     } finally { globalThis.fetch = realFetch; }
 });
 
@@ -576,7 +593,7 @@ test('evm recent token transfers scan the newest blocks first and stop once enou
         log(950, 1, other, owner, 1_500_000n),
         log(940, 0, owner, owner, 2_000_000n),
         log(899, 3, owner, other, 250_000n, null),
-        log(850, 0, other, owner, 1n, 0),
+        log(851, 0, other, owner, 1n, 0),
         log(100, 0, other, owner, 7n)
     ];
     const queries: string[] = [];
@@ -590,22 +607,37 @@ test('evm recent token transfers scan the newest blocks first and stop once enou
         if (method === 'eth_getBlockByNumber') return reply({ number: params[0], timestamp: toHex(1_600_000_000), hash: pad(params[0]), transactions: [] });
         assert.equal(method, 'eth_getLogs');
         const [{ fromBlock, toBlock, topics }] = params;
-        queries.push(`${Number(fromBlock)}-${Number(toBlock)} ${topics[1] ? 'out' : 'in'}`);
-        return reply(chain.filter(entry => Number(entry.blockNumber) >= Number(fromBlock) && Number(entry.blockNumber) <= Number(toBlock) &&
+        queries.push(`${Number(fromBlock)}-${toBlock === 'latest' ? toBlock : Number(toBlock)} ${topics[1] ? 'out' : 'in'}`);
+        const last = toBlock === 'latest' ? 1_000 : Number(toBlock);
+        return reply(chain.filter(entry => Number(entry.blockNumber) >= Number(fromBlock) && Number(entry.blockNumber) <= last &&
             (topics[1] ? entry.topics[1] === topics[1] : entry.topics[2] === topics[2])));
     };
     try {
-        const transfers = await new Web3Network(plugin).recentTransfers!(owner, 3);
-        assert.deepEqual(queries, ['901-1000 in', '901-1000 out', '801-900 in', '801-900 out']);
-        assert.deepEqual(transfers, [
-            { hash: pad(toHex(95_001)), direction: 'in', counterparty: other, asset: 'USDT', amount: '1.5', timestamp: new Date((1_700_000_950) * 1000).toISOString(), state: 'confirmed' },
-            { hash: pad(toHex(94_000)), direction: 'out', counterparty: owner, asset: 'USDT', amount: '2', timestamp: new Date((1_700_000_940) * 1000).toISOString(), state: 'confirmed' },
-            { hash: pad(toHex(89_903)), direction: 'out', counterparty: other, asset: 'USDT', amount: '0.25', timestamp: new Date(1_600_000_000_000).toISOString(), state: 'confirmed' }
-        ]);
+        const scan = await new Web3Network(plugin).recentTransfers!(owner, 3);
+        // The newest chunk ends at the node's own head, so a node behind the one that reported 1000 still answers.
+        assert.deepEqual(queries, ['951-latest in', '951-latest out', '851-950 in', '851-950 out']);
+        assert.deepEqual(scan, {
+            transfers: [
+                { id: `${pad(toHex(95_001))}:1`, hash: pad(toHex(95_001)), direction: 'in', counterparty: other, asset: 'USDT', amount: '1.5', timestamp: new Date((1_700_000_950) * 1000).toISOString(), state: 'confirmed' },
+                { id: `${pad(toHex(94_000))}:0`, hash: pad(toHex(94_000)), direction: 'out', counterparty: owner, asset: 'USDT', amount: '2', timestamp: new Date((1_700_000_940) * 1000).toISOString(), state: 'confirmed' },
+                { id: `${pad(toHex(89_903))}:3`, hash: pad(toHex(89_903)), direction: 'out', counterparty: other, asset: 'USDT', amount: '0.25', timestamp: new Date(1_600_000_000_000).toISOString(), state: 'confirmed' },
+                { id: `${pad(toHex(85_100))}:0`, hash: pad(toHex(85_100)), direction: 'in', counterparty: other, asset: 'USDT', amount: '0.000001', timestamp: new Date(1_600_000_000_000).toISOString(), state: 'confirmed' }
+            ],
+            // The newest chunk is read again on every scan, so the next one resumes below it.
+            cursor: '950'
+        });
 
-        queries.length = 0;
-        assert.equal((await new Web3Network({ ...plugin, history: { ...plugin.history!, lookbackBlocks: 150 } }).recentTransfers!(owner, 10)).length, 3);
-        assert.deepEqual(queries, ['901-1000 in', '901-1000 out', '851-900 in', '851-900 out']);
+        const scanned = async (cursor: string | undefined, lookbackBlocks = 1_000) => {
+            queries.length = 0;
+            const result = await new Web3Network({ ...plugin, history: { ...plugin.history!, lookbackBlocks } }).recentTransfers!(owner, 1, cursor);
+            return { queries: [...queries], ids: result.transfers.map(tx => Number(BigInt(tx.hash))), cursor: result.cursor };
+        };
+        // A cursor asks for everything after it, past the limit.
+        assert.deepEqual(await scanned('900'), { queries: ['951-latest in', '951-latest out', '901-950 in', '901-950 out'], ids: [95_001, 94_000], cursor: '950' });
+        assert.deepEqual(await scanned('960'), { queries: ['951-latest in', '951-latest out'], ids: [], cursor: '950' });
+        // One out of reach scans as if there were none, back to the lookback.
+        assert.deepEqual(await scanned('10', 120), { queries: ['951-latest in', '951-latest out', '881-950 in', '881-950 out'], ids: [95_001, 94_000, 89_903], cursor: '950' });
+        await assert.rejects(new Web3Network(plugin).recentTransfers!(owner, 1, 'block-9'), /Invalid transfer cursor/);
         assert.equal(new Web3Network({ ...plugin, history: undefined }).recentTransfers, undefined);
     } finally { globalThis.fetch = realFetch; }
 });

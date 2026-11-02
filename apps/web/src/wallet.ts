@@ -1,5 +1,6 @@
-import { NetworkRegistry, clearSensitiveData, walletConfig, isNetworkUsageEntry, isRecordedTransfer, networkStorageName, recordNetworkUse, recordedTransferKeys,
-    type AccountDetails, type Contact, type ChainTransfer, type NetworkUsage, type RecordedTransfer, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
+import { NetworkRegistry, clearSensitiveData, walletConfig, isNetworkUsageEntry, isRecordedTransfer, isTransferSnapshot, networkStorageName, recordNetworkUse, recordedTransferKeys,
+    rescanTransfers, type AccountDetails, type Contact, type ChainTransfer, type NetworkUsage, type RecordedTransfer, type TransferSnapshot, type WalletAccount,
+    type AssetBalance } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { openHodlFile, sealHodlFile, type HodlFile } from './hodl-file.js';
 import { BrowserVault, type VaultData } from './vault.js';
@@ -14,9 +15,11 @@ type Metadata = { name: string; kind: 'mnemonic' | 'private-key'; createdAt: str
 type Contacts = Record<string, Record<string, { name: string }>>;
 /** The CLI's sent transfers: sender address, history key, id, then the transfer. */
 type RecordedTransfers = Record<string, Record<string, Record<string, RecordedTransfer>>>;
+/** As the CLI keeps them: address, network storage name, then what scans found. */
+type ChainTransfers = Record<string, Record<string, TransferSnapshot>>;
 type WalletData = VaultData & {
     metadata: Metadata; account: Record<string, WalletAccount>; mnemonic?: string; contact?: Contacts;
-    transactions?: RecordedTransfers; sendRequest?: Record<string, unknown>; networkUsage?: NetworkUsage;
+    transactions?: RecordedTransfers; sendRequest?: Record<string, unknown>; networkUsage?: NetworkUsage; chainTransfers?: ChainTransfers;
 };
 export type PublicWallet = {
     name: string;
@@ -53,6 +56,10 @@ function profileContacts(value: unknown): Contacts {
         }
     }
     return contacts;
+}
+
+function isChainTransfers(value: unknown): value is ChainTransfers {
+    return record(value) && Object.values(value).every(book => record(book) && Object.values(book).every(isTransferSnapshot));
 }
 
 function isRecordedTransfers(value: unknown): value is RecordedTransfers {
@@ -211,7 +218,7 @@ export class BrowserWallet {
     private keepingRecords(create: () => Promise<WalletData>): () => Promise<WalletData> {
         return async () => {
             const kept: Record<string, unknown> = {};
-            for (const key of ['contact', 'transactions', 'sendRequest', 'networkUsage']) {
+            for (const key of ['contact', 'transactions', 'sendRequest', 'networkUsage', 'chainTransfers']) {
                 const value = this.unlocked ? await this.vault.get(key) : undefined;
                 if (value !== undefined) kept[key] = value;
             }
@@ -239,9 +246,10 @@ export class BrowserWallet {
     }
 
     private validate = async (value: VaultData): Promise<void> => {
-        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'contact', 'transactions', 'sendRequest', 'swapQuote', 'swapOperation', 'networkUsage'].includes(key)) ||
+        if (Object.keys(value).some(key => !['metadata', 'account', 'mnemonic', 'contact', 'transactions', 'sendRequest', 'swapQuote', 'swapOperation', 'networkUsage', 'chainTransfers'].includes(key)) ||
             !record(value.metadata) || !record(value.account) || (value.contact !== undefined && !isContacts(value.contact)) ||
             (value.transactions !== undefined && !isRecordedTransfers(value.transactions)) ||
+            (value.chainTransfers !== undefined && !isChainTransfers(value.chainTransfers)) ||
             (value.networkUsage !== undefined && !(record(value.networkUsage) && Object.values(value.networkUsage).every(isNetworkUsageEntry)))) throw new VaultError('Invalid wallet data.');
         const metadata = value.metadata;
         if (typeof metadata.name !== 'string' || walletName(metadata.name) !== metadata.name ||
@@ -432,13 +440,23 @@ export class BrowserWallet {
         return structuredClone(rows);
     }
 
-    async recentTransfers(networkId: string): Promise<ChainTransfer[]> {
+    /** The saved transfers after adding what a scan finds; a failed scan leaves them as saved and says why. */
+    async recentTransfers(networkId: string): Promise<{ transfers: ChainTransfer[]; error?: string }> {
         const { store, check } = this.vault.scope();
         const plugin = this.registry.get(networkId);
         const address = await store.get('account', plugin.NetworkClass.name, 'address');
         if (typeof address !== 'string') throw new VaultError('This wallet has no account for the selected network.');
         const network = new plugin.NetworkClass(plugin);
-        return networkRequest(() => network.recentTransfers!(address, walletConfig.history.recentTransfers), check);
+        const saved = await store.get('chainTransfers', address, networkStorageName(plugin)) as TransferSnapshot | undefined;
+        const { snapshot, error } = await rescanTransfers(saved,
+            cursor => networkRequest(() => network.recentTransfers!(address, walletConfig.history.recentTransfers, cursor), check,
+                webConfig.transfer.historyTimeoutMs));
+        check();
+        if (!error && snapshot) {
+            await store.set('chainTransfers', address, networkStorageName(plugin), snapshot);
+            await store.flush();
+        }
+        return { transfers: snapshot?.transfers ?? [], ...(error ? { error } : {}) };
     }
 
     async address(networkId: string): Promise<string | undefined> {

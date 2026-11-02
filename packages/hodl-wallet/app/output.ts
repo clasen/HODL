@@ -1,5 +1,5 @@
 import { errorMessage, formatAmount, formatDate } from './format.js';
-import type { RecentTransferRow, SentTransfer, WalletSession } from './session.js';
+import type { TransferRow, SentTransfer, WalletSession } from './session.js';
 import type { Cell, TableSpec, Tone, Ui } from './ui.js';
 
 export const WELCOME_ART = ` ░░░░░░░░░░░░░░ █ █\u2003█▀█\u2003█▀▄\u2003█   ░░░░░░░░░░░░░░
@@ -93,20 +93,30 @@ export function sentTransfersTable(
     return { head, rows, tone: options.tone };
 }
 
-/** Recent transfers in and out, one row each followed by its explorer link. */
-export function recentTransfersTable(
-    session: Pick<WalletSession, 'contacts'>,
-    transfers: RecentTransferRow[]
+/** A transfer's state as one character: done, failed, still on its way, or not known after broadcasting. */
+function statusIcon(status: string | undefined): string {
+    if (status === undefined || status === '') return '-';
+    return ({ confirmed: '✔', failed: '✖', broadcast_unknown: '?' } as Record<string, string | undefined>)[status] ?? '…';
+}
+
+/** Transfers in and out laid out as sent transfers, incoming amounts marked with +, one row each followed by its explorer link. */
+export function transfersTable(
+    session: Pick<WalletSession, 'capabilities' | 'contacts'>,
+    transfers: TransferRow[]
 ): TableSpec {
     const withContact = Boolean(session.contacts);
-    const head = ['Date', 'Direction', 'Address', ...(withContact ? ['Contact'] : []), 'Token', 'Amount', 'Status'];
+    const withBalance = session.capabilities.balanceHistory;
+    const head = ['Date', 'Address', ...(withContact ? ['Contact'] : []), 'Token', 'Amount',
+        ...(withBalance ? ['Balance'] : []), 'Status'];
     const rows: Cell[][] = [];
-    if (transfers.length === 0) rows.push([{ colSpan: head.length, content: 'No recent transfers found.' }]);
+    if (transfers.length === 0) rows.push([{ colSpan: head.length, content: 'No transaction history available.' }]);
     for (const tx of transfers) {
         rows.push([
-            tx.timestamp ? formatDate(tx.timestamp) : '-', tx.direction, tx.counterparty,
+            tx.timestamp !== undefined ? formatDate(tx.timestamp) : '-', tx.counterparty,
             ...(withContact ? [tx.contact ?? '-'] : []),
-            tx.token, tx.amount, tx.status
+            tx.token, (tx.direction === 'In' ? '+' : '') + formatAmount(tx.amount),
+            ...(withBalance ? [tx.balance !== undefined ? formatAmount(tx.balance) : '-'] : []),
+            statusIcon(tx.status)
         ]);
         rows.push([{ colSpan: head.length, content: tx.url }]);
     }
