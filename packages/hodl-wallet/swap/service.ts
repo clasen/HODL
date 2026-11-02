@@ -290,12 +290,16 @@ export class SwapService {
                     this.transition(operation, 'needs_attention', 'Unexpected partial result: payout and refund both exist. Inspect both transactions.');
                 } else if (operation.payoutHash) {
                     const payment = await chain.payoutPayment(operation.payoutHash, operation.quote.to);
+                    // NEAR Intents reports an intent amount that can differ from what its payout transaction delivers.
+                    const exact = operation.quote.provider !== 'near-intents';
                     operation.confirmations = payment.confirmations;
                     if (payment.amount === 0n && payment.confirmations === 0) {
                         this.transition(operation, route.destination.pendingState);
-                    } else if (!operation.payoutBaseUnits || payment.amount !== BigInt(operation.payoutBaseUnits) || payment.amount < BigInt(operation.quote.minimumBaseUnits)) {
+                    } else if (payment.amount < BigInt(operation.quote.minimumBaseUnits) ||
+                        (exact && (!operation.payoutBaseUnits || payment.amount !== BigInt(operation.payoutBaseUnits)))) {
                         this.transition(operation, 'needs_attention', 'Destination payout amount or destination does not match the accepted swap.');
                     } else {
+                        if (!exact) operation.payoutBaseUnits = payment.amount.toString();
                         this.transition(operation, payment.confirmations >= route.destination.confirmations ? 'completed' : payment.confirmations ? route.destination.confirmingState : route.destination.pendingState);
                     }
                 } else if (operation.refundHash) {

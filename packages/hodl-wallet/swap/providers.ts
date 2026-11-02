@@ -401,31 +401,32 @@ export class NearIntentsSwapProvider implements SwapProvider {
         }
     }
 
-    private request(input: SwapInput, dry: boolean, deadline: string) {
+    private request(input: SwapInput, dry: boolean, deadline: string, slippageBps: number) {
         return {
-            dry, swapType: 'EXACT_INPUT', slippageTolerance: config.slippageBps,
+            dry, swapType: 'EXACT_INPUT', slippageTolerance: slippageBps,
             originAsset: this.route.source.nearIntents.id, depositType: 'ORIGIN_CHAIN',
             destinationAsset: this.route.destination.nearIntents.id, amount: input.amountBaseUnits,
             refundTo: input.from, refundType: 'ORIGIN_CHAIN', recipient: input.to, recipientType: 'DESTINATION_CHAIN', deadline
         };
     }
 
-    private async requestQuote(input: SwapInput, dry: boolean): Promise<{ data: Record<string, unknown>; terms: Record<string, unknown> }> {
+    private async requestQuote(input: SwapInput, dry: boolean, slippageBps: number): Promise<{ data: Record<string, unknown>; terms: Record<string, unknown> }> {
         const deadline = new Date(Date.now() + config.nearIntents.refundDeadlineMs).toISOString();
         let data: Record<string, unknown>;
-        try { data = record(await swapJson(`${config.nearIntents.url}/v0/quote`, this.request(input, dry, deadline))); }
+        try { data = record(await swapJson(`${config.nearIntents.url}/v0/quote`, this.request(input, dry, deadline, slippageBps))); }
         catch (error) {
             if (error instanceof SwapHttpError && error.status === 400 && error.detail) throw new Error(`NEAR Intents rejected the quote: ${error.detail}`);
             throw error;
         }
-        return { data, terms: this.check(data, input, dry, deadline) };
+        return { data, terms: this.check(data, input, dry, deadline, slippageBps) };
     }
 
     /** Binds a quote response to the requested swap and returns its terms. */
-    private check(response: Record<string, unknown>, input: SwapInput, dry: boolean, deadline: string): Record<string, unknown> {
+    private check(response: Record<string, unknown>, input: SwapInput, dry: boolean, deadline: string, slippageBps: number): Record<string, unknown> {
         const { source, destination } = this.route;
+        if (slippageBps > config.slippageBps) throw new Error('NEAR Intents quote exceeds the accepted slippage.');
         const request = record(response.quoteRequest);
-        for (const [field, value] of Object.entries(this.request(input, dry, deadline))) {
+        for (const [field, value] of Object.entries(this.request(input, dry, deadline, slippageBps))) {
             const same = field === 'refundTo' ? sameAssetAddress(source, request[field], String(value)) :
                 field === 'recipient' ? sameAssetAddress(destination, request[field], String(value)) : request[field] === value;
             if (!same) throw new Error('NEAR Intents quote does not match the requested swap.');
@@ -439,7 +440,7 @@ export class NearIntentsSwapProvider implements SwapProvider {
         }
         const expected = units(quote.amountOut);
         const minimum = units(quote.minAmountOut);
-        if (expected <= 0n || minimum > expected || minimum < expected * BigInt(10_000 - config.slippageBps) / 10_000n) {
+        if (expected <= 0n || minimum > expected || minimum < expected * BigInt(10_000 - slippageBps) / 10_000n) {
             throw new Error('NEAR Intents quote exceeds the accepted slippage.');
         }
         if (!dry) {
@@ -453,7 +454,8 @@ export class NearIntentsSwapProvider implements SwapProvider {
         const data = record(await swapJson(`${config.nearIntents.url}/v0/status?${new URLSearchParams({ depositAddress: plan.depositAddress })}`));
         const accepted = record(plan.providerQuote);
         const response = record(data.quoteResponse);
-        const offer = this.check(response, quote, false, textField(record(accepted.quoteRequest).deadline));
+        const request = record(accepted.quoteRequest);
+        const offer = this.check(response, quote, false, textField(request.deadline), integer(request.slippageTolerance));
         if (textField(response.signature) !== textField(accepted.signature) || !sameAssetAddress(this.route.source, offer.depositAddress, plan.depositAddress) ||
             units(offer.minAmountOut) < BigInt(quote.minimumBaseUnits)) {
             throw new Error('NEAR Intents deposit address does not match the accepted swap.');
@@ -465,7 +467,7 @@ export class NearIntentsSwapProvider implements SwapProvider {
         if (input.routeId !== this.route.id) throw new Error('Swap route mismatch.');
         const { source, destination } = this.route;
         await this.available();
-        const quote = (await this.requestQuote(input, true)).terms;
+        const quote = (await this.requestQuote(input, true, config.slippageBps)).terms;
         const fees: SwapFee[] = [{
             label: 'Platform', asset: source.asset, decimals: source.decimals,
             amountBaseUnits: (BigInt(input.amountBaseUnits) * BigInt(integer(quote.feeBps)) / 10_000n).toString()
@@ -484,8 +486,14 @@ export class NearIntentsSwapProvider implements SwapProvider {
     async prepare(quote: SwapQuote): Promise<SwapPlan> {
         assertTime(quote.expiresAt);
         await this.available();
-        const { data, terms: offer } = await this.requestQuote(quote, false);
-        if (units(offer.minAmountOut) < BigInt(quote.minimumBaseUnits)) throw new Error('NEAR Intents price moved below the accepted minimum; obtain a new quote.');
+        const minimum = BigInt(quote.minimumBaseUnits);
+        let { data, terms: offer } = await this.requestQuote(quote, false, config.slippageBps);
+        if (units(offer.minAmountOut) < minimum) {
+            // The live quote applies its tolerance to a moved price; tighten it so the accepted minimum still holds.
+            const expected = units(offer.amountOut);
+            if (expected >= minimum) ({ data, terms: offer } = await this.requestQuote(quote, false, Number((expected - minimum) * 10_000n / expected)));
+            if (units(offer.minAmountOut) < minimum) throw new Error('NEAR Intents price moved below the accepted minimum; obtain a new quote.');
+        }
         const plan: SwapPlan = {
             depositAddress: assetAddress(this.route.source, offer.depositAddress), providerId: textField(data.correlationId),
             expiresAt: Math.min(quote.expiresAt, Date.parse(textField(record(data.quoteRequest).deadline))), providerQuote: data

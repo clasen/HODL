@@ -241,6 +241,23 @@ test('wrong payouts and partial results are never marked completed or refunded',
     } finally { await f.close(); }
 });
 
+test('NEAR Intents payouts are verified by the amount received, not the reported amount', async () => {
+    const f = await fixture('near-intents');
+    try {
+        const quoteId = (await f.service.quote('100')).quotes[0].quoteId;
+        const started = await f.service.execute(quoteId, 'near-payout');
+        f.chain.confirm(started.transactions[0].hash);
+        f.provider.progress = { state: 'payout_pending', payoutHash: PAYOUT, payoutBaseUnits: '159000' };
+        f.chain.paymentSats = 160_141n;
+        f.chain.confirmations = 3;
+        const completed = await f.service.status('near-payout');
+        assert.equal(completed.state, 'completed', completed.updateError || '');
+        assert.equal(completed.payout!.amount, '0.00160141');
+        f.chain.paymentSats = 159_199n;
+        assert.equal((await f.service.status('near-payout')).state, 'needs_attention');
+    } finally { await f.close(); }
+});
+
 test('quote expiry and ambiguous channel creation never send funds', async () => {
     const f = await fixture();
     try {
@@ -700,7 +717,7 @@ test('NEAR Intents binds refund, recipient, price and the platform fee cap from 
     const requests: Array<Record<string, any>> = [];
     let feeBps = 20;
     let expected = '160000';
-    let minimum = '159200';
+    let minimum: string | undefined = '159200';
     let signature = 'ed25519:live';
     let live: Record<string, any> | undefined;
     await mockedFetch((url, init) => {
@@ -711,7 +728,8 @@ test('NEAR Intents binds refund, recipient, price and the platform fee cap from 
             const result = {
                 correlationId: `intent-${requests.length}`, timestamp: new Date().toISOString(), signature: request.dry ? 'ed25519:dry' : 'ed25519:live',
                 quoteRequest: { ...request, depositMode: 'SIMPLE', appFees: [{ recipient: 'fixture.near', fee: feeBps }] },
-                quote: { amountIn: request.amount, minAmountIn: request.amount, amountOut: expected, minAmountOut: minimum, timeEstimate: 480, withdrawFee: '1900',
+                quote: { amountIn: request.amount, minAmountIn: request.amount, amountOut: expected,
+                    minAmountOut: minimum ?? (BigInt(expected) * BigInt(10_000 - request.slippageTolerance) / 10_000n).toString(), timeEstimate: 480, withdrawFee: '1900',
                     ...(request.dry ? {} : { depositAddress: VAULT, deadline: request.deadline }) }
             };
             if (!request.dry) live = result;
@@ -735,7 +753,11 @@ test('NEAR Intents binds refund, recipient, price and the platform fee cap from 
         await provider.validate(quote, plan);
         signature = 'ed25519:other';
         await assert.rejects(provider.validate(quote, plan), /does not match the accepted swap/);
-        expected = '159900'; minimum = '159101';
+        signature = 'ed25519:live'; expected = '159900'; minimum = undefined;
+        const drifted = await provider.prepare(quote);
+        assert.deepEqual(requests.slice(-2).map(request => request.slippageTolerance), [config.slippageBps, 43]);
+        await provider.validate(quote, drifted);
+        expected = '159199';
         await assert.rejects(provider.prepare(quote), /below the accepted minimum/);
         expected = '160000'; minimum = '150000';
         await assert.rejects(provider.quote(input), /accepted slippage/);
