@@ -220,7 +220,7 @@ We've carefully selected trusted and well-maintained dependencies for this proje
   - **node:crypto**: Native encryption for JSON storage.
   - **@scure/bip39**: For generating and handling mnemonic phrases.
 - Web3
-  - **web3**: The Ethereum JavaScript API for blockchain interactions.
+  - **viem**: For EVM RPC, contract encoding and transaction signing.
   - **@scure/bip32**: For handling hierarchical deterministic (HD) keys.
 - Bitcoin
   - **bitcoinjs-lib**: For Bitcoin-specific operations.

@@ -1,26 +1,7 @@
-export const ERC20_ABI = [
-    {
-        "constant": true,
-        "inputs": [],
-        "name": "decimals",
-        "outputs": [{"name": "", "type": "uint8"}],
-        "type": "function"
-    },
-    {
-        "constant": true,
-        "inputs": [{"name": "_owner", "type": "address"}],
-        "name": "balanceOf",
-        "outputs": [{"name": "balance", "type": "uint256"}],
-        "type": "function"
-    },
-    {
-        "constant": false,
-        "inputs": [
-            {"name": "_to", "type": "address"},
-            {"name": "_value", "type": "uint256"}
-        ],
-        "name": "transfer",
-        "outputs": [{"name": "", "type": "bool"}],
-        "type": "function"
-    }
-]; 
+import { parseAbi } from 'viem';
+
+export const ERC20_ABI = parseAbi([
+    'function decimals() view returns (uint8)',
+    'function balanceOf(address _owner) view returns (uint256 balance)',
+    'function transfer(address _to, uint256 _value) returns (bool)'
+]);

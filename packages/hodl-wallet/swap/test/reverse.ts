@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import * as bitcoin from 'bitcoinjs-lib';
-import { Web3 } from 'web3';
+import { keccak256, toBytes } from 'viem';
 import inquirer from 'inquirer';
 import BitcoinNetwork from '../../network/lib/BitcoinNetwork.js';
 import Persist from '../../persist.js';
@@ -77,7 +77,7 @@ async function reverseFixture(providerId: SwapProviderId) {
                     eth_getTransactionReceipt: !f.payoutMined ? null : {
                         transactionHash: payoutHash, status: '0x1', blockNumber: '0x64', blockHash,
                         logs: [{ address: f.wrongToken ? destination : config.token,
-                            topics: [new Web3().utils.keccak256('Transfer(address,address,uint256)'), '0x' + '0'.repeat(64),
+                            topics: [keccak256(toBytes('Transfer(address,address,uint256)')), '0x' + '0'.repeat(64),
                                 '0x' + (f.wrongRecipient ? '2'.repeat(40) : destination.slice(2)).padStart(64, '0')],
                             data: `0x${f.payoutAmount.toString(16)}` }]
                     }

@@ -356,29 +356,27 @@ test('max retries and menu recovery reuse the resolved amount without signing ag
 });
 
 test('EVM max reserves gas for native funds and sends the full token balance', async () => {
+    const { parseTransaction } = await import('viem');
     const { default: Web3Network } = await import('../network/lib/Web3Network.js');
     const { default: bsc } = await import('../network/bsc.js');
     const network = new Web3Network(bsc);
     let native = 1000000n;
-    let signed: any;
-    const web3 = (network as any).web3;
-    web3.eth.getChainId = async () => 56n;
-    web3.eth.getTransactionCount = async () => 0n;
-    web3.eth.estimateGas = async () => 21000n;
-    web3.eth.accounts.signTransaction = async (tx: any) => {
-        signed = tx;
-        return { rawTransaction: '0x01', transactionHash: '0xabc' };
-    };
+    const client = (network as any).client;
+    client.getChainId = async () => 56;
+    client.getTransactionCount = async () => 0;
+    client.estimateGas = async () => 21000n;
     network.getGasPrice = async () => 2n;
     network.getAssetBalance = async (_address, asset) => ({
         asset, decimals: 18, baseUnits: String(asset === 'BNB' ? native : 1234567890123456789n), amount: 'unused'
     });
-    const from = { address: '0x1111111111111111111111111111111111111111', privateKey: 'fixture' };
+    const from = { address: '0x1111111111111111111111111111111111111111', privateKey: `0x${'1'.repeat(64)}` };
     const nativeResult = await network.prepareTransfer(from, from.address, 'max', 'BNB');
     assert.equal(nativeResult.amountBaseUnits, '958000');
-    assert.equal(BigInt(signed.value) + BigInt(signed.gas) * BigInt(signed.gasPrice), native);
+    let signed: any = parseTransaction(nativeResult.rawTransaction as `0x${string}`);
+    assert.equal(signed.value + signed.gas * signed.gasPrice, native);
     const tokenResult = await network.prepareTransfer(from, from.address, 'max', 'USDT');
     assert.equal(tokenResult.amountBaseUnits, '1234567890123456789');
+    signed = parseTransaction(tokenResult.rawTransaction as `0x${string}`);
     assert.ok(signed.data.endsWith(1234567890123456789n.toString(16).padStart(64, '0')));
     native = 42000n;
     await assert.rejects(network.prepareTransfer(from, from.address, 'max', 'BNB'), /Insufficient/);
@@ -444,32 +442,29 @@ test('read-only tracking retains the saved state when the provider cannot be rea
 });
 
 test('EVM estimation uses no signing key and a higher fee stops signing at the confirmed limit', async () => {
+    const { keccak256 } = await import('viem');
     const { default: Web3Network } = await import('../network/lib/Web3Network.js');
     const { default: bsc } = await import('../network/bsc.js');
     const network = new Web3Network(bsc);
     const address = '0x1111111111111111111111111111111111111111';
     let gasPrice = 2n;
-    let signs = 0;
-    const web3 = (network as any).web3;
-    web3.eth.getChainId = async () => 56n;
-    web3.eth.getTransactionCount = async () => 0n;
-    web3.eth.estimateGas = async () => 21000n;
-    web3.eth.accounts.signTransaction = async () => { signs++; return { rawTransaction: '0x01', transactionHash: '0xabc' }; };
+    const client = (network as any).client;
+    client.getChainId = async () => 56;
+    client.getTransactionCount = async () => 0;
+    client.estimateGas = async () => 21000n;
     network.getGasPrice = async () => gasPrice;
     network.getAssetBalance = async (_address, asset) => ({ asset, decimals: 18, baseUnits: '1000000000000000000', amount: '1' });
     for (const asset of ['BNB', 'USDT']) {
         const quote = await network.estimateTransfer(address, address, '0.1', asset);
         assert.equal('rawTransaction' in quote, false);
-        const previousSigns = signs;
         gasPrice *= 2n;
         const account = { address, get privateKey(): string { throw new Error('Signing key was accessed'); } };
         await assert.rejects(network.prepareTransfer(account, address, '0.1', asset, { maxFeeBaseUnits: quote.fee.baseUnits }), /confirmed limit/);
-        assert.equal(signs, previousSigns);
         gasPrice /= 2n;
-        const prepared = await network.prepareTransfer({ address, privateKey: 'fixture' }, address, '0.1', asset, { maxFeeBaseUnits: quote.fee.baseUnits });
+        const prepared = await network.prepareTransfer({ address, privateKey: `0x${'1'.repeat(64)}` }, address, '0.1', asset, { maxFeeBaseUnits: quote.fee.baseUnits });
         const { rawTransaction, transactionHash, ...actual } = prepared;
         assert.deepEqual(actual, quote);
-        assert.equal(signs, previousSigns + 1);
+        assert.equal(keccak256(rawTransaction as `0x${string}`), transactionHash);
     }
 });
 
@@ -491,19 +486,19 @@ test('Bitcoin estimation matches the signed transfer and enforces the fee cap be
     assert.equal(bitcoin.Transaction.fromHex(rawTransaction).getId(), transactionHash);
 });
 
-test('EVM status maps Web3 missing receipts and transactions without swallowing RPC failures', async () => {
-    const { TransactionNotFound } = await import('web3');
+test('EVM status maps missing receipts and transactions without swallowing RPC failures', async () => {
+    const { TransactionNotFoundError, TransactionReceiptNotFoundError } = await import('viem');
     const { default: Web3Network } = await import('../network/lib/Web3Network.js');
     const { default: bsc } = await import('../network/bsc.js');
     const network = new Web3Network(bsc);
-    const eth = (network as any).web3.eth;
-    const hash = '0x' + '1'.repeat(64);
-    eth.getTransactionReceipt = async () => { throw new TransactionNotFound(); };
-    eth.getTransaction = async () => { throw new TransactionNotFound(); };
+    const client = (network as any).client;
+    const hash = `0x${'1'.repeat(64)}` as const;
+    client.getTransactionReceipt = async () => { throw new TransactionReceiptNotFoundError({ hash }); };
+    client.getTransaction = async () => { throw new TransactionNotFoundError({ hash }); };
     assert.equal((await network.getTransactionStatus(hash)).state, 'not_found');
-    eth.getTransaction = async () => ({ hash });
+    client.getTransaction = async () => ({ hash });
     assert.equal((await network.getTransactionStatus(hash)).state, 'submitted');
     const failure = new Error('RPC unavailable');
-    eth.getTransactionReceipt = async () => { throw failure; };
+    client.getTransactionReceipt = async () => { throw failure; };
     await assert.rejects(network.getTransactionStatus(hash), error => error === failure);
 });

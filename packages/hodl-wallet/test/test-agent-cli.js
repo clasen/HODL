@@ -311,17 +311,18 @@ async function testRegistryAndDerivation() {
     assert.equal(bitcoinAccount.address, 'bc1qcr8te4kr609gcawutmrza0j4xv80jy8z306fyu');
 
     const statusNetwork = /** @type {any} */ (new eth.NetworkClass(eth));
-    statusNetwork.web3 = {
-        eth: {
-            async getTransactionReceipt() {
-                return { status: 0n };
-            },
-            async getTransaction() {
-                return null;
-            },
-            async sendSignedTransaction() {
-                return { status: 0n };
-            }
+    statusNetwork.client = {
+        async getTransactionReceipt() {
+            return { status: 'reverted' };
+        },
+        async getTransaction() {
+            return null;
+        },
+        async sendRawTransaction() {
+            return '0xhash';
+        },
+        async waitForTransactionReceipt() {
+            return { status: 'reverted' };
         }
     };
     assert.equal((await statusNetwork.getTransactionStatus('0xhash')).state, 'failed');

@@ -1,31 +1,17 @@
-import { Web3 } from 'web3';
+import { encodeFunctionData, keccak256, parseAbi, toBytes, type Address, type Hex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import * as bitcoin from 'bitcoinjs-lib';
 import { swapConfig as config } from './config.js';
 import { evmAddress, integer, list, record, swapJson, swapText, textField, transactionHash } from './http.js';
 import type { ChainReceipt, FundingEstimate, ProviderQuote, SwapChain, SwapInput, SwapPlan, SwapQuote, SwapStep } from './types.js';
 import type { WalletAccount } from '../network/types.js';
 
-const web3 = new Web3();
-const approveAbi = {
-    name: 'approve', type: 'function',
-    inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }]
-};
-const allowanceAbi = {
-    name: 'allowance', type: 'function',
-    inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }]
-};
-const transferAbi = {
-    name: 'transfer', type: 'function',
-    inputs: [{ name: 'to', type: 'address' }, { name: 'amount', type: 'uint256' }]
-};
-const depositAbi = {
-    name: 'depositWithExpiry', type: 'function',
-    inputs: [
-        { name: 'vault', type: 'address' }, { name: 'asset', type: 'address' },
-        { name: 'amount', type: 'uint256' }, { name: 'memo', type: 'string' },
-        { name: 'expiry', type: 'uint256' }
-    ]
-};
+const abi = parseAbi([
+    'function approve(address spender, uint256 amount)',
+    'function allowance(address owner, address spender)',
+    'function transfer(address to, uint256 amount)',
+    'function depositWithExpiry(address vault, address asset, uint256 amount, string memo, uint256 expiry)'
+]);
 
 function hex(value: unknown): bigint {
     if (typeof value !== 'string' || !/^0x[\da-f]+$/i.test(value)) throw new Error('Invalid RPC number.');
@@ -79,7 +65,7 @@ export class BscPayments {
         const { receipt, confirmations } = await this.confirmedReceipt(hash);
         if (!receipt) return { amount: 0n, confirmations: 0 };
         if (hex(receipt.status) !== 1n) throw new Error('Refund transaction reverted.');
-        const transferTopic = web3.utils.keccak256('Transfer(address,address,uint256)');
+        const transferTopic = keccak256(toBytes('Transfer(address,address,uint256)'));
         const recipient = `0x${evmAddress(address).slice(2).toLowerCase().padStart(64, '0')}`;
         let amount = 0n;
         for (const value of list(receipt.logs)) {
@@ -146,7 +132,7 @@ export class BscSwapChain extends BscPayments implements SwapChain {
 
     async allowance(address: string, router: string): Promise<bigint> {
         await this.assertChain();
-        const data = web3.eth.abi.encodeFunctionCall(allowanceAbi, [evmAddress(address), evmAddress(router)]);
+        const data = encodeFunctionData({ abi, functionName: 'allowance', args: [evmAddress(address) as Address, evmAddress(router) as Address] });
         return hex(await this.rpc('eth_call', [{ to: config.token, data }, 'latest']));
     }
 
@@ -160,25 +146,26 @@ export class BscSwapChain extends BscPayments implements SwapChain {
 
     async sign(quote: SwapQuote, plan: SwapPlan, kind: SwapStep['kind'], account: WalletAccount): Promise<SwapStep> {
         await this.assertChain();
-        if (web3.eth.accounts.privateKeyToAccount(account.privateKey).address.toLowerCase() !== quote.from.toLowerCase()) {
+        const signer = privateKeyToAccount(account.privateKey as Hex);
+        if (signer.address.toLowerCase() !== quote.from.toLowerCase()) {
             throw new Error('Swap signer does not match source account.');
         }
         await this.assertNonceAvailable(quote.from);
-        let to: string = config.token;
-        let data: string;
+        let to = config.token as Address;
+        let data: Hex;
         let limit: number = config.gas.approval;
         if (kind !== 'deposit') {
             if (quote.provider !== 'thorchain' || plan.router !== config.thorchain.router) throw new Error('Invalid approval router.');
-            data = web3.eth.abi.encodeFunctionCall(approveAbi, [plan.router, kind === 'approve' ? quote.amountBaseUnits : '0']);
+            data = encodeFunctionData({ abi, functionName: 'approve', args: [plan.router as Address, kind === 'approve' ? BigInt(quote.amountBaseUnits) : 0n] });
         } else if (quote.provider === 'chainflip') {
-            data = web3.eth.abi.encodeFunctionCall(transferAbi, [evmAddress(plan.depositAddress), quote.amountBaseUnits]);
+            data = encodeFunctionData({ abi, functionName: 'transfer', args: [evmAddress(plan.depositAddress) as Address, BigInt(quote.amountBaseUnits)] });
             limit = config.gas.transfer;
         } else {
             if (plan.router !== config.thorchain.router || !plan.memo || !plan.expirySeconds) throw new Error('Invalid THORChain deposit.');
-            to = plan.router;
-            data = web3.eth.abi.encodeFunctionCall(depositAbi, [
-                evmAddress(plan.depositAddress), config.token, quote.amountBaseUnits, plan.memo, String(plan.expirySeconds)
-            ]);
+            to = plan.router as Address;
+            data = encodeFunctionData({ abi, functionName: 'depositWithExpiry', args: [
+                evmAddress(plan.depositAddress) as Address, config.token as Address, BigInt(quote.amountBaseUnits), plan.memo, BigInt(plan.expirySeconds)
+            ] });
             limit = config.gas.deposit;
         }
         const nonce = hex(await this.rpc('eth_getTransactionCount', [quote.from, 'pending']));
@@ -186,13 +173,12 @@ export class BscSwapChain extends BscPayments implements SwapChain {
         const request = { from: quote.from, to, data, value: '0x0', gasPrice: `0x${gasPrice.toString(16)}` };
         const estimate = hex(await this.rpc('eth_estimateGas', [request]));
         if (estimate > BigInt(limit)) throw new Error('Gas exceeds the accepted budget; obtain a new quote.');
-        const signed = await web3.eth.accounts.signTransaction({
-            ...request, nonce, gas: limit, gasPrice, chainId: config.source.chainId, networkId: config.source.chainId, type: '0x0'
-        }, account.privateKey);
-        if (!signed.rawTransaction) throw new Error('Could not sign swap transaction.');
+        const rawTransaction = await signer.signTransaction({
+            to, data, value: 0n, nonce: Number(nonce), gas: BigInt(limit), gasPrice, chainId: config.source.chainId, type: 'legacy'
+        });
         return {
-            kind, nonce: nonce.toString(), rawTransaction: signed.rawTransaction,
-            hash: transactionHash(signed.transactionHash, true), confirmed: false, broadcastAttempted: false
+            kind, nonce: nonce.toString(), rawTransaction,
+            hash: transactionHash(keccak256(rawTransaction), true), confirmed: false, broadcastAttempted: false
         };
     }
 

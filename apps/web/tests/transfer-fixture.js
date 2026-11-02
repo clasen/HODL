@@ -1,11 +1,11 @@
 import { createRequire } from 'node:module';
 import { createDecipheriv, pbkdf2Sync, createHash } from 'node:crypto';
 import { expect } from '@playwright/test';
+import { keccak256 } from 'viem';
 import { webConfig } from '../config.mjs';
 import { MAIN, PASSWORD, PHRASE, EVM_FROM, BTC_FROM, answer, choose, confirm, prompt, shown, importPhrase, switchNetwork, unlock } from './terminal.js';
 
 const require = createRequire(import.meta.resolve('hodl-wallet'));
-const { Web3 } = require('web3');
 const bitcoin = require('bitcoinjs-lib');
 export { PASSWORD, PHRASE, EVM_FROM, BTC_FROM };
 export const EVM_TO = '0x1111111111111111111111111111111111111111';
@@ -91,7 +91,7 @@ export async function mockNetworks(context, page) {
                     break;
                 }
                 case 'eth_sendRawTransaction':
-                    result = Web3.utils.keccak256(request.params[0]);
+                    result = keccak256(request.params[0]);
                     await inspect(request.params[0], result);
                     if (route.request().frame().page().isClosed()) return;
                     if (state.mode === 'lost') return route.abort();

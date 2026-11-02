@@ -95,7 +95,7 @@
         "inquirer-autocomplete-prompt": "3.0.1",
         "ora": "8.1.1",
         "tiny-secp256k1": "2.2.3",
-        "web3": "4.16.0"
+        "viem": "2.57.7"
     },
     "devDependencies": {
         "@types/node": "^24.12.4",

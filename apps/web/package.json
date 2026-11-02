@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@noble/hashes": "1.4.0",
-    "hodl-wallet": "workspace:*"
+    "hodl-wallet": "workspace:*",
+    "viem": "2.57.7"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

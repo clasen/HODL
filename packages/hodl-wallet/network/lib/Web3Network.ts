@@ -1,5 +1,21 @@
 import BaseNetwork from './BaseNetwork.js';
-import { Web3, TransactionNotFound } from 'web3';
+import {
+    createPublicClient,
+    encodeFunctionData,
+    getAddress,
+    http,
+    keccak256,
+    parseEther,
+    toHex,
+    TransactionNotFoundError,
+    TransactionReceiptNotFoundError,
+    type Address,
+    type EstimateGasParameters,
+    type Hex,
+    type PublicClient,
+    type TransactionSerializableLegacy
+} from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { ERC20_ABI } from '../abis/erc20.js';
 import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
@@ -17,23 +33,35 @@ import type {
 } from '../types.js';
 
 export default class Web3Network extends BaseNetwork {
-    private web3: Web3;
+    private client: PublicClient;
 
     constructor(config: NetworkConfig) {
         super(config);
-        this.web3 = new Web3(config.url);
+        // A retried eth_sendRawTransaction would broadcast the transfer again.
+        this.client = createPublicClient({ transport: http(config.url, { retryCount: 0 }) });
     }
 
-    private formatPrivateKey(privateKey: string): string {
-        return privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    private formatPrivateKey(privateKey: string): Hex {
+        return privateKey.startsWith('0x') ? privateKey as Hex : `0x${privateKey}`;
     }
 
+    /** Accepts an optional 0x prefix and either a single case or a valid EIP-55 checksum. */
     validateAddress(address: string): boolean {
-        return this.web3.utils.isAddress(address);
+        if (!/^(0x)?[\da-f]{40}$/i.test(address)) return false;
+        const digits = address.slice(-40);
+        return digits === digits.toLowerCase() || digits === digits.toUpperCase()
+            || getAddress(`0x${digits.toLowerCase()}`) === `0x${digits}`;
+    }
+
+    private address(address: string): Address {
+        if (!this.validateAddress(address)) {
+            throw new Error('Invalid EVM address.');
+        }
+        return getAddress(`0x${address.slice(-40).toLowerCase()}`);
     }
 
     async getBalance(address: string): Promise<string> {
-        const balanceWei = await this.web3.eth.getBalance(address);
+        const balanceWei = await this.client.getBalance({ address: this.address(address) });
         return formatUnits(balanceWei, 18);
     }
 
@@ -76,12 +104,12 @@ export default class Web3Network extends BaseNetwork {
         };
     }
 
-    async estimateGas(transaction: Parameters<Web3['eth']['estimateGas']>[0]): Promise<bigint> {
-        return this.web3.eth.estimateGas(transaction);
+    async estimateGas(transaction: EstimateGasParameters): Promise<bigint> {
+        return this.client.estimateGas(transaction);
     }
 
     async getGasPrice(): Promise<bigint> {
-        return this.web3.eth.getGasPrice();
+        return this.client.getGasPrice();
     }
 
     async handleERC20Transfer(
@@ -99,11 +127,10 @@ export default class Web3Network extends BaseNetwork {
         amount: number | string
     ): Promise<SignedTransaction> {
         const gasPrice = await this.getGasPrice();
-        const valueInWei = this.web3.utils.toWei(amount.toString(), 'ether');
         const gasLimit = await this.estimateGas({
-            from: account.address,
-            to: recipient,
-            value: valueInWei
+            account: this.address(account.address),
+            to: this.address(recipient),
+            value: parseEther(amount.toString())
         });
 
         return this.transfer(account, recipient, amount, { gasLimit, gasPrice });
@@ -114,13 +141,10 @@ export default class Web3Network extends BaseNetwork {
     }
 
     async getAssetBalance(address: string, asset: string): Promise<AssetBalance> {
-        if (!this.validateAddress(address)) {
-            throw new Error('Invalid EVM address.');
-        }
-
+        const owner = this.address(address);
         const symbol = asset.toUpperCase();
         if (symbol === this.config.nativeToken) {
-            const baseUnits = await this.web3.eth.getBalance(address);
+            const baseUnits = await this.client.getBalance({ address: owner });
             return {
                 asset: symbol,
                 amount: formatUnits(baseUnits, 18),
@@ -134,9 +158,9 @@ export default class Web3Network extends BaseNetwork {
             throw new Error(`Token ${symbol} not supported`);
         }
 
-        const contract = new this.web3.eth.Contract(ERC20_ABI, tokenConfig.address);
-        const baseUnits = String(await contract.methods.balanceOf(address).call());
-        const decimals = Number(await contract.methods.decimals().call());
+        const token = this.address(tokenConfig.address);
+        const baseUnits = String(await this.client.readContract({ address: token, abi: ERC20_ABI, functionName: 'balanceOf', args: [owner] }));
+        const decimals = Number(await this.client.readContract({ address: token, abi: ERC20_ABI, functionName: 'decimals' }));
         if (!Number.isInteger(decimals) || decimals < 0) {
             throw new Error(`Token ${symbol} returned invalid decimals.`);
         }
@@ -155,17 +179,16 @@ export default class Web3Network extends BaseNetwork {
         amount: string,
         asset: string,
         options: TransferOptions = {}
-    ): Promise<{ estimate: TransferEstimate; transaction: Record<string, unknown> }> {
-        if (!this.validateAddress(from) || !this.validateAddress(to)) {
-            throw new Error('Invalid EVM address.');
-        }
+    ): Promise<{ estimate: TransferEstimate; transaction: TransactionSerializableLegacy }> {
+        const sender = this.address(from);
+        const recipient = this.address(to);
 
         const configuredChainId = this.config.chainId;
         if (configuredChainId === undefined) {
             throw new Error(`Network ${this.config.id} does not define a chain ID.`);
         }
 
-        const providerChainId = Number(await this.web3.eth.getChainId());
+        const providerChainId = await this.client.getChainId();
         if (providerChainId !== configuredChainId) {
             throw new Error(
                 `RPC chain ID mismatch: expected ${configuredChainId}, received ${providerChainId}.`
@@ -184,39 +207,36 @@ export default class Web3Network extends BaseNetwork {
         const gasPrice = options.gasPrice !== undefined
             ? BigInt(options.gasPrice)
             : await this.getGasPrice();
-        const nonce = await this.web3.eth.getTransactionCount(from, 'pending');
-        let transaction: Record<string, unknown>;
+        const nonce = await this.client.getTransactionCount({ address: sender, blockTag: 'pending' });
+        let transaction: { to: Address; value: bigint; data?: Hex };
 
         if (symbol === this.config.nativeToken) {
             transaction = {
-                from: from,
-                to,
-                value: maximum ? '0' : amountBaseUnits.toString()
+                to: recipient,
+                value: maximum ? 0n : amountBaseUnits
             };
         } else {
             const tokenConfig = this.config.tokens[symbol];
             if (!tokenConfig) {
                 throw new Error(`Token ${symbol} not supported`);
             }
-            const contract = new this.web3.eth.Contract(ERC20_ABI, tokenConfig.address);
             transaction = {
-                from: from,
-                to: tokenConfig.address,
-                data: contract.methods.transfer(to, amountBaseUnits.toString()).encodeABI(),
-                value: '0'
+                to: this.address(tokenConfig.address),
+                data: encodeFunctionData({ abi: ERC20_ABI, functionName: 'transfer', args: [recipient, amountBaseUnits] }),
+                value: 0n
             };
         }
 
         const gas = options.gasLimit !== undefined
             ? BigInt(options.gasLimit)
-            : await this.web3.eth.estimateGas(transaction);
+            : await this.client.estimateGas({ account: sender, ...transaction });
         const feeBaseUnits = gas * gasPrice;
         const nativeBalance = await this.getAssetBalance(from, this.config.nativeToken);
         if (maximum && symbol === this.config.nativeToken) {
             amountBaseUnits = BigInt(nativeBalance.baseUnits) - feeBaseUnits;
             if (amountBaseUnits <= 0n) throw new Error(`Insufficient ${symbol} balance for fee.`);
-            transaction.value = amountBaseUnits.toString();
-            if (options.gasLimit === undefined && await this.web3.eth.estimateGas(transaction) > gas) {
+            transaction.value = amountBaseUnits;
+            if (options.gasLimit === undefined && await this.client.estimateGas({ account: sender, ...transaction }) > gas) {
                 throw new Error('Gas estimate increased for the maximum amount. Specify a smaller amount.');
             }
         }
@@ -228,7 +248,7 @@ export default class Web3Network extends BaseNetwork {
         }
 
         return {
-            transaction: { ...transaction, nonce, gas, gasPrice, chainId: configuredChainId, networkId: configuredChainId },
+            transaction: { ...transaction, nonce, gas, gasPrice, chainId: configuredChainId, type: 'legacy' },
             estimate: {
                 from, to, asset: symbol,
                 amount: formatUnits(amountBaseUnits, balance.decimals),
@@ -246,27 +266,21 @@ export default class Web3Network extends BaseNetwork {
     async prepareTransfer(from: WalletAccount, to: string, amount: string, asset: string, options: TransferOptions = {}): Promise<PreparedTransfer> {
         const { estimate, transaction } = await this.buildTransfer(from.address, to, amount, asset, options);
         this.checkFeeLimit(BigInt(estimate.fee.baseUnits), options.maxFeeBaseUnits);
-        const signed = await this.web3.eth.accounts.signTransaction(transaction, from.privateKey);
-        if (!signed.rawTransaction) {
-            throw new Error('Failed to create a signed transaction.');
-        }
-        const transactionHash = signed.transactionHash || this.web3.utils.keccak256(signed.rawTransaction);
-        if (!transactionHash) {
-            throw new Error('Failed to calculate transaction hash.');
-        }
-        return { ...estimate, transactionHash, rawTransaction: signed.rawTransaction };
+        const rawTransaction = await privateKeyToAccount(this.formatPrivateKey(from.privateKey)).signTransaction(transaction);
+        return { ...estimate, transactionHash: keccak256(rawTransaction), rawTransaction };
     }
 
     async getTransactionStatus(transactionHash: string): Promise<TransactionStatus> {
-        const receipt = await this.web3.eth.getTransactionReceipt(transactionHash).catch(missingTransaction);
+        const hash = transactionHash as Hex;
+        const receipt = await this.client.getTransactionReceipt({ hash }).catch(missingTransaction);
         if (receipt) {
             return {
-                state: isFailedReceiptStatus(receipt.status) ? 'failed' : 'confirmed',
+                state: receipt.status === 'reverted' ? 'failed' : 'confirmed',
                 transactionHash
             };
         }
 
-        const transaction = await this.web3.eth.getTransaction(transactionHash).catch(missingTransaction);
+        const transaction = await this.client.getTransaction({ hash }).catch(missingTransaction);
         return {
             state: transaction ? 'submitted' : 'not_found',
             transactionHash
@@ -279,7 +293,7 @@ export default class Web3Network extends BaseNetwork {
         }
 
         try {
-            this.web3.eth.accounts.privateKeyToAccount(this.formatPrivateKey(privateKey));
+            privateKeyToAccount(this.formatPrivateKey(privateKey));
             return true;
         } catch {
             return false;
@@ -292,7 +306,8 @@ export default class Web3Network extends BaseNetwork {
         }
         
         try {
-            return this.web3.eth.accounts.privateKeyToAccount(this.formatPrivateKey(privateKey));
+            const formatted = this.formatPrivateKey(privateKey);
+            return { address: privateKeyToAccount(formatted).address, privateKey: formatted };
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`Invalid private key: ${message}`);
@@ -300,7 +315,8 @@ export default class Web3Network extends BaseNetwork {
     }
 
     async createAccount(): Promise<WalletAccount> {
-        return this.web3.eth.accounts.create();
+        const privateKey = generatePrivateKey();
+        return { address: privateKeyToAccount(privateKey).address, privateKey };
     }
 
     async accountFromMnemonic(mnemonic: string): Promise<WalletAccount> {
@@ -309,8 +325,8 @@ export default class Web3Network extends BaseNetwork {
         if (!addrNode.privateKey) {
             throw new Error('Mnemonic derivation produced no private key');
         }
-        const account = this.web3.eth.accounts.privateKeyToAccount(this.web3.utils.bytesToHex(addrNode.privateKey));
-        return { ...account, mnemonic };
+        const privateKey = toHex(addrNode.privateKey);
+        return { address: privateKeyToAccount(privateKey).address, privateKey, mnemonic };
     }
 
     async createAccountFromMnemonic(wordCount: 12 | 24 = 12): Promise<WalletAccount> {
@@ -329,28 +345,21 @@ export default class Web3Network extends BaseNetwork {
     }
 
     async sendSignedTransaction(signedTx: SignedTransaction | string): Promise<unknown> {
-        let receipt: Awaited<ReturnType<Web3['eth']['sendSignedTransaction']>>;
-        if (typeof signedTx === 'string') {
-            receipt = await this.web3.eth.sendSignedTransaction(signedTx);
-        } else {
-            if (!signedTx.rawTransaction) {
-                throw new Error('Signed transaction rawTransaction is required.');
-            }
-            receipt = await this.web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+        const rawTransaction = typeof signedTx === 'string' ? signedTx : signedTx.rawTransaction;
+        if (!rawTransaction) {
+            throw new Error('Signed transaction rawTransaction is required.');
         }
+        const hash = await this.client.sendRawTransaction({ serializedTransaction: rawTransaction as Hex });
+        const receipt = await this.client.waitForTransactionReceipt({ hash });
 
-        if (isFailedReceiptStatus(receipt.status)) {
+        if (receipt.status === 'reverted') {
             throw new Error('Transaction was mined but reverted.');
         }
         return receipt;
     }
 }
 
-function isFailedReceiptStatus(status: unknown): boolean {
-    return status === false || status === 0 || status === 0n || status === '0x0';
-}
-
 function missingTransaction(error: unknown): undefined {
-    if (error instanceof TransactionNotFound) return undefined;
+    if (error instanceof TransactionReceiptNotFoundError || error instanceof TransactionNotFoundError) return undefined;
     throw error;
 }

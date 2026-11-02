@@ -5,7 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 import readline from 'node:readline';
 import { EventEmitter } from 'node:events';
-import { Web3 } from 'web3';
+import { decodeAbiParameters, keccak256, parseTransaction, recoverTransactionAddress, toBytes, type Hex, type TransactionSerialized } from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import Persist from '../../persist.js';
 import { runAgentCli } from '../../agent-cli.js';
 import { WalletService } from '../../wallet-service.js';
@@ -465,7 +466,7 @@ test('Bitcoin verification checks actual output script and canonical block, not 
 
 test('BSC refund verification counts only USDT Transfer logs to the original sender', async () => {
     const chain = new BscSwapChain();
-    const topic = new Web3().utils.keccak256('Transfer(address,address,uint256)');
+    const topic = keccak256(toBytes('Transfer(address,address,uint256)'));
     await mockedFetch((_url, init) => {
         const request = JSON.parse(String(init?.body));
         const receipt = {
@@ -597,8 +598,9 @@ for (const provider of ['thorchain', 'chainflip'] as const) {
 
 test('real BSC signer encodes exact allowance and protected router deposit without broadcasting', async () => {
     const chain = new BscSwapChain();
-    const web3 = new Web3();
-    const account = web3.eth.accounts.create();
+    const privateKey = generatePrivateKey();
+    const account = { address: privateKeyToAccount(privateKey).address, privateKey };
+    const signer = (raw: string) => recoverTransactionAddress({ serializedTransaction: raw as TransactionSerialized });
     const f = await fixture('thorchain');
     try {
         const quoteId = (await f.service.quote('100')).quotes[0].quoteId;
@@ -614,16 +616,17 @@ test('real BSC signer encodes exact allowance and protected router deposit witho
             return { result: values[request.method] };
         }, async () => {
             const approval = await chain.sign(quote, plan, 'approve', account);
-            assert.equal(web3.eth.accounts.recoverTransaction(approval.rawTransaction), account.address);
+            assert.equal(await signer(approval.rawTransaction), account.address);
+            assert.equal(parseTransaction(approval.rawTransaction as Hex).chainId, config.source.chainId);
             const approvalData = String(requests[0].data);
             assert.equal(approvalData.slice(0, 10), '0x095ea7b3');
-            const decoded = web3.eth.abi.decodeParameters(['address', 'uint256'], `0x${approvalData.slice(10)}`);
+            const decoded = decodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], `0x${approvalData.slice(10)}`);
             assert.equal(String(decoded[0]).toLowerCase(), config.thorchain.router);
             assert.equal(decoded[1], BigInt(quote.amountBaseUnits));
             const deposit = await chain.sign(quote, plan, 'deposit', account);
-            assert.equal(web3.eth.accounts.recoverTransaction(deposit.rawTransaction), account.address);
+            assert.equal(await signer(deposit.rawTransaction), account.address);
             assert.equal(requests[1].to, config.thorchain.router);
-            const decodedDeposit = web3.eth.abi.decodeParameters(['address', 'address', 'uint256', 'string', 'uint256'], `0x${String(requests[1].data).slice(10)}`);
+            const decodedDeposit = decodeAbiParameters([{ type: 'address' }, { type: 'address' }, { type: 'uint256' }, { type: 'string' }, { type: 'uint256' }], `0x${String(requests[1].data).slice(10)}`);
             assert.equal(String(decodedDeposit[0]).toLowerCase(), VAULT);
             assert.equal(String(decodedDeposit[1]).toLowerCase(), config.token.toLowerCase());
             assert.equal(decodedDeposit[2], BigInt(quote.amountBaseUnits));

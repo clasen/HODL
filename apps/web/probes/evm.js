@@ -1,3 +1,5 @@
+import { privateKeyToAccount } from 'viem/accounts';
+import { keccak256 } from 'viem';
 import { NetworkRegistry, Web3Network } from 'hodl-wallet/browser/index.js';
 
 export async function run() {
@@ -7,12 +9,12 @@ export async function run() {
         if (!network.validateAddress(account.address) || network.validateAddress('invalid')) {
             throw new Error('EVM address validation failed.');
         }
-        const transaction = await account.signTransaction({
-            to: account.address, value: '123456789', nonce: 0,
-            gas: 21000, gasPrice: '1000000000', chainId: 56, networkId: 56, type: '0x0'
+        const signer = privateKeyToAccount(account.privateKey);
+        const rawTransaction = await signer.signTransaction({
+            to: account.address, value: 123456789n, nonce: 0,
+            gas: 21000n, gasPrice: 1000000000n, chainId: 56, type: 'legacy'
         });
-        if (!transaction.transactionHash) throw new Error('EVM signing failed.');
-        return { address: account.address, signature: account.sign('HODL browser compatibility').signature,
-            transactionHash: transaction.transactionHash };
+        return { address: account.address, signature: await signer.signMessage({ message: 'HODL browser compatibility' }),
+            transactionHash: keccak256(rawTransaction) };
     } finally { account.privateKey = ''; account.mnemonic = ''; }
 }
