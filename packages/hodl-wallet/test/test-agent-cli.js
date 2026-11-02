@@ -11,6 +11,7 @@ import { formatUnits, normalizeDecimal, parseDecimalToUnits } from '../amounts.j
 import { NetworkRegistry } from '../network-registry.js';
 import { ProfileLock } from '../profile-lock.js';
 import Persist from '../persist.js';
+import { readStoredProfile } from './stored-profile.js';
 import { WalletService } from '../wallet-service.js';
 import { runCli, selectCliMode } from '../index.js';
 import btc from '../network/btc.js';
@@ -539,10 +540,7 @@ async function testDefaultCompatibilityAndConcurrency() {
         assert.equal(FakeEvmNetwork.prepareCalls, 1);
         assert.equal(FakeEvmNetwork.broadcastCalls, 1);
 
-        const persisted = /** @type {any} */ (Persist.decrypt(
-            fs.readFileSync(path.join(rootDir, 'persist.json'), 'utf8'),
-            password
-        ));
+        const persisted = await readStoredProfile(rootDir, password);
         assert.equal(persisted.account.FakeEvmNetwork.address, account.address);
         assert.equal(Object.keys(persisted.sendRequest).length, 1);
     } finally {

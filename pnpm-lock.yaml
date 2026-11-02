@@ -200,8 +200,8 @@ importers:
         specifier: 0.6.5
         version: 0.6.5
       deepbase:
-        specifier: 3.8.2
-        version: 3.8.2
+        specifier: 3.12.0
+        version: 3.12.0
       ecpair:
         specifier: 3.0.2
         version: 3.0.2(typescript@5.9.2)
@@ -630,13 +630,13 @@ packages:
   create-hmac@1.1.7:
     resolution: {integrity: sha512-MJG9liiZ+ogc4TzUwuvbER1JRdgvUFSB5+VR/g5h82fGaIRWMWddtKBHi7/sVhfjQZ6SehlyhvQYrcYkaUIpLg==}
 
-  deepbase-json@3.8.2:
-    resolution: {integrity: sha512-biXVSCobNzQpNX1Uh5V8bAx/8oarVC5WR2QvC5VqT/VYLMJhHV9MbFXt+ZBdbsHfpexexn5DOcbSe43Wk6I9qw==}
+  deepbase-json@3.12.0:
+    resolution: {integrity: sha512-8VTmf41zenW5ms40Fau7pxvrsOaSjC3eFBuHtgWPAbJXZ6OU13aY7LCG1fcqAuyRVPvF/rtFuzHyK3HDP5V5VQ==}
     peerDependencies:
-      deepbase: ^3.8.2
+      deepbase: ^3.12.0
 
-  deepbase@3.8.2:
-    resolution: {integrity: sha512-RmaahmBVuyPHaWlOgXJa1IK+1roXJ8fGAhxxzpj8tn24Sp24UlS1FWiFnWParV81xnO0dQesR25SuGoh3GTAkA==}
+  deepbase@3.12.0:
+    resolution: {integrity: sha512-KfskfmJPcf+NlnzfU4hZAHxpaa7syFLTwEG/LI2pNXx6IB6XVGIxYzQMTqoAihDf+YQqTTCMakkbDhWApMeX/w==}
 
   define-data-property@1.1.4:
     resolution: {integrity: sha512-rBMvIzlpA8v6E+SJZoo++HAYqsLrkg7MSfIinMPFhmkorw7X+dOXVJQs+QT69zGkzMyfDnIMN2Wid1+NbL3T+A==}
@@ -1527,15 +1527,15 @@ snapshots:
       safe-buffer: 5.2.1
       sha.js: 2.4.12
 
-  deepbase-json@3.8.2(deepbase@3.8.2):
+  deepbase-json@3.12.0(deepbase@3.12.0):
     dependencies:
-      deepbase: 3.8.2
+      deepbase: 3.12.0
       proper-lockfile: 4.1.2
       steno: 0.4.4
 
-  deepbase@3.8.2:
+  deepbase@3.12.0:
     dependencies:
-      deepbase-json: 3.8.2(deepbase@3.8.2)
+      deepbase-json: 3.12.0(deepbase@3.12.0)
       nanoid: 5.1.16
 
   define-data-property@1.1.4:

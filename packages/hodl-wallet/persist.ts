@@ -1,15 +1,16 @@
 import Deepbase from 'deepbase';
+import type { ConnectResult } from 'deepbase';
+import { encryptedDocument } from 'deepbase/plugins/encryption';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { clearSensitiveData, isSensitiveField } from './sensitive-data.js';
+import { clearSensitiveData } from './sensitive-data.js';
 import type { WalletStore } from './wallet-store.js';
 
 const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
-const SEALED_SECRET_VERSION = 1;
 
 type PersistOptions = {
     path: string;
@@ -18,38 +19,47 @@ type PersistOptions = {
 
 type EncryptionKey = string | Buffer;
 
-type SealedSecret = {
-    __hodlSealed: typeof SEALED_SECRET_VERSION;
-    iv: string;
-    authTag: string;
-    ciphertext: string;
-};
-
 class Persist extends Deepbase implements WalletStore {
     private readonly encryptionKey: Buffer;
-    private readonly memoryKey: Buffer;
+    private readonly legacy: { profile?: unknown };
     private disposed = false;
     private readonly storagePath: string;
 
     constructor(opts: PersistOptions) {
         const encryptionKey = Buffer.from(opts.encryptionKey, 'utf8');
-        const memoryKey = crypto.randomBytes(KEY_LENGTH);
+        const legacy: { profile?: unknown } = {};
         opts.encryptionKey = '';
 
         super({
             name: 'persist',
             path: opts.path,
-            stringify: (obj: unknown) => Persist.encrypt(obj, encryptionKey),
-            parse: (encryptedData: string) => Persist.decryptProfile(encryptedData, encryptionKey),
-            encodeForMemory: (value: unknown, path: string[]) =>
-                Persist.transformSecrets(value, path, secret => Persist.sealSecret(secret, memoryKey)),
-            decodeFromMemory: (value: unknown, path: string[]) =>
-                Persist.transformSecrets(value, path, secret => Persist.unsealSecret(secret, memoryKey))
+            parse: (text: string) => {
+                if (!Persist.isLegacyProfile(text)) return JSON.parse(text);
+                legacy.profile = Persist.decryptProfile(text, encryptionKey);
+                return {};
+            }
         });
+        this.use(encryptedDocument({ password: encryptionKey }));
 
         this.encryptionKey = encryptionKey;
-        this.memoryKey = memoryKey;
+        this.legacy = legacy;
         this.storagePath = opts.path;
+    }
+
+    /** Opens the profile, rejecting a wrong password, and rewrites one saved before the encrypted document format. */
+    override async connect(): Promise<ConnectResult> {
+        const result = await super.connect();
+        const { profile } = this.legacy;
+        delete this.legacy.profile;
+        if (profile === undefined) {
+            clearSensitiveData(await this.get());
+        } else {
+            try {
+                await this.set(profile);
+                await this.flush();
+            } finally { clearSensitiveData(profile); }
+        }
+        return result;
     }
 
     async flush(): Promise<void> {
@@ -82,7 +92,6 @@ class Persist extends Deepbase implements WalletStore {
             await super.dispose({ clearMemory: true, releaseInstance: true });
         } finally {
             this.encryptionKey.fill(0);
-            this.memoryKey.fill(0);
             this.disposed = true;
         }
     }
@@ -111,6 +120,10 @@ class Persist extends Deepbase implements WalletStore {
             key.fill(0);
             serialized?.fill(0);
         }
+    }
+
+    private static isLegacyProfile(text: string): boolean {
+        return /^v\d+:/.test(text);
     }
 
     static isCurrentFormat(encryptedData: string): boolean {
@@ -148,7 +161,7 @@ class Persist extends Deepbase implements WalletStore {
         }
     }
 
-    /** The stored profile, migrating one saved in the legacy format; it is rewritten as v2 on the next save. */
+    /** A profile saved as a v2 or older string, before the encrypted document format. */
     static decryptProfile(encryptedData: string, encryptionKey: EncryptionKey): unknown {
         return Persist.isCurrentFormat(encryptedData)
             ? Persist.decrypt(encryptedData, encryptionKey)
@@ -211,97 +224,6 @@ class Persist extends Deepbase implements WalletStore {
             key: derived.subarray(0, keyLen),
             iv: derived.subarray(keyLen, keyLen + ivLen)
         };
-    }
-
-    private static transformSecrets(
-        value: unknown,
-        path: string[],
-        transform: (secret: string | SealedSecret) => string | SealedSecret
-    ): unknown {
-        if (Persist.isSensitivePath(path)) {
-            return transform(value as string | SealedSecret);
-        }
-
-        if (Array.isArray(value)) {
-            return value.map((item, index) =>
-                Persist.transformSecrets(item, [...path, String(index)], transform)
-            );
-        }
-
-        if (Persist.isRecord(value)) {
-            return Object.fromEntries(
-                Object.entries(value).map(([key, item]) => [
-                    key,
-                    Persist.transformSecrets(item, [...path, key], transform)
-                ])
-            );
-        }
-
-        return value;
-    }
-
-    private static isSensitivePath(path: string[]): boolean {
-        const field = path.at(-1);
-        return field !== undefined && isSensitiveField(field);
-    }
-
-    private static isRecord(value: unknown): value is Record<string, unknown> {
-        return typeof value === 'object' && value !== null && !Array.isArray(value);
-    }
-
-    private static isSealedSecret(value: unknown): value is SealedSecret {
-        if (!Persist.isRecord(value)) {
-            return false;
-        }
-
-        return (
-            value.__hodlSealed === SEALED_SECRET_VERSION &&
-            typeof value.iv === 'string' &&
-            typeof value.authTag === 'string' &&
-            typeof value.ciphertext === 'string'
-        );
-    }
-
-    private static sealSecret(secret: string | SealedSecret, memoryKey: Buffer): SealedSecret {
-        if (typeof secret !== 'string') {
-            throw new TypeError('Sensitive values must be strings before entering memory');
-        }
-
-        const iv = crypto.randomBytes(IV_LENGTH);
-        const cipher = crypto.createCipheriv(ALGORITHM, memoryKey, iv);
-        const plaintext = Buffer.from(secret, 'utf8');
-
-        try {
-            const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
-
-            return {
-                __hodlSealed: SEALED_SECRET_VERSION,
-                iv: iv.toString('hex'),
-                authTag: cipher.getAuthTag().toString('hex'),
-                ciphertext: ciphertext.toString('hex')
-            };
-        } finally {
-            plaintext.fill(0);
-        }
-    }
-
-    private static unsealSecret(secret: string | SealedSecret, memoryKey: Buffer): string {
-        if (!Persist.isSealedSecret(secret)) {
-            throw new TypeError('Sensitive value is not sealed in memory');
-        }
-
-        const iv = Buffer.from(secret.iv, 'hex');
-        const authTag = Buffer.from(secret.authTag, 'hex');
-        const ciphertext = Buffer.from(secret.ciphertext, 'hex');
-        const decipher = crypto.createDecipheriv(ALGORITHM, memoryKey, iv);
-        decipher.setAuthTag(authTag);
-        const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-
-        try {
-            return plaintext.toString('utf8');
-        } finally {
-            plaintext.fill(0);
-        }
     }
 }
 

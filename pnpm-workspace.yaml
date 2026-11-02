@@ -6,6 +6,8 @@ minimumReleaseAgeExclude:
   - lodash@4.17.24
   - ws@8.20.1
   - tmp@0.2.6
+  - deepbase@3.12.0
+  - deepbase-json@3.12.0
 
 overrides:
   node-fetch@2.x>whatwg-url: 14.2.0

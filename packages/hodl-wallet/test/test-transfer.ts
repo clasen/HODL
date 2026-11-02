@@ -6,6 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import Persist from '../persist.js';
+import { readStoredProfile } from './stored-profile.js';
 import { TransferService } from '../transfer-service.js';
 import { WalletService } from '../wallet-service.js';
 import { NetworkRegistry } from '../network-registry.js';
@@ -32,7 +33,7 @@ async function fixture(family: 'bitcoin' | 'evm' = 'bitcoin') {
             };
         }
         async sendSignedTransaction(raw: string) {
-            const data = Persist.decrypt(fs.readFileSync(path.join(directory, 'persist.json'), 'utf8'), 'fixture-password') as any;
+            const data = await readStoredProfile(directory, 'fixture-password');
             const stored = Object.values(data.sendRequest).find((value: any) => value.rawTransaction === raw) as any;
             assert.equal(stored.state, 'broadcasting');
             assert.equal(fs.statSync(path.join(directory, 'persist.json')).mode & 0o777, 0o600);

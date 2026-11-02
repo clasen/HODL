@@ -59,7 +59,12 @@ function encryptLegacy(value, password) {
     }
 }
 
-async function testMemorySealingAndRoundTrip() {
+/** @param {string} directory */
+function storedEnvelope(directory) {
+    return JSON.parse(fs.readFileSync(path.join(directory, 'persist.json'), 'utf8')).$deepbase;
+}
+
+async function testEncryptedDocumentAndRoundTrip() {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-persist-'));
     const db = new Persist({ path: directory, encryptionKey: PASSWORD });
 
@@ -72,27 +77,22 @@ async function testMemorySealingAndRoundTrip() {
         });
         await db.set('mnemonic', MNEMONIC);
 
-        const driver = /** @type {import('deepbase').DeepBaseDriver & { obj: unknown }} */ (db.getDriver());
-        const cached = JSON.stringify(driver.obj);
-        assert.equal(cached.includes(PRIVATE_KEY), false);
-        assert.equal(cached.includes(MNEMONIC), false);
-        assert.equal(cached.includes('__hodlSealed'), true);
+        const driver = /** @type {import('deepbase').DeepBaseDriver & { obj: Record<string, unknown> }} */ (db.getDriver());
+        assert.deepEqual(Object.keys(driver.obj), ['$deepbase']);
+        const encryptedFile = fs.readFileSync(path.join(directory, 'persist.json'), 'utf8');
+        for (const stored of [JSON.stringify(driver.obj), encryptedFile]) {
+            for (const plaintext of [PRIVATE_KEY, MNEMONIC, '0x1234', 'Web3Network', 'account']) {
+                assert.equal(stored.includes(plaintext), false);
+            }
+        }
+        assert.equal(storedEnvelope(directory).kdf.N, 2 ** 17);
 
         const account = await db.get('account', 'Web3Network');
         assert.equal(account.privateKey, PRIVATE_KEY);
         assert.equal(account.mnemonic, MNEMONIC);
         assert.equal(db.getSync('mnemonic'), MNEMONIC);
 
-        const encryptedFile = fs.readFileSync(path.join(directory, 'persist.json'), 'utf8');
-        const persisted = /** @type {{ account: { Web3Network: { privateKey: string } }, mnemonic: string }} */ (
-            Persist.decrypt(encryptedFile, PASSWORD)
-        );
-        assert.equal(persisted.account.Web3Network.privateKey, PRIVATE_KEY);
-        assert.equal(persisted.mnemonic, MNEMONIC);
-        assert.equal(JSON.stringify(persisted).includes('__hodlSealed'), false);
-
         Persist.clearSensitiveData(account);
-        Persist.clearSensitiveData(persisted);
         assert.equal(account.privateKey, '');
         assert.equal(account.mnemonic, '');
     } finally {
@@ -115,33 +115,66 @@ async function testMemorySealingAndRoundTrip() {
         await reopened.dispose();
     }
 
+    const before = fs.readFileSync(path.join(directory, 'persist.json'), 'utf8');
     const wrongPassword = new Persist({ path: directory, encryptionKey: 'wrong-password' });
     try {
         await assert.rejects(wrongPassword.connect());
     } finally {
         await wrongPassword.dispose();
-        fs.rmSync(directory, { recursive: true, force: true });
     }
-}
+    assert.equal(fs.readFileSync(path.join(directory, 'persist.json'), 'utf8'), before);
 
-async function testLegacyCompatibility() {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-legacy-'));
-    const filePath = path.join(directory, 'persist.json');
-    fs.writeFileSync(filePath, encryptLegacy({ mnemonic: MNEMONIC }, PASSWORD));
-    assert.throws(() => Persist.decrypt(encryptLegacy({ mnemonic: MNEMONIC }, PASSWORD), PASSWORD), /Unsupported encrypted payload format/);
-
-    const db = new Persist({ path: directory, encryptionKey: PASSWORD });
-    try {
-        await db.connect();
-        assert.equal(await db.get('mnemonic'), MNEMONIC);
-    } finally {
-        await db.dispose();
+    const envelope = storedEnvelope(directory);
+    const ciphertext = Buffer.from(envelope.ciphertext, 'base64');
+    ciphertext[0] ^= 1;
+    for (const tampered of [{ ...envelope, ciphertext: ciphertext.toString('base64') }, { ...envelope, kdf: { ...envelope.kdf, N: 2 ** 18 } }]) {
+        fs.writeFileSync(path.join(directory, 'persist.json'), JSON.stringify({ $deepbase: tampered }));
+        const db = new Persist({ path: directory, encryptionKey: PASSWORD });
+        try {
+            await assert.rejects(db.connect(), { code: 'ENCRYPTION_AUTHENTICATION_FAILED' });
+        } finally {
+            await db.dispose();
+        }
     }
-
-    assert.equal(fs.readFileSync(filePath, 'utf8').startsWith('v2:'), true);
     fs.rmSync(directory, { recursive: true, force: true });
 }
 
-await testMemorySealingAndRoundTrip();
-await testLegacyCompatibility();
-console.log('Persist memory sealing tests passed');
+async function testLegacyMigration() {
+    for (const [format, encrypt] of /** @type {const} */ ([['v1', encryptLegacy], ['v2', Persist.encrypt]])) {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hodl-legacy-'));
+        const filePath = path.join(directory, 'persist.json');
+        fs.writeFileSync(filePath, encrypt({ mnemonic: MNEMONIC }, PASSWORD));
+
+        const wrongPassword = new Persist({ path: directory, encryptionKey: 'wrong-password' });
+        try {
+            await assert.rejects(wrongPassword.connect());
+        } finally {
+            await wrongPassword.dispose();
+        }
+        assert.equal(fs.readFileSync(filePath, 'utf8').startsWith(`${format}:`), true);
+
+        const db = new Persist({ path: directory, encryptionKey: PASSWORD });
+        try {
+            await db.connect();
+            assert.equal(await db.get('mnemonic'), MNEMONIC);
+        } finally {
+            await db.dispose();
+        }
+
+        assert.equal(fs.readFileSync(filePath, 'utf8').includes(MNEMONIC), false);
+        assert.equal(storedEnvelope(directory).plugin, 'encryption');
+        const reopened = new Persist({ path: directory, encryptionKey: PASSWORD });
+        try {
+            await reopened.connect();
+            assert.equal(await reopened.get('mnemonic'), MNEMONIC);
+        } finally {
+            await reopened.dispose();
+            fs.rmSync(directory, { recursive: true, force: true });
+        }
+    }
+    assert.throws(() => Persist.decrypt(encryptLegacy({ mnemonic: MNEMONIC }, PASSWORD), PASSWORD), /Unsupported encrypted payload format/);
+}
+
+await testEncryptedDocumentAndRoundTrip();
+await testLegacyMigration();
+console.log('Persist encrypted document tests passed');
