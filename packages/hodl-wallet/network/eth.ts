@@ -14,7 +14,8 @@ const ethereum = {
     history: {
         url: 'https://ethereum-rpc.publicnode.com',
         blockRange: 5_000,
-        lookbackBlocks: 10_000
+        lookbackBlocks: 10_000,
+        catchUpBlocks: 10_000
     },
     tokens: {
         'USDT': {

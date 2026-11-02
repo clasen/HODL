@@ -14,7 +14,8 @@ const fantom = {
     history: {
         url: 'https://rpcapi.fantom.network',
         blockRange: 100_000,
-        lookbackBlocks: 1_000_000
+        lookbackBlocks: 1_000_000,
+        catchUpBlocks: 2_000_000
     },
     tokens: {
         'USDT': {

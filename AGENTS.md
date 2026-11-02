@@ -81,8 +81,9 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   plus the network's in and out, merged by transaction. Scans (`recentTransfers`) are saved under
   `chainTransfers` (address, network storage name) with a cursor, so the next scan only reads what is
   new and a failed one shows what was saved; the web does not export them. Bitcoin reads Esplora, EVM
-  tokens `eth_getLogs` over each network's `history` window; native EVM transfers appear only when sent
-  from this wallet. The network's transfers worth nothing, and incoming ones from look-alikes of paid or
+  tokens `eth_getLogs` per each network's `history`: a first scan reaches `lookbackBlocks`, one resuming
+  from a cursor `catchUpBlocks` (what the endpoint keeps without an archive token), so a wallet opened
+  at least that often misses nothing. Native EVM transfers appear only when sent from this wallet. The network's transfers worth nothing, and incoming ones from look-alikes of paid or
   known addresses, are hidden as address poisoning.
   Neither side imports legacy-format `.HODL` files; only `~/.HODL` profiles still migrate.
 - `pnpm run preview:web` serves the built wallet and diagnostic locally.

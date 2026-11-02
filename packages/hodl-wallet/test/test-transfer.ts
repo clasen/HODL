@@ -581,7 +581,7 @@ test('evm recent token transfers scan the newest blocks first and stop once enou
     const token = '0x2222222222222222222222222222222222222222';
     const plugin = {
         id: 'fixture', family: 'evm', name: 'Fixture', url: 'https://main.invalid', nativeToken: 'ETH', explorer: 'https://explorer.invalid/tx/',
-        tokens: { USDT: { address: token } }, history: { url: 'https://logs.invalid', blockRange: 100, lookbackBlocks: 1_000 }, NetworkClass: Web3Network
+        tokens: { USDT: { address: token } }, history: { url: 'https://logs.invalid', blockRange: 100, lookbackBlocks: 1_000, catchUpBlocks: 500 }, NetworkClass: Web3Network
     } as NetworkPlugin;
     const topic = (address: string) => pad(address.toLowerCase() as `0x${string}`);
     const log = (block: number, index: number, from: string, to: string, value: bigint, timestamp: number | null = 1_700_000_000 + block) => ({
@@ -635,7 +635,14 @@ test('evm recent token transfers scan the newest blocks first and stop once enou
         // A cursor asks for everything after it, past the limit.
         assert.deepEqual(await scanned('900'), { queries: ['951-latest in', '951-latest out', '901-950 in', '901-950 out'], ids: [95_001, 94_000], cursor: '950' });
         assert.deepEqual(await scanned('960'), { queries: ['951-latest in', '951-latest out'], ids: [], cursor: '950' });
-        // One out of reach scans as if there were none, back to the lookback.
+        // Catching up reaches past a first scan's lookback, reading ranges at once.
+        const caughtUp = await scanned('600', 120);
+        assert.deepEqual([caughtUp.queries.slice(0, 2), caughtUp.queries.slice(2).sort(), caughtUp.ids, caughtUp.cursor], [
+            ['951-latest in', '951-latest out'],
+            ['601-650 in', '601-650 out', '651-750 in', '651-750 out', '751-850 in', '751-850 out', '851-950 in', '851-950 out'],
+            [95_001, 94_000, 89_903, 85_100], '950'
+        ]);
+        // One beyond catch-up reach scans as if there were none, back to the lookback.
         assert.deepEqual(await scanned('10', 120), { queries: ['951-latest in', '951-latest out', '881-950 in', '881-950 out'], ids: [95_001, 94_000, 89_903], cursor: '950' });
         await assert.rejects(new Web3Network(plugin).recentTransfers!(owner, 1, 'block-9'), /Invalid transfer cursor/);
         assert.equal(new Web3Network({ ...plugin, history: undefined }).recentTransfers, undefined);

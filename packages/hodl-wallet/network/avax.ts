@@ -14,7 +14,8 @@ const avalanche = {
     history: {
         url: 'https://avalanche-c-chain-rpc.publicnode.com',
         blockRange: 50_000,
-        lookbackBlocks: 500_000
+        lookbackBlocks: 500_000,
+        catchUpBlocks: 1_000_000
     },
     tokens: {
         'USDT': {

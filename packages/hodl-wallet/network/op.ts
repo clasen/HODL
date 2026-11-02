@@ -13,7 +13,8 @@ const optimism = {
     nativeToken: 'ETH',
     history: {
         blockRange: 10_000,
-        lookbackBlocks: 100_000
+        lookbackBlocks: 100_000,
+        catchUpBlocks: 200_000
     },
     tokens: {
         'USDT': {

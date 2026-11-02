@@ -3,12 +3,15 @@ export type TokenConfig = {
     decimals?: number;
 };
 
-/** Where an EVM network's token transfers are read from: `eth_getLogs` in ranges of `blockRange`, back to `lookbackBlocks` from the head. */
+/** Where an EVM network's token transfers are read from: `eth_getLogs` in ranges of `blockRange`. */
 export type TransferHistoryConfig = {
     /** When the network's own endpoint cannot serve the logs. */
     url?: string;
     blockRange: number;
+    /** How far back from the head a first scan reaches. */
     lookbackBlocks: number;
+    /** How far back a scan resuming from a cursor reaches: what the endpoint serves without an archive token, in a bounded number of ranges. */
+    catchUpBlocks: number;
 };
 
 export type NetworkConfig = {

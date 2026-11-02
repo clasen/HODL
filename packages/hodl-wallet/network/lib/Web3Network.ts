@@ -22,6 +22,7 @@ import * as bip39 from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { HDKey } from '@scure/bip32';
 import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
+import { walletConfig } from '../../config.js';
 import type {
     AssetBalance,
     ChainTransfer,
@@ -152,7 +153,7 @@ export default class Web3Network extends BaseNetwork {
         return history ? (address, limit, cursor) => this.recentTokenTransfers(history, address, limit, cursor) : undefined;
     }
 
-    /** The cursor is the last block a later scan need not read again. Scans reach back at most `lookbackBlocks`. */
+    /** The cursor is the last block a later scan need not read again. */
     private async recentTokenTransfers(history: TransferHistoryConfig, address: string, limit: number, cursor?: string): Promise<TransferScan> {
         if (cursor !== undefined && !/^\d+$/.test(cursor)) throw new Error('Invalid transfer cursor.');
         const owner = this.address(address);
@@ -162,26 +163,32 @@ export default class Web3Network extends BaseNetwork {
 
         const head = await client.getBlockNumber();
         const range = BigInt(history.blockRange);
-        const oldest = head >= BigInt(history.lookbackBlocks) ? head - BigInt(history.lookbackBlocks) + 1n : 0n;
-        // A cursor within reach means everything after it is wanted; otherwise the latest `limit` are.
-        const since = cursor !== undefined && BigInt(cursor) + 1n >= oldest ? BigInt(cursor) + 1n : undefined;
-        const floor = since ?? oldest;
+        const reach = (blocks: number) => head >= BigInt(blocks) ? head - BigInt(blocks) + 1n : 0n;
+        // A cursor within catch-up reach means everything after it is wanted; otherwise the latest `limit` are.
+        const since = cursor !== undefined && BigInt(cursor) + 1n >= reach(history.catchUpBlocks) ? BigInt(cursor) + 1n : undefined;
+        const oldest = reach(history.lookbackBlocks);
         const logs = (args: { from: Address } | { to: Address }, fromBlock: bigint, toBlock: bigint | 'latest') =>
             client.getLogs({ address: [...tokens.keys()], event: TRANSFER_EVENT, args, fromBlock, toBlock, strict: true });
         const found = new Map<string, Awaited<ReturnType<typeof logs>>[number]>();
+        const read = async (fromBlock: bigint, toBlock: bigint | 'latest') => {
+            const chunk = await Promise.all([logs({ to: owner }, fromBlock, toBlock), logs({ from: owner }, fromBlock, toBlock)]);
+            for (const log of chunk.flat()) found.set(`${log.transactionHash}:${log.logIndex}`, log);
+        };
         // Nodes behind one endpoint disagree on the head: the newest chunk ends at each node's own head
         // and spans half a range, so a node up to half a range ahead of this one stays within it. Being read
         // on every scan, it is where the next one picks up.
         const newest = head - range / 2n + 1n > 0n ? head - range / 2n + 1n : 0n;
-        let toBlock: bigint | 'latest' = 'latest';
-        let fromBlock = newest;
-        for (;;) {
-            if (toBlock !== 'latest' && fromBlock < floor) fromBlock = floor;
-            const chunk = await Promise.all([logs({ to: owner }, fromBlock, toBlock), logs({ from: owner }, fromBlock, toBlock)]);
-            for (const log of chunk.flat()) found.set(`${log.transactionHash}:${log.logIndex}`, log);
-            if (fromBlock <= floor || (since === undefined && found.size >= limit)) break;
-            toBlock = fromBlock - 1n;
-            fromBlock = toBlock - range + 1n;
+        await read(newest, 'latest');
+        const below = (toBlock: bigint, floor: bigint) => [toBlock - range + 1n > floor ? toBlock - range + 1n : floor, toBlock] as const;
+        if (since !== undefined) {
+            // Catching up needs every range down to the cursor, so several are read at once.
+            const ranges: Array<readonly [bigint, bigint]> = [];
+            for (let toBlock = newest - 1n; toBlock >= since; toBlock -= range) ranges.push(below(toBlock, since));
+            for (let index = 0; index < ranges.length; index += walletConfig.history.parallelRanges) {
+                await Promise.all(ranges.slice(index, index + walletConfig.history.parallelRanges).map(([fromBlock, toBlock]) => read(fromBlock, toBlock)));
+            }
+        } else {
+            for (let toBlock = newest - 1n; toBlock >= oldest && found.size < limit; toBlock -= range) await read(...below(toBlock, oldest));
         }
 
         const latest = [...found.values()].sort((a, b) => Number(b.blockNumber - a.blockNumber) || b.logIndex - a.logIndex);

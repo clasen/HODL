@@ -14,7 +14,8 @@ const bsc = {
     history: {
         url: 'https://bsc-rpc.publicnode.com',
         blockRange: 50_000,
-        lookbackBlocks: 150_000
+        lookbackBlocks: 150_000,
+        catchUpBlocks: 1_200_000
     },
     tokens: {
         'USDT': {
