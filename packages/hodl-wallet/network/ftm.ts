@@ -11,6 +11,11 @@ const fantom = {
     explorer: 'https://ftmscan.com/tx/',
     url: 'https://rpc.ftm.tools/',
     nativeToken: 'FTM',
+    history: {
+        url: 'https://rpcapi.fantom.network',
+        blockRange: 100_000,
+        lookbackBlocks: 1_000_000
+    },
     tokens: {
         'USDT': {
             address: '0x049d68029688eAbF473097a2fC38ef61633A3C7A',

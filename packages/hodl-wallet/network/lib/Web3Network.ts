@@ -5,6 +5,7 @@ import {
     getAddress,
     http,
     keccak256,
+    parseAbiItem,
     parseEther,
     toHex,
     TransactionNotFoundError,
@@ -23,14 +24,18 @@ import { HDKey } from '@scure/bip32';
 import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
 import type {
     AssetBalance,
+    ChainTransfer,
     NetworkConfig,
     PreparedTransfer,
     SignedTransaction,
     TransactionStatus,
+    TransferHistoryConfig,
     TransferOptions,
     TransferEstimate,
     WalletAccount
 } from '../types.js';
+
+const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 
 export default class Web3Network extends BaseNetwork {
     private client: PublicClient;
@@ -138,6 +143,54 @@ export default class Web3Network extends BaseNetwork {
 
     async getTokenBalance(address: string, tokenSymbol: string): Promise<string> {
         return (await this.getAssetBalance(address, tokenSymbol)).amount;
+    }
+
+    /** Listed only where an endpoint serves the logs. Token transfers only: a standard RPC cannot look up native transfers by address. */
+    get recentTransfers(): ((address: string, limit: number) => Promise<ChainTransfer[]>) | undefined {
+        const { history } = this.config;
+        return history ? (address, limit) => this.recentTokenTransfers(history, address, limit) : undefined;
+    }
+
+    private async recentTokenTransfers(history: TransferHistoryConfig, address: string, limit: number): Promise<ChainTransfer[]> {
+        const owner = this.address(address);
+        const client = history.url ? createPublicClient({ transport: http(history.url) }) : this.client;
+        const tokens = new Map(Object.entries(this.config.tokens).map(([symbol, token]) => [this.address(token.address), symbol]));
+        if (tokens.size === 0) return [];
+
+        const head = await client.getBlockNumber();
+        const range = BigInt(history.blockRange);
+        const oldest = head >= BigInt(history.lookbackBlocks) ? head - BigInt(history.lookbackBlocks) + 1n : 0n;
+        const logs = (args: { from: Address } | { to: Address }, fromBlock: bigint, toBlock: bigint) =>
+            client.getLogs({ address: [...tokens.keys()], event: TRANSFER_EVENT, args, fromBlock, toBlock, strict: true });
+        const found = new Map<string, Awaited<ReturnType<typeof logs>>[number]>();
+        for (let toBlock = head; toBlock >= oldest && found.size < limit; toBlock -= range) {
+            const fromBlock = toBlock - range + 1n > oldest ? toBlock - range + 1n : oldest;
+            const chunk = await Promise.all([logs({ to: owner }, fromBlock, toBlock), logs({ from: owner }, fromBlock, toBlock)]);
+            for (const log of chunk.flat()) found.set(`${log.transactionHash}:${log.logIndex}`, log);
+        }
+
+        const latest = [...found.values()]
+            .sort((a, b) => Number(b.blockNumber - a.blockNumber) || b.logIndex - a.logIndex)
+            .slice(0, limit);
+        const decimals = new Map(await Promise.all([...new Set(latest.map(log => getAddress(log.address)))].map(async token =>
+            [token, Number(await client.readContract({ address: token, abi: ERC20_ABI, functionName: 'decimals' }))] as const)));
+        // Some endpoints omit blockTimestamp from logs or report it as zero.
+        const blocks = new Map(await Promise.all([...new Set(latest.filter(log => !log.blockTimestamp).map(log => log.blockNumber))]
+            .map(async blockNumber => [blockNumber, (await client.getBlock({ blockNumber })).timestamp] as const)));
+        return latest.map(log => {
+            const token = getAddress(log.address);
+            const outgoing = getAddress(log.args.from) === owner;
+            const timestamp = log.blockTimestamp || blocks.get(log.blockNumber)!;
+            return {
+                hash: log.transactionHash,
+                direction: outgoing ? 'out' : 'in',
+                counterparty: getAddress(outgoing ? log.args.to : log.args.from),
+                asset: tokens.get(token)!,
+                amount: formatUnits(log.args.value, decimals.get(token)!),
+                timestamp: new Date(Number(timestamp) * 1000).toISOString(),
+                state: 'confirmed'
+            };
+        });
     }
 
     async getAssetBalance(address: string, asset: string): Promise<AssetBalance> {

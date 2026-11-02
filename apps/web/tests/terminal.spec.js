@@ -38,7 +38,7 @@ test('menus follow the keyboard model of the terminal wallet', async ({ page }) 
     await page.keyboard.press('End');
     expect(await selected()).toBe('Exit');
     await page.keyboard.press('Home');
-    await page.keyboard.press('4');
+    await page.keyboard.press('5');
     expect(await selected()).toBe('Account Settings');
     await page.keyboard.press('Enter');
     await expect(prompt(page, 'Select an account option:')).toBeVisible();
@@ -207,7 +207,7 @@ test.describe('on a touch screen', () => {
         expect(await selected()).toBe('Show Sent Transfers');
         await swipe(-40);
         expect(await selected()).toBe('Show Balance');
-        await swipe(80);
+        await swipe(120);
         expect(await selected()).toBe('Account Settings');
         const pages = [];
         page.context().on('page', opened => pages.push(opened));
@@ -223,7 +223,7 @@ test.describe('on a touch screen', () => {
         expect(pages).toHaveLength(0);
         await page.keyboard.press('Escape');
         await ready(page);
-        await swipe(110);
+        await swipe(150);
         expect(await selected()).toBe('Account Settings');
         const scroller = page.locator('#term');
         await page.locator('#out').evaluate(out => { for (let i = 0; i < 80; i++) out.prepend(Object.assign(document.createElement('div'), { className: 'l', textContent: `line ${i}` })); });

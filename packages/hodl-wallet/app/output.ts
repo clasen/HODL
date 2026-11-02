@@ -1,5 +1,5 @@
 import { errorMessage, formatAmount, formatDate } from './format.js';
-import type { SentTransfer, WalletSession } from './session.js';
+import type { RecentTransferRow, SentTransfer, WalletSession } from './session.js';
 import type { Cell, TableSpec, Tone, Ui } from './ui.js';
 
 export const WELCOME_ART = ` ░░░░░░░░░░░░░░ █ █\u2003█▀█\u2003█▀▄\u2003█   ░░░░░░░░░░░░░░
@@ -91,4 +91,24 @@ export function sentTransfersTable(
         rows.push([{ colSpan: head.length, content: tx.url }]);
     }
     return { head, rows, tone: options.tone };
+}
+
+/** Recent transfers in and out, one row each followed by its explorer link. */
+export function recentTransfersTable(
+    session: Pick<WalletSession, 'contacts'>,
+    transfers: RecentTransferRow[]
+): TableSpec {
+    const withContact = Boolean(session.contacts);
+    const head = ['Date', 'Direction', 'Address', ...(withContact ? ['Contact'] : []), 'Token', 'Amount', 'Status'];
+    const rows: Cell[][] = [];
+    if (transfers.length === 0) rows.push([{ colSpan: head.length, content: 'No recent transfers found.' }]);
+    for (const tx of transfers) {
+        rows.push([
+            tx.timestamp ? formatDate(tx.timestamp) : '-', tx.direction, tx.counterparty,
+            ...(withContact ? [tx.contact ?? '-'] : []),
+            tx.token, tx.amount, tx.status
+        ]);
+        rows.push([{ colSpan: head.length, content: tx.url }]);
+    }
+    return { head, rows, tone: 'blue' };
 }

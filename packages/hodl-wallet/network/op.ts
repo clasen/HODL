@@ -11,6 +11,10 @@ const optimism = {
     explorer: 'https://optimistic.etherscan.io/tx/',
     url: 'https://mainnet.optimism.io',
     nativeToken: 'ETH',
+    history: {
+        blockRange: 10_000,
+        lookbackBlocks: 100_000
+    },
     tokens: {
         'USDT': {
             address: '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',

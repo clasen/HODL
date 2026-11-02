@@ -11,6 +11,10 @@ const arbitrum = {
     explorer: 'https://arbiscan.io/tx/',
     url: 'https://arb1.arbitrum.io/rpc',
     nativeToken: 'ETH',
+    history: {
+        blockRange: 100_000,
+        lookbackBlocks: 1_000_000
+    },
     tokens: {
         'USDT': {
             address: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',

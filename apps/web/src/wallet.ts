@@ -1,5 +1,5 @@
-import { NetworkRegistry, clearSensitiveData, isNetworkUsageEntry, isRecordedTransfer, networkStorageName, recordNetworkUse, recordedTransferKeys,
-    type AccountDetails, type Contact, type NetworkUsage, type RecordedTransfer, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
+import { NetworkRegistry, clearSensitiveData, walletConfig, isNetworkUsageEntry, isRecordedTransfer, networkStorageName, recordNetworkUse, recordedTransferKeys,
+    type AccountDetails, type Contact, type ChainTransfer, type NetworkUsage, type RecordedTransfer, type WalletAccount, type AssetBalance } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { openHodlFile, sealHodlFile, type HodlFile } from './hodl-file.js';
 import { BrowserVault, type VaultData } from './vault.js';
@@ -430,6 +430,15 @@ export class BrowserWallet {
         check();
         this.balanceCache.set(networkId, rows);
         return structuredClone(rows);
+    }
+
+    async recentTransfers(networkId: string): Promise<ChainTransfer[]> {
+        const { store, check } = this.vault.scope();
+        const plugin = this.registry.get(networkId);
+        const address = await store.get('account', plugin.NetworkClass.name, 'address');
+        if (typeof address !== 'string') throw new VaultError('This wallet has no account for the selected network.');
+        const network = new plugin.NetworkClass(plugin);
+        return networkRequest(() => network.recentTransfers!(address, walletConfig.history.recentTransfers), check);
     }
 
     async address(networkId: string): Promise<string | undefined> {

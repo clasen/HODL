@@ -1,6 +1,6 @@
 import { loadAccount } from './account.js';
 import { errorMessage, formatAmount } from './format.js';
-import { sentTransfersTable, showAddress, showError } from './output.js';
+import { recentTransfersTable, sentTransfersTable, showAddress, showError } from './output.js';
 import type { HostAction, WalletSession } from './session.js';
 import { transferFunds } from './transfer.js';
 import type { Ui } from './ui.js';
@@ -13,7 +13,7 @@ export class AccountNotInitialized extends Error {
     }
 }
 
-type MainAction = 'transferFunds' | 'balance' | 'showTransactions' | 'account' | 'exit' | HostAction;
+type MainAction = 'transferFunds' | 'balance' | 'showTransactions' | 'showRecent' | 'account' | 'exit' | HostAction;
 
 export async function showBalance(ui: Ui, session: WalletSession): Promise<void> {
     if (!await session.hasAccount()) {
@@ -36,6 +36,10 @@ export async function showTransactions(ui: Ui, session: WalletSession): Promise<
     ui.table(sentTransfersTable(session, transfers, { status: true, tone: 'blue', empty: 'No transaction history available.' }));
 }
 
+export async function showRecentTransfers(ui: Ui, session: WalletSession): Promise<void> {
+    ui.table(recentTransfersTable(session, await session.recentTransfers()));
+}
+
 export async function mainMenu(ui: Ui, session: WalletSession): Promise<void> {
     for (;;) {
         const action = await ui.select<MainAction>({
@@ -44,6 +48,10 @@ export async function mainMenu(ui: Ui, session: WalletSession): Promise<void> {
                 { name: 'Transfer Funds', value: 'transferFunds' },
                 { name: 'Show Balance', value: 'balance' },
                 { name: 'Show Sent Transfers', value: 'showTransactions' },
+                ...(session.network.recentTransfers ? [{
+                    // EVM networks list token transfers only.
+                    name: session.plugin.family === 'evm' ? 'Show Recent Token Transfers' : 'Show Recent Transfers', value: 'showRecent' as const
+                }] : []),
                 { name: 'Account Settings', value: 'account' },
                 ...session.menuActions().map(item => ({ name: item.name, value: item as MainAction })),
                 { name: 'Exit', value: 'exit' }
@@ -54,6 +62,7 @@ export async function mainMenu(ui: Ui, session: WalletSession): Promise<void> {
         if (action === 'transferFunds') await transferFunds(ui, session);
         else if (action === 'balance') await showBalance(ui, session);
         else if (action === 'showTransactions') await showTransactions(ui, session);
+        else if (action === 'showRecent') await showRecentTransfers(ui, session);
         else if (action === 'account') await loadAccount(ui, session, true);
         else await action.run(ui);
     }

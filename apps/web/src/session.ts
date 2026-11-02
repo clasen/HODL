@@ -1,6 +1,6 @@
 import {
-    AgentError, NetworkRegistry, byRecentUse, clearSensitiveData, sentTransfers, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
-    type HostAction, type NetworkPlugin, type NetworkUsage, type NewAccount, type SentTransfer, type SessionCapabilities, type TransferDraft,
+    AgentError, NetworkRegistry, byRecentUse, clearSensitiveData, recentTransferRows, sentTransfers, showError, type AccountDetails, type BaseNetworkContract, type Cell, type ContactsPort,
+    type HostAction, type NetworkPlugin, type NetworkUsage, type NewAccount, type RecentTransferRow, type SentTransfer, type SessionCapabilities, type TransferDraft,
     type TransferPort, type TransferResult, type Ui, type WalletSession
 } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
@@ -172,6 +172,12 @@ export class BrowserSession implements WalletSession {
         const contacts = new Map((await this.contacts.list()).map(contact => [contact.address, contact.name]));
         return sentTransfers(this.selected, address, await this.wallet.recordedTransfers(this.selected.id, address), history,
             async recipient => contacts.get(recipient));
+    }
+
+    async recentTransfers(): Promise<RecentTransferRow[]> {
+        const transfers = await this.protect('Checking recent transfers…', () => this.wallet.recentTransfers(this.selected.id));
+        const contacts = new Map((await this.contacts.list()).map(contact => [contact.address, contact.name]));
+        return recentTransferRows(this.selected, transfers, async address => contacts.get(address));
     }
 
     importActions(): HostAction[] {

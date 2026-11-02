@@ -11,6 +11,11 @@ const bsc = {
     url: 'https://bsc-dataseed1.binance.org',
     nativeToken: 'BNB',
     explorer: 'https://bscscan.com/tx/',
+    history: {
+        url: 'https://bsc-rpc.publicnode.com',
+        blockRange: 50_000,
+        lookbackBlocks: 150_000
+    },
     tokens: {
         'USDT': {
             address: '0x55d398326f99059fF775485246999027B3197955',

@@ -31,7 +31,7 @@ export default defineConfig({
         {
             name: 'wallet-network-content-policy',
             transformIndexHtml(html) {
-                const origins = [...new Set(new NetworkRegistry().list().map(network => new URL(network.url).origin))];
+                const origins = [...new Set(new NetworkRegistry().list().flatMap(network => [network.url, network.history?.url].filter(Boolean).map(url => new URL(url).origin)))];
                 return html.replace("connect-src 'self';", `connect-src 'self' ${origins.join(' ')};`);
             }
         },

@@ -1,6 +1,6 @@
-import type { NetworkPlugin } from '../network/types.js';
+import type { ChainTransfer, NetworkPlugin } from '../network/types.js';
 import type { TransferResult } from '../transfer-service.js';
-import type { SentTransfer } from './session.js';
+import type { RecentTransferRow, SentTransfer } from './session.js';
 
 /** A sent transfer recorded under `transactions`, then the sender's address, a history key and an id. */
 export type RecordedTransfer = {
@@ -54,6 +54,21 @@ export async function sentTransfers(
     return Promise.all(history.map(async tx => ({
         timestamp: tx.timestamp, recipient: tx.recipient, contact: await contactName(tx.recipient),
         token: tx.token, amount: tx.amount, balance: tx.balance, status: tx.status,
+        url: plugin.explorer + tx.hash
+    })));
+}
+
+/** Recent transfers as listed by the network, newest first, with the other party's contact name. */
+export function recentTransferRows(
+    plugin: NetworkPlugin,
+    transfers: ChainTransfer[],
+    contactName: (address: string) => Promise<string | undefined>
+): Promise<RecentTransferRow[]> {
+    return Promise.all(transfers.map(async tx => ({
+        ...(tx.timestamp ? { timestamp: tx.timestamp } : {}),
+        direction: tx.direction === 'in' ? 'In' as const : 'Out' as const,
+        counterparty: tx.counterparty, contact: await contactName(tx.counterparty),
+        token: tx.asset, amount: tx.amount, status: tx.state,
         url: plugin.explorer + tx.hash
     })));
 }

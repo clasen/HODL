@@ -11,6 +11,11 @@ const ethereum = {
     url: 'https://ethereum.publicnode.com',
     nativeToken: 'ETH',
     explorer: 'https://etherscan.io/tx/',
+    history: {
+        url: 'https://ethereum-rpc.publicnode.com',
+        blockRange: 5_000,
+        lookbackBlocks: 10_000
+    },
     tokens: {
         'USDT': {
             address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',

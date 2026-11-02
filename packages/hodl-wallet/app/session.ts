@@ -24,6 +24,19 @@ export interface SentTransfer {
     url: string;
 }
 
+export interface RecentTransferRow {
+    /** Absent while unconfirmed. */
+    timestamp?: string;
+    direction: 'In' | 'Out';
+    /** The sender of an incoming transfer, the recipient of an outgoing one. */
+    counterparty: string;
+    contact?: string;
+    token: string;
+    amount: string;
+    status: string;
+    url: string;
+}
+
 export interface TransferDraft {
     to: string;
     asset: string;
@@ -102,6 +115,8 @@ export interface WalletSession {
     accountDetails(): Promise<AccountDetails | null>;
     tokenBalances(): Promise<Array<[string, string]>>;
     sentTransfers(): Promise<SentTransfer[]>;
+    /** Only called when the selected network lists recent transfers. */
+    recentTransfers(): Promise<RecentTransferRow[]>;
     importActions(): HostAction[];
     exportActions(): HostAction[];
     menuActions(): HostAction[];

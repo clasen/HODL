@@ -6,6 +6,7 @@ export { TransferService } from './transfer-service.js';
 export { SwapService } from './swap/service.js';
 export { swapConfig } from './swap/config.js';
 export { clearSensitiveData } from './sensitive-data.js';
+export { walletConfig } from './config.js';
 export {
     HODL_FILE_IV_BYTES, HODL_FILE_KEY_BYTES, HODL_FILE_SALT_BYTES, HODL_FILE_SCRYPT, HODL_FILE_TAG_BYTES,
     formatHodlFile, hodlFileHeader, isHodlFile, parseHodlFile

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AgentError } from '../agent-errors.js';
-import { initialize, isPromptAborted, loadAccount, mainMenu, PromptAborted, recordedTransferKeys, sentTransfers, showAccountDetails, showBalance, showTransactions, transferFunds } from '../app/index.js';
+import { formatDate, initialize, isPromptAborted, loadAccount, mainMenu, PromptAborted, recentTransferRows, recordedTransferKeys, sentTransfers, showAccountDetails, showBalance, showTransactions, transferFunds } from '../app/index.js';
 import type { Cell, HostAction, JournalTransfer, SentTransfer, SessionCapabilities, TableSpec, TransferPort, Ui, WalletSession } from '../app/index.js';
 import type { NetworkPlugin } from '../network/types.js';
 import type { TransferResult } from '../transfer-service.js';
@@ -112,6 +112,7 @@ function fakeSession(
         accountDetails: async () => ({ address: 'my-address', privateKey: 'secret-key', mnemonic: 'secret words' }),
         tokenBalances: async () => [['ETH', '1.5'], ['USDT', '20']],
         sentTransfers: async () => [],
+        recentTransfers: async () => [],
         importActions: () => [],
         exportActions: () => [],
         menuActions: () => [],
@@ -130,6 +131,31 @@ test('main menu offers host actions before Exit and runs them', async () => {
     assert.deepEqual(ui.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Account Settings', 'Swap', 'Exit']);
     assert.deepEqual(ran, ['swap']);
     ui.done();
+});
+
+test('recent transfers appear only on networks that list them, in and out, with the other party contact', async () => {
+    const transfers = [
+        { hash: 'pending', direction: 'in' as const, counterparty: 'friend-address', asset: 'BTC', amount: '0.0002', state: 'pending' as const },
+        { hash: 'mined', direction: 'out' as const, counterparty: 'stranger', asset: 'BTC', amount: '0.5', timestamp: '2026-01-02T03:04:00Z', state: 'confirmed' as const }
+    ];
+    const rows = await recentTransferRows(bitcoin, transfers, async address => address === 'friend-address' ? 'Friend' : undefined);
+    const ui = new ScriptedUi(['Show Recent Transfers', 'Exit']);
+    await mainMenu(ui, fakeSession({ plugin: bitcoin, network: { recentTransfers: async () => transfers } as never, recentTransfers: async () => rows }));
+    assert.deepEqual(ui.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Show Recent Transfers', 'Account Settings', 'Exit']);
+    assert.deepEqual(ui.tables[0].head, ['Date', 'Direction', 'Address', 'Token', 'Amount', 'Status']);
+    assert.deepEqual(ui.tables[0].rows, [
+        ['-', 'In', 'friend-address', 'BTC', '0.0002', 'pending'], [{ colSpan: 6, content: 'https://explorer.invalid/tx/pending' }],
+        [formatDate('2026-01-02T03:04:00Z'), 'Out', 'stranger', 'BTC', '0.5', 'confirmed'], [{ colSpan: 6, content: 'https://explorer.invalid/tx/mined' }]
+    ]);
+    assert.equal(rows[0].contact, 'Friend');
+    ui.done();
+
+    const evm = new ScriptedUi(['Exit']);
+    await mainMenu(evm, fakeSession({ network: { recentTransfers: async () => [] } as never }));
+    assert.deepEqual(evm.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Show Recent Token Transfers', 'Account Settings', 'Exit']);
+    const without = new ScriptedUi(['Exit']);
+    await mainMenu(without, fakeSession());
+    assert.deepEqual(without.prompts[0].choices, ['Transfer Funds', 'Show Balance', 'Show Sent Transfers', 'Account Settings', 'Exit']);
 });
 
 test('account menus follow the host capabilities', async () => {

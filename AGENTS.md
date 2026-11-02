@@ -24,7 +24,7 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
 ## Shared Flows (TUI and Web)
 
 - `app/` holds every interactive flow the TUI and the web share: startup, main menu,
-  account settings, balance, transfer and sent transfers. It imports no Node or DOM
+  account settings, balance, transfer, sent transfers and recent transfers. It imports no Node or DOM
   modules. Change a menu, prompt, validation or message there and both interfaces change.
   `index.ts` only wires the CLI: password prompt, profile lock, `NodeSession`, `InquirerUi`.
 - Flows talk to a `Ui` (`app/ui.ts`: select, input, password, confirm, autocomplete, table,
@@ -78,6 +78,8 @@ repository root. Workspace dependency policy and the shared lockfile stay at the
   transfers (journal entries still awaiting a broadcast decision stay behind), and replacing an
   open wallet keeps its password. Replacing it with a phrase or key keeps its address book and
   sent transfers, as in the TUI. Both hosts list sent transfers through `app/history.ts`.
+  Recent transfers in and out come from the network (`recentTransfers`) and are not stored: Bitcoin from
+  Esplora, EVM tokens from `eth_getLogs` over each network's `history` window (no native EVM transfers).
   Neither side imports legacy-format `.HODL` files; only `~/.HODL` profiles still migrate.
 - `pnpm run preview:web` serves the built wallet and diagnostic locally.
 - `pnpm run typecheck:web` builds the package, then checks browser TypeScript using the existing compiler

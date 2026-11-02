@@ -3,6 +3,14 @@ export type TokenConfig = {
     decimals?: number;
 };
 
+/** Where an EVM network's token transfers are read from: `eth_getLogs` in ranges of `blockRange`, back to `lookbackBlocks` from the head. */
+export type TransferHistoryConfig = {
+    /** When the network's own endpoint cannot serve the logs. */
+    url?: string;
+    blockRange: number;
+    lookbackBlocks: number;
+};
+
 export type NetworkConfig = {
     id: string;
     family: 'evm' | 'bitcoin';
@@ -15,6 +23,7 @@ export type NetworkConfig = {
     chainId?: number;
     network?: string;
     feeRate?: number;
+    history?: TransferHistoryConfig;
 };
 
 export type NetworkConstructor = new (config: NetworkConfig) => BaseNetworkContract;
@@ -73,6 +82,19 @@ export type TransactionStatus = {
     transactionHash: string;
 };
 
+/** A transfer into or out of an address, as the chain records it. */
+export type ChainTransfer = {
+    hash: string;
+    direction: 'in' | 'out';
+    /** The sender of an incoming transfer, the recipient of an outgoing one. */
+    counterparty: string;
+    asset: string;
+    amount: string;
+    /** Absent while unconfirmed. */
+    timestamp?: string;
+    state: 'pending' | 'confirmed';
+};
+
 export type NetworkUsageEntry = {
     count: number;
     lastUsed: number;
@@ -125,6 +147,8 @@ export interface BaseNetworkContract {
         options?: TransferOptions
     ): Promise<PreparedTransfer>;
     getTransactionStatus(transactionHash: string): Promise<TransactionStatus>;
+    /** Optional. Up to `limit` of the address's latest transfers in and out, newest first. */
+    recentTransfers?(address: string, limit: number): Promise<ChainTransfer[]>;
     sendSignedTransaction(signedTx: SignedTransaction | string): Promise<unknown>;
     handleNativeTransfer?(
         from: WalletAccount,

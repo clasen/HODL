@@ -11,6 +11,11 @@ const polygon = {
     explorer: 'https://polygonscan.com/tx/',
     url: 'https://polygon-rpc.com/',
     nativeToken: 'POL',
+    history: {
+        url: 'https://polygon-bor-rpc.publicnode.com',
+        blockRange: 10_000,
+        lookbackBlocks: 100_000
+    },
     tokens: {
         'USDT': {
             address: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F'

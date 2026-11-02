@@ -11,6 +11,11 @@ const avalanche = {
     url: 'https://api.avax.network/ext/bc/C/rpc',
     explorer: 'https://snowtrace.io/tx/',
     nativeToken: 'AVAX',
+    history: {
+        url: 'https://avalanche-c-chain-rpc.publicnode.com',
+        blockRange: 50_000,
+        lookbackBlocks: 500_000
+    },
     tokens: {
         'USDT': {
             address: '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',

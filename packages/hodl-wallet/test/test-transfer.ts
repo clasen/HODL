@@ -10,11 +10,15 @@ import { readStoredProfile } from './stored-profile.js';
 import { TransferService } from '../transfer-service.js';
 import { WalletService } from '../wallet-service.js';
 import { NetworkRegistry } from '../network-registry.js';
+import * as bitcoin from 'bitcoinjs-lib';
 import BitcoinNetwork from '../network/lib/BitcoinNetwork.js';
+import Web3Network from '../network/lib/Web3Network.js';
+import { pad, toHex } from 'viem';
 import btc from '../network/btc.js';
 import type { NetworkPlugin, PreparedTransfer, TransactionStatus, WalletAccount } from '../network/types.js';
 
 const FROM = 'bc1qyl7wjm2ldfezgnjk2c78adqlk7dvtm8sd7gn0q';
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const request = { wallet: 'default', to: FROM, asset: 'BTC', amount: '0.001', dryRun: false, requestId: 'test-send' };
 
 async function fixture(family: 'bitcoin' | 'evm' = 'bitcoin') {
@@ -502,4 +506,106 @@ test('EVM status maps missing receipts and transactions without swallowing RPC f
     const failure = new Error('RPC unavailable');
     client.getTransactionReceipt = async () => { throw failure; };
     await assert.rejects(network.getTransactionStatus(hash), error => error === failure);
+});
+
+test('bitcoin recent transfers list the latest in and out, paging only when more are needed', async () => {
+    const network = new BitcoinNetwork(btc);
+    const own = Buffer.from(bitcoin.address.toOutputScript(FROM)).toString('hex');
+    const sender = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+    const other = Buffer.from(bitcoin.address.toOutputScript(sender)).toString('hex');
+    const output = (script: string, value: number) => ({ scriptpubkey: script, ...(script === other ? { scriptpubkey_address: sender } : {}), value });
+    const tx = (txid: string, inputs: string[], outputs: Array<[string, number]>, blockTime?: number) => ({
+        txid, vin: inputs.map(script => ({ is_coinbase: script === 'coinbase', prevout: script === 'coinbase' ? null : output(script, 1) })),
+        vout: outputs.map(([script, value]) => output(script, value)),
+        status: blockTime ? { confirmed: true, block_time: blockTime } : { confirmed: false }
+    });
+    const pages: Record<string, unknown[]> = {
+        [`/address/${FROM}/txs`]: [
+            tx('mempool', [other], [[own, 20_000], [other, 5]]),
+            tx('sent', [own], [[other, 1_000], [own, 50_000]], 1_700_000_300),
+            ...Array.from({ length: 24 }, (_, index) => tx(`confirmed-${index}`, [other], [[own, 1], [own, 2]], 1_700_000_200))
+        ],
+        [`/address/${FROM}/txs/chain/confirmed-23`]: [
+            tx('self', [own], [[own, 700]], 1_600_000_100),
+            tx('coinbase', ['coinbase'], [[own, 625_000_000]], 1_600_000_000),
+            tx('unrelated', [other], [[other, 9]], 1_600_000_000)
+        ]
+    };
+    const requested: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url: string | URL | Request) => {
+        const route = String(url).slice(btc.url.length);
+        requested.push(route);
+        assert.ok(route in pages, `Unexpected request ${route}`);
+        return new Response(JSON.stringify(pages[route]));
+    };
+    try {
+        assert.deepEqual(await network.recentTransfers(FROM, 3), [
+            { hash: 'mempool', direction: 'in', counterparty: sender, asset: 'BTC', amount: '0.0002', state: 'pending' },
+            { hash: 'sent', direction: 'out', counterparty: sender, asset: 'BTC', amount: '0.00001', timestamp: new Date(1_700_000_300_000).toISOString(), state: 'confirmed' },
+            { hash: 'confirmed-0', direction: 'in', counterparty: sender, asset: 'BTC', amount: '0.00000003', timestamp: new Date(1_700_000_200_000).toISOString(), state: 'confirmed' }
+        ]);
+        assert.deepEqual(requested, [`/address/${FROM}/txs`]);
+
+        requested.length = 0;
+        const all = await network.recentTransfers(FROM, 50);
+        assert.deepEqual(requested, Object.keys(pages));
+        assert.equal(all.length, 28);
+        assert.deepEqual(all.slice(-2), [
+            { hash: 'self', direction: 'out', counterparty: FROM, asset: 'BTC', amount: '0.000007', timestamp: new Date(1_600_000_100_000).toISOString(), state: 'confirmed' },
+            { hash: 'coinbase', direction: 'in', counterparty: 'coinbase', asset: 'BTC', amount: '6.25', timestamp: new Date(1_600_000_000_000).toISOString(), state: 'confirmed' }
+        ]);
+    } finally { globalThis.fetch = realFetch; }
+});
+
+test('evm recent token transfers scan the newest blocks first and stop once enough are found', async () => {
+    const owner = '0x9858EfFD232B4033E47d90003D41EC34EcaEda94';
+    const other = '0x1111111111111111111111111111111111111111';
+    const token = '0x2222222222222222222222222222222222222222';
+    const plugin = {
+        id: 'fixture', family: 'evm', name: 'Fixture', url: 'https://main.invalid', nativeToken: 'ETH', explorer: 'https://explorer.invalid/tx/',
+        tokens: { USDT: { address: token } }, history: { url: 'https://logs.invalid', blockRange: 100, lookbackBlocks: 1_000 }, NetworkClass: Web3Network
+    } as NetworkPlugin;
+    const topic = (address: string) => pad(address.toLowerCase() as `0x${string}`);
+    const log = (block: number, index: number, from: string, to: string, value: bigint, timestamp: number | null = 1_700_000_000 + block) => ({
+        address: token, topics: [TRANSFER_TOPIC, topic(from), topic(to)], data: pad(toHex(value)),
+        blockNumber: toHex(block), blockHash: pad(toHex(block)), transactionHash: pad(toHex(block * 100 + index)), transactionIndex: '0x0',
+        logIndex: toHex(index), removed: false, ...(timestamp === null ? {} : { blockTimestamp: toHex(timestamp) })
+    });
+    const chain = [
+        log(950, 1, other, owner, 1_500_000n),
+        log(940, 0, owner, owner, 2_000_000n),
+        log(899, 3, owner, other, 250_000n, null),
+        log(850, 0, other, owner, 1n, 0),
+        log(100, 0, other, owner, 7n)
+    ];
+    const queries: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+        assert.equal(new URL(String(url)).host, 'logs.invalid');
+        const { id, method, params } = JSON.parse(String(init!.body));
+        const reply = (result: unknown) => new Response(JSON.stringify({ jsonrpc: '2.0', id, result }));
+        if (method === 'eth_blockNumber') return reply(toHex(1_000));
+        if (method === 'eth_call') return reply(pad(toHex(6)));
+        if (method === 'eth_getBlockByNumber') return reply({ number: params[0], timestamp: toHex(1_600_000_000), hash: pad(params[0]), transactions: [] });
+        assert.equal(method, 'eth_getLogs');
+        const [{ fromBlock, toBlock, topics }] = params;
+        queries.push(`${Number(fromBlock)}-${Number(toBlock)} ${topics[1] ? 'out' : 'in'}`);
+        return reply(chain.filter(entry => Number(entry.blockNumber) >= Number(fromBlock) && Number(entry.blockNumber) <= Number(toBlock) &&
+            (topics[1] ? entry.topics[1] === topics[1] : entry.topics[2] === topics[2])));
+    };
+    try {
+        const transfers = await new Web3Network(plugin).recentTransfers!(owner, 3);
+        assert.deepEqual(queries, ['901-1000 in', '901-1000 out', '801-900 in', '801-900 out']);
+        assert.deepEqual(transfers, [
+            { hash: pad(toHex(95_001)), direction: 'in', counterparty: other, asset: 'USDT', amount: '1.5', timestamp: new Date((1_700_000_950) * 1000).toISOString(), state: 'confirmed' },
+            { hash: pad(toHex(94_000)), direction: 'out', counterparty: owner, asset: 'USDT', amount: '2', timestamp: new Date((1_700_000_940) * 1000).toISOString(), state: 'confirmed' },
+            { hash: pad(toHex(89_903)), direction: 'out', counterparty: other, asset: 'USDT', amount: '0.25', timestamp: new Date(1_600_000_000_000).toISOString(), state: 'confirmed' }
+        ]);
+
+        queries.length = 0;
+        assert.equal((await new Web3Network({ ...plugin, history: { ...plugin.history!, lookbackBlocks: 150 } }).recentTransfers!(owner, 10)).length, 3);
+        assert.deepEqual(queries, ['901-1000 in', '901-1000 out', '851-900 in', '851-900 out']);
+        assert.equal(new Web3Network({ ...plugin, history: undefined }).recentTransfers, undefined);
+    } finally { globalThis.fetch = realFetch; }
 });

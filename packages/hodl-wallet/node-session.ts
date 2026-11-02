@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import Persist from './persist.js';
+import { walletConfig } from './config.js';
 import { TransferService } from './transfer-service.js';
 import type { TransferResult } from './transfer-service.js';
 import { NetworkRegistry, byRecentUse, isNetworkUsageEntry, networkStorageName, recordNetworkUse } from './network-registry.js';
@@ -11,9 +12,9 @@ import { routeForNetwork } from './swap/routes.js';
 import { startSwapMenu } from './swap/ui.js';
 import { errorMessage } from './app/format.js';
 import { showError } from './app/output.js';
-import { recordedTransferKeys, sentTransfers, type RecordedTransfer } from './app/history.js';
+import { recentTransferRows, recordedTransferKeys, sentTransfers, type RecordedTransfer } from './app/history.js';
 import type {
-    AccountDetails, Contact, ContactsPort, HostAction, NewAccount, PendingTransfer, SentTransfer,
+    AccountDetails, Contact, ContactsPort, HostAction, NewAccount, PendingTransfer, RecentTransferRow, SentTransfer,
     SessionCapabilities, TransferDraft, TransferPort, WalletSession
 } from './app/session.js';
 import type { Ui } from './app/ui.js';
@@ -209,6 +210,11 @@ export class NodeSession implements WalletSession {
         }
         return sentTransfers(this.selectedNetwork, address, recorded, await this.transferService().list(),
             recipient => this.contactName(recipient));
+    }
+
+    async recentTransfers(): Promise<RecentTransferRow[]> {
+        const transfers = await this.network.recentTransfers!(await this.address(), walletConfig.history.recentTransfers);
+        return recentTransferRows(this.selectedNetwork, transfers, address => this.contactName(address));
     }
 
     importActions(): HostAction[] {

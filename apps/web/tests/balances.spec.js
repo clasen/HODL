@@ -1,5 +1,8 @@
+import { createRequire } from 'node:module';
 import { test, expect } from '@playwright/test';
-import { MAIN, choose, importPhrase, out, ready, shown, switchNetwork } from './terminal.js';
+import { BTC_FROM, EVM_FROM, MAIN, choose, importPhrase, out, prompt, ready, shown, switchNetwork } from './terminal.js';
+
+const bitcoin = createRequire(import.meta.resolve('hodl-wallet'))('bitcoinjs-lib');
 
 const balance = async page => { await ready(page); await choose(page, MAIN, 'Show Balance'); };
 
@@ -39,4 +42,44 @@ test('balances use shared networks and distinguish cached from unavailable data'
     await ready(page);
     expect(await out(page).textContent()).not.toMatch(/cached balances[^]*Balance unavailable[^]*cached balances/);
     expect(errors).toEqual([]);
+});
+
+test('recent transfers list what came in and went out, on Bitcoin and as tokens on EVM networks', async ({ page }) => {
+    const own = Buffer.from(bitcoin.address.toOutputScript(BTC_FROM)).toString('hex');
+    const sender = { scriptpubkey: '0014' + '11'.repeat(20), scriptpubkey_address: 'bc1qzygsszygsszygsszygsszygsszygszrqkfm8t', value: 1 };
+    const transactions = [
+        { txid: 'a'.repeat(64), vin: [{ is_coinbase: false, prevout: sender }], vout: [{ scriptpubkey: own, value: 25_000 }], status: { confirmed: false } },
+        { txid: 'b'.repeat(64), vin: [{ is_coinbase: false, prevout: { ...sender, scriptpubkey: own } }], vout: [{ ...sender, value: 7_000 }, { scriptpubkey: own, value: 1 }], status: { confirmed: true, block_time: 1_700_000_000 } }
+    ];
+    const topic = address => '0x' + address.slice(2).toLowerCase().padStart(64, '0');
+    const usdtLog = {
+        address: '0x55d398326f99059fF775485246999027B3197955', topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', topic('0x1111111111111111111111111111111111111111'), topic(EVM_FROM)],
+        data: '0x' + (5n * 10n ** 18n).toString(16).padStart(64, '0'), blockNumber: '0x64', blockHash: '0x' + 'c'.repeat(64), transactionHash: '0x' + 'd'.repeat(64),
+        transactionIndex: '0x0', logIndex: '0x0', removed: false, blockTimestamp: '0x6553f100'
+    };
+    await page.route('**/*', async route => {
+        const url = new URL(route.request().url());
+        if (url.hostname === '127.0.0.1') return route.continue();
+        if (url.hostname === 'blockstream.info' && url.pathname === `/api/address/${BTC_FROM}/txs`) return route.fulfill({ json: transactions });
+        if (url.hostname === 'bsc-rpc.publicnode.com') {
+            const { id, method, params } = route.request().postDataJSON();
+            const result = method === 'eth_blockNumber' ? '0x64'
+                : method === 'eth_call' ? '0x' + (18).toString(16).padStart(64, '0')
+                : params[0].topics[2] === topic(EVM_FROM) ? [usdtLog] : [];
+            return route.fulfill({ json: { jsonrpc: '2.0', id, result } });
+        }
+        return route.abort();
+    });
+    await importPhrase(page);
+    await ready(page);
+    await choose(page, MAIN, 'Show Recent Transfers');
+    let table = page.locator('#out .tbl').last();
+    await expect(table.locator('tr').nth(1)).toHaveText(`-In${sender.scriptpubkey_address}-BTC0.00025pending`);
+    await expect(table).toContainText(`https://btcscan.org/tx/${'a'.repeat(64)}`);
+    await expect(table.locator('tr').nth(3)).toContainText(`Out${sender.scriptpubkey_address}-BTC0.00007confirmed`);
+    await switchNetwork(page, 'bsc');
+    await choose(page, MAIN, 'Show Recent Token Transfers');
+    table = page.locator('#out .tbl').last();
+    await expect(table.locator('tr').nth(1)).toContainText('In0x1111111111111111111111111111111111111111-USDT5confirmed');
+    await expect(table).toContainText(`https://bscscan.com/tx/0x${'d'.repeat(64)}`);
 });

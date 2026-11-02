@@ -8,6 +8,7 @@ import { ECPairFactory } from 'ecpair';
 import { formatUnits, parseDecimalToUnits } from '../../amounts.js';
 import type {
     AssetBalance,
+    ChainTransfer,
     NetworkConfig,
     PreparedTransfer,
     SignedTransaction,
@@ -23,6 +24,15 @@ const ECPair = ECPairFactory(ecc);
 type BitcoinUtxo = { txid: string; vout: number; value: number };
 type BitcoinBroadcastResult = { transactionHash: string };
 type BitcoinTransactionStatus = { confirmed: boolean };
+type EsploraOutput = { scriptpubkey: string; scriptpubkey_address?: string; value: number };
+type EsploraTransaction = {
+    txid: string;
+    vin: Array<{ is_coinbase: boolean; prevout: EsploraOutput | null }>;
+    vout: EsploraOutput[];
+    status: { confirmed: boolean; block_time?: number };
+};
+/** Esplora lists confirmed transactions in pages of this size. */
+const ESPLORA_PAGE = 25;
 type BitcoinAddressStats = {
     chain_stats: {
         funded_txo_sum: number;
@@ -406,6 +416,38 @@ export default class BitcoinNetwork extends BaseNetwork {
             state: status.confirmed ? 'confirmed' : 'submitted',
             transactionHash
         };
+    }
+
+    async recentTransfers(address: string, limit: number): Promise<ChainTransfer[]> {
+        if (!this.validateAddress(address)) throw new Error('Invalid Bitcoin address.');
+        const script = Buffer.from(bitcoin.address.toOutputScript(address, this.network)).toString('hex');
+        const transfers: ChainTransfer[] = [];
+        let page = await this.fetchFromApi<EsploraTransaction[]>(`/address/${address}/txs`);
+        for (;;) {
+            for (const tx of page) {
+                const spent = tx.vin.some(input => input.prevout?.scriptpubkey === script);
+                const others = tx.vout.filter(output => output.scriptpubkey !== script);
+                const kept = tx.vout.filter(output => output.scriptpubkey === script);
+                // An outgoing transfer pays everyone else; one that only pays this address back moved funds to itself.
+                const paid = spent ? (others.length ? others : kept) : kept;
+                const amount = paid.reduce((sum, output) => sum + BigInt(output.value), 0n);
+                if (amount === 0n) continue;
+                const first = tx.vin[0];
+                transfers.push({
+                    hash: tx.txid,
+                    direction: spent ? 'out' : 'in',
+                    counterparty: spent ? others[0]?.scriptpubkey_address ?? address
+                        : first.is_coinbase ? 'coinbase' : first.prevout?.scriptpubkey_address ?? 'unknown',
+                    asset: this.config.nativeToken,
+                    amount: formatUnits(amount, 8),
+                    ...(tx.status.block_time ? { timestamp: new Date(tx.status.block_time * 1000).toISOString() } : {}),
+                    state: tx.status.confirmed ? 'confirmed' : 'pending'
+                });
+            }
+            const confirmed = page.filter(tx => tx.status.confirmed);
+            if (transfers.length >= limit || confirmed.length < ESPLORA_PAGE) return transfers.slice(0, limit);
+            page = await this.fetchFromApi<EsploraTransaction[]>(`/address/${address}/txs/chain/${confirmed.at(-1)!.txid}`);
+        }
     }
 
     async fetchFromApi(path: string, options: RequestInit | undefined, responseType: 'text'): Promise<string>;
