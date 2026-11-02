@@ -37,6 +37,9 @@
     "bin": {
         "hodl": "dist/index.js"
     },
+    "engines": {
+        "node": ">=20.19.0"
+    },
     "scripts": {
         "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js && cp ../../README.md README.md",
         "start": "pnpm run build && node ./dist/index.js",
