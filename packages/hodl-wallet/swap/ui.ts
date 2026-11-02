@@ -162,7 +162,7 @@ export async function trackSwapsMenu(service: SwapService): Promise<void> {
         const { requestId }: { requestId: string } = await exitOnAbort(inquirer.prompt({
             type: 'select', name: 'requestId', message: 'Select a swap:',
             choices: [
-                ...swaps.map(swap => ({ name: `${swap.createdAt} · ${swap.quote.source.amount} ${swap.quote.source.asset} (${swap.quote.source.network}) → ${swap.quote.destination.asset} (${swap.quote.destination.network}) · ${labels[swap.state]}${swap.updateError ? ' · Status update unavailable' : ''} · ${swap.requestId}`, value: swap.requestId })),
+                ...swaps.map(swap => ({ name: swapRow(swap), value: swap.requestId })),
                 { name: 'Go back', value: 'back' }
             ]
         }));
@@ -196,6 +196,11 @@ async function followSwap(service: SwapService, initial: SwapView, resume: boole
             catch { if (!controller.signal.aborted) throw new Error('Progress timer failed.'); }
         }
     } finally { spinner.stop(); input.close(); }
+}
+
+function swapRow(swap: SwapView): string {
+    const stale = swap.updateError && !terminalSwapStates.includes(swap.state) ? ' · update unavailable' : '';
+    return `${swap.createdAt.slice(0, 16).replace('T', ' ')} · ${swap.quote.source.amount} ${swap.quote.source.asset} → ${swap.quote.destination.asset} · ${labels[swap.state].split(' · ')[0]}${stale}`;
 }
 
 function swapDisplayKey(operation: SwapView): string {
