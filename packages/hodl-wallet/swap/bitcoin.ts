@@ -126,7 +126,7 @@ export class BitcoinSwapChain extends BitcoinPayments implements SwapChain {
             const raw = await swapText(`${config.destination.url}/tx/${input.txid}/hex`);
             const parent = bitcoin.Transaction.fromHex(raw.trim());
             const output = parent.outs[input.vout];
-            if (parent.getId() !== input.txid || !output || output.value !== BigInt(input.value) || !Buffer.from(output.script).equals(script)) {
+            if (parent.getId() !== input.txid || !output || output.value !== BigInt(input.value) || !Buffer.from(output.script).equals(Buffer.from(script))) {
                 throw new Error('Bitcoin funding input does not match the source wallet.');
             }
             if (quote.provider === 'thorchain' && parent.outs.length > config.bitcoin.maxOutputs) {
