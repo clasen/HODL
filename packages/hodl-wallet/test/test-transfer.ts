@@ -193,10 +193,13 @@ test('existing sendRequest fingerprints and records remain reusable without migr
     } finally { await f.close(); }
 });
 
+/** The swap route that spends from each fixture family's network. */
+const spending = { bitcoin: 'btc-bsc', evm: 'bsc-btc' } as const;
+
 test('an active BSC swap blocks a new transfer in the shared service', async () => {
     const f = await fixture('evm');
     try {
-        await f.db.set('swapOperation', 'swap-test', { state: 'deposit_pending' });
+        await f.db.set('swapOperation', 'swap-test', { state: 'deposit_pending', quote: { routeId: 'bsc-btc' } });
         await assert.rejects(f.service().send(request), { code: 'SWAP_IN_PROGRESS' });
         assert.equal(f.state.signs, 0);
         assert.equal(f.state.broadcasts.length, 0);
@@ -208,20 +211,35 @@ for (const family of ['bitcoin', 'evm'] as const) {
         test(`${family} transfer is allowed after the blocking swap is saved as ${state}`, async () => {
             const f = await fixture(family);
             try {
-                await f.db.set('swapOperation', 'blocking-swap', { state: 'deposit_pending' });
+                await f.db.set('swapOperation', 'blocking-swap', { state: 'deposit_pending', quote: { routeId: spending[family] } });
                 await assert.rejects(f.service().send(request), {
                     code: 'SWAP_IN_PROGRESS', details: { requestId: 'blocking-swap' }
                 });
                 assert.equal(await f.db.get('sendRequest', request.requestId), null);
                 assert.equal(f.state.signs, 0);
                 assert.equal(f.state.broadcasts.length, 0);
-                await f.db.set('swapOperation', 'blocking-swap', { state });
+                await f.db.set('swapOperation', 'blocking-swap', { state, quote: { routeId: spending[family] } });
                 await f.service().send(request);
                 assert.equal(f.state.signs, 1);
                 assert.equal(f.state.broadcasts.length, 1);
             } finally { await f.close(); }
         });
     }
+}
+
+for (const family of ['bitcoin', 'evm'] as const) {
+    test(`${family} transfer is allowed while a swap only pays out on its network`, async () => {
+        const f = await fixture(family);
+        try {
+            await f.db.set('swapOperation', 'receiving-swap', {
+                state: family === 'bitcoin' ? 'btc_confirming' : 'output_confirming',
+                quote: { routeId: spending[family === 'bitcoin' ? 'evm' : 'bitcoin'] }
+            });
+            await f.service().send(request);
+            assert.equal(f.state.signs, 1);
+            assert.equal(f.state.broadcasts.length, 1);
+        } finally { await f.close(); }
+    });
 }
 
 test('integration runner exits with failure for FAIL results, exceptions and missing plugins', () => {

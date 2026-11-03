@@ -156,7 +156,7 @@ budget. `--watch` emits JSONL progress envelopes followed by the final result.
 Without `--watch`, execution returns after publishing the next funding step;
 use `resume --yes` to continue after an approval confirms. `status` only observes
 and never submits a transaction. Only one unfinished swap per profile is
-allowed, and it blocks other HODL BSC and Bitcoin transfers until resolved.
+allowed, and it blocks other HODL transfers on the network it spends from until resolved.
 
 The minimum destination amount for a full swap limits deterioration from the accepted quote to 0.5%.
 This is separate from total fees. Source approvals grant only the required

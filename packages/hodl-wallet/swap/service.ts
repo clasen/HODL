@@ -38,10 +38,12 @@ async function loadPrices(): Promise<SwapPrices> {
     return { btc: prices.btc, bnb: prices.bnb, usdt: prices.usdt, updatedAt };
 }
 
-export async function assertNoActiveSwap(db: WalletStore): Promise<void> {
+/** With a network, only swaps spending from it block; one that only receives there does not. */
+export async function assertNoActiveSwap(db: WalletStore, network?: string): Promise<void> {
     const operations = await db.entries('swapOperation') as Array<[string, SwapOperation]> || [];
     try {
-        const active = operations.find(([, operation]) => !terminalSwapStates.includes(operation.state));
+        const active = operations.find(([, operation]) => !terminalSwapStates.includes(operation.state) &&
+            (network === undefined || swapRoute(readSwapQuote(operation.quote).routeId).source.network.id === network));
         if (active) throw new AgentError('SWAP_IN_PROGRESS', 'Finish or inspect the existing swap before another transfer.', 3, { requestId: active[0] });
     } finally { operations.forEach(([, operation]) => clearSensitiveData(operation)); }
 }

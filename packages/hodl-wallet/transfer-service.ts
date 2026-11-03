@@ -126,7 +126,7 @@ export class TransferService {
                     }
                 }
             } else {
-                if (this.plugin.id === 'bsc' || this.plugin.id === 'btc') await assertNoActiveSwap(this.db);
+                await assertNoActiveSwap(this.db, this.plugin.id);
                 const unresolved = (await this.list()).find(candidate =>
                     candidate.status === 'prepared' || candidate.status === 'broadcasting' || candidate.status === 'broadcast_unknown');
                 if (unresolved) {
