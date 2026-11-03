@@ -1,21 +1,13 @@
 import { defineConfig } from 'vite';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import { NetworkRegistry } from 'hodl-wallet/dist/network-registry.js';
 import { swapConfig } from 'hodl-wallet/dist/swap/config.js';
 
 const require = createRequire(import.meta.url);
 const polyfills = {
-    assert: require.resolve('assert/'),
-    buffer: require.resolve('buffer/'),
-    crypto: fileURLToPath(new URL('./compat/crypto.js', import.meta.url)),
-    events: require.resolve('events/'),
-    stream: require.resolve('stream-browserify'),
-    string_decoder: require.resolve('string_decoder/'),
-    util: require.resolve('util/'),
-    process: require.resolve('process/browser.js')
+    buffer: require.resolve('buffer/')
 };
-const inject = { Buffer: [polyfills.buffer, 'Buffer'], process: polyfills.process };
+const inject = { Buffer: [polyfills.buffer, 'Buffer'] };
 
 export default defineConfig({
     // Account storage keys use network constructor names.
