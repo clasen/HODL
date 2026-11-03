@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { SwapService, swapConfig } from 'hodl-wallet/browser/index.js';
-import { mockNetworks, importFixture, addToVault, EVM_FROM, BTC_FROM } from './transfer-fixture.js';
+import { mockNetworks, importFixture, addToVault, reviewTransfer, sendTransfer, EVM_FROM, BTC_FROM } from './transfer-fixture.js';
 import { MAIN, answer, choose, lock, prompt, ready, shown, switchNetwork, unlock } from './terminal.js';
 
 const SWAP = 'Swap:';
@@ -116,4 +116,22 @@ test('following a swap keeps updating until Enter, and locking the wallet stops 
     }
     expect(state.hashes).toEqual([]);
     expect(errors).toEqual([]);
+});
+
+test('a transfer blocked by an unfinished swap names that swap and sends nothing', async ({ page, context }) => {
+    const state = await mockNetworks(context, page);
+    await importFixture(page);
+    await switchNetwork(page, 'bsc');
+    await ready(page);
+    await lock(page);
+    await expect(prompt(page, 'Password:')).toBeVisible();
+    await addToVault(page, await pendingSwap());
+    await page.reload();
+    await unlock(page);
+    await reviewTransfer(page);
+    await sendTransfer(page);
+    await shown(page, 'Finish or inspect the existing swap before another transfer.');
+    await shown(page, 'Blocking swap: web-follow');
+    await shown(page, 'Open Swap > Track Swaps');
+    expect(state.hashes).toEqual([]);
 });

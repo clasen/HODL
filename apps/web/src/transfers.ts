@@ -1,4 +1,4 @@
-import { NetworkRegistry, TransferService, clearSensitiveData, normalizeDecimal,
+import { AgentError, NetworkRegistry, TransferService, clearSensitiveData, normalizeDecimal,
     type TransferEstimate, type TransferResult, type WalletAccount } from 'hodl-wallet/browser';
 import { webConfig } from '../config.mjs';
 import { BrowserVault } from './vault.js';
@@ -15,14 +15,15 @@ export type TransferOutcome = { transfer: TransferResult; warning?: string };
 
 type Scope = ReturnType<BrowserVault['scope']>;
 
-function transferError(error: unknown): VaultError {
+/** The shared transfer flow reads the blocking swap from a `SWAP_IN_PROGRESS` error, so that one passes through. */
+function transferError(error: unknown): Error {
     if (error instanceof VaultError) return error;
+    if (error instanceof AgentError && error.code === 'SWAP_IN_PROGRESS') return error;
     const message = error instanceof Error ? error.message : '';
     const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : '';
     if (message.includes('confirmed limit')) return new VaultError('The network fee increased. Review the transfer again.');
     if (/insufficient/i.test(message)) return new VaultError('Insufficient funds for the amount and network fee.');
     if (code === 'BROADCAST_UNKNOWN') return new VaultError('The broadcast outcome is unknown. Check local activity before attempting another payment.');
-    if (code === 'SWAP_IN_PROGRESS') return new VaultError('An active swap must settle before another transfer on this network.');
     if (code === 'TRANSFER_FAILED' && message === 'The transaction was mined but reverted.') return new VaultError('The transaction was confirmed but reverted.');
     if (error instanceof TypeError) return new VaultError('Enter a positive decimal amount with the correct number of decimal places.');
     return new VaultError('The network could not complete this request. Refresh local activity before trying again.');
